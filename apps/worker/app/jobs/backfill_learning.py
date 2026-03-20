@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 async def backfill_learning(payload: dict) -> dict:
     """Worker job handler for learning backfill."""
     from amplify.db.session import get_async_session
-    from worker.app.config import Settings
+    from app.config import Settings
 
     settings = Settings()
     tenant_id_str = payload.get("tenant_id")

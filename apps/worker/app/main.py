@@ -9,21 +9,21 @@ from typing import Any, Callable, Coroutine
 
 import redis.asyncio as redis
 
-from worker.app.config import Settings
-from worker.app.queue import JobEnvelope, JobQueue
-from worker.app.scheduler import Scheduler
-from worker.app.jobs.ingest_calendar import ingest_calendar
-from worker.app.jobs.generate_content import generate_content
-from worker.app.jobs.render_media import render_media
-from worker.app.jobs.publish_post import publish_post
-from worker.app.jobs.sync_metrics import sync_metrics
-from worker.app.jobs.moderate_comments import moderate_comments
-from worker.app.jobs.run_experiment_loop import run_experiment_loop
-from worker.app.jobs.send_alerts import send_alerts
-from worker.app.jobs.scan_scheduled import scan_scheduled
-from worker.app.jobs.weekly_analyst import weekly_analyst
-from worker.app.jobs.backfill_learning import backfill_learning
-from worker.app.jobs.intelligence_jobs import (
+from app.config import Settings
+from app.queue import JobEnvelope, JobQueue
+from app.scheduler import Scheduler
+from app.jobs.ingest_calendar import ingest_calendar
+from app.jobs.generate_content import generate_content
+from app.jobs.render_media import render_media
+from app.jobs.publish_post import publish_post
+from app.jobs.sync_metrics import sync_metrics
+from app.jobs.moderate_comments import moderate_comments
+from app.jobs.run_experiment_loop import run_experiment_loop
+from app.jobs.send_alerts import send_alerts
+from app.jobs.scan_scheduled import scan_scheduled
+from app.jobs.weekly_analyst import weekly_analyst
+from app.jobs.backfill_learning import backfill_learning
+from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
     update_tenant_patterns,

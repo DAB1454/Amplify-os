@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY packages/ packages/
-COPY apps/worker/ apps/worker/
 
+# Install only the library packages (not the app itself)
 RUN pip install --no-cache-dir --prefix=/install \
     ./packages/core \
     ./packages/db \
@@ -17,7 +17,14 @@ RUN pip install --no-cache-dir --prefix=/install \
     ./packages/media \
     ./packages/billing \
     ./packages/observability \
-    ./apps/worker
+    ./packages/learning
+
+# Install worker runtime deps separately (no package build needed)
+RUN pip install --no-cache-dir --prefix=/install \
+    "redis>=5.0" \
+    "sqlalchemy[asyncio]>=2.0" \
+    "asyncpg>=0.30" \
+    "pydantic-settings>=2.0"
 
 # Stage 2: Runtime
 FROM python:3.12-slim
@@ -28,7 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 ffmpeg c
 
 WORKDIR /app
 
-COPY --from=builder /install /usr/local
+COPY --from=builder /install/lib /usr/local/lib
+COPY --from=builder /install/bin /usr/local/bin
 COPY apps/worker/app/ app/
 
 RUN chown -R amplify:amplify /app
@@ -37,4 +45,4 @@ USER amplify
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import redis; r=redis.from_url('${REDIS_URL:-redis://localhost:6379/0}'); r.ping()" || exit 1
 
-CMD ["python", "-m", "worker.app.main"]
+CMD ["python", "-m", "app.main"]

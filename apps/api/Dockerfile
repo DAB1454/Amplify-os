@@ -8,14 +8,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY packages/ packages/
-COPY apps/api/ apps/api/
 
+# Install only the library packages (not the app itself)
 RUN pip install --no-cache-dir --prefix=/install \
     ./packages/core \
     ./packages/db \
     ./packages/billing \
     ./packages/observability \
-    ./apps/api
+    ./packages/learning \
+    ./packages/agents \
+    ./packages/adapters
+
+# Install API runtime deps separately (no package build needed)
+RUN pip install --no-cache-dir --prefix=/install \
+    "fastapi>=0.115" \
+    "uvicorn[standard]>=0.32" \
+    "alembic>=1.14" \
+    "redis>=5.0" \
+    "pydantic[email]>=2.0" \
+    "pydantic-settings>=2.0" \
+    "pyjwt>=2.9" \
+    "passlib[bcrypt]>=1.7" \
+    "cryptography>=42.0" \
+    "httpx>=0.27"
 
 # Stage 2: Runtime
 FROM python:3.12-slim

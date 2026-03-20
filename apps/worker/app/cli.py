@@ -201,7 +201,7 @@ def _print_report(report: dict) -> None:
 
 async def cmd_backfill(args: argparse.Namespace) -> None:
     """Execute the backfill command."""
-    from worker.app.config import Settings
+    from app.config import Settings
 
     settings = Settings()
 
