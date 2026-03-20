@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir --prefix=/install \
     "pyjwt>=2.9" \
     "passlib[bcrypt]>=1.7" \
     "cryptography>=42.0" \
-    "httpx>=0.27"
+    "httpx>=0.27" \
+    "python-multipart>=0.0.9"
 
 # Stage 2: Runtime
 FROM python:3.12-slim
