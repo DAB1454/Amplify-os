@@ -1,0 +1,17 @@
+[project]
+name = "amplify-local-node"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic-settings>=2.0",
+    "click>=8.1",
+    "cryptography>=42.0",
+    "uvicorn[standard]>=0.30",
+    "starlette>=0.37",
+    "amplify-core",
+    "amplify-media",
+]
+
+[project.scripts]
+amplify-node = "node.app.main:cli"

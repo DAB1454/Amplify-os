@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  --brand-gold: #c9a84c;
+  --bg-primary: #0a0a0f;
+  --bg-surface: #111118;
+  --bg-surface-hover: #1a1a24;
+  --border-color: #1f1f2e;
+  --text-primary: #f1f1f4;
+  --text-secondary: #9ca3af;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--border-color);
+}

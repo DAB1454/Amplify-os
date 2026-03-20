@@ -1,0 +1,29 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+    "packages/core/tests",
+    "packages/adapters/tests",
+    "packages/agents/tests",
+    "packages/media/tests",
+    "packages/billing/tests",
+    "packages/observability/tests",
+    "packages/learning/tests",
+    "apps/api/tests",
+    "apps/worker/tests",
+    "apps/local_node/tests",
+]
+asyncio_mode = "auto"
+addopts = "--import-mode=importlib"

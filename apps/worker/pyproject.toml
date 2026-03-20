@@ -1,0 +1,16 @@
+[project]
+name = "amplify-worker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "redis>=5.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "pydantic-settings>=2.0",
+    "amplify-core",
+    "amplify-db",
+    "amplify-agents",
+    "amplify-adapters",
+    "amplify-media",
+    "amplify-learning",
+]

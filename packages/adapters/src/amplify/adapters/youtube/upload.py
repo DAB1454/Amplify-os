@@ -1,0 +1,149 @@
+"""Upload videos to YouTube via the Data API v3.
+
+Uses resumable upload for reliability on large files.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from amplify.adapters.base import PublishError, RateLimitError, ValidationError
+
+logger = logging.getLogger(__name__)
+
+YT_API = "https://www.googleapis.com/youtube/v3"
+YT_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos"
+MAX_VIDEO_SIZE = 256 * 1024 * 1024 * 1024  # 256 GB
+
+
+class YouTubeUploader:
+    """Upload and update videos on YouTube via the Data API v3."""
+
+    def __init__(self, access_token: str) -> None:
+        if not access_token:
+            raise ValueError("access_token is required")
+        self.access_token = access_token
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.access_token}"}
+
+    def _check_response(self, resp: httpx.Response, operation: str) -> None:
+        if resp.status_code == 403:
+            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            errors = body.get("error", {}).get("errors", [])
+            if any(e.get("reason") == "rateLimitExceeded" for e in errors):
+                raise RateLimitError(
+                    "YouTube quota exceeded",
+                    platform="youtube",
+                )
+        if resp.status_code >= 400:
+            raise PublishError(
+                f"YouTube {operation} failed ({resp.status_code}): {resp.text[:500]}",
+                platform="youtube",
+                details={"status": resp.status_code},
+            )
+
+    async def upload_video(self, video_path: str | Path, metadata: dict[str, Any]) -> str:
+        """Upload a video to YouTube. Returns the video ID.
+
+        metadata keys:
+            title: str (required)
+            description: str
+            tags: list[str]
+            categoryId: str (default "10" = Music)
+            privacyStatus: "private" | "unlisted" | "public"
+        """
+        video = Path(video_path)
+        if not video.exists():
+            raise ValidationError(f"Video not found: {video}", platform="youtube")
+
+        file_size = video.stat().st_size
+        if file_size > MAX_VIDEO_SIZE:
+            raise ValidationError(f"Video too large: {file_size} bytes", platform="youtube")
+
+        # Build resource body
+        snippet = {
+            "title": metadata.get("title", "Untitled"),
+            "description": metadata.get("description", ""),
+            "tags": metadata.get("tags", []),
+            "categoryId": metadata.get("categoryId", "10"),
+        }
+        status = {
+            "privacyStatus": metadata.get("privacyStatus", "private"),
+            "selfDeclaredMadeForKids": False,
+        }
+        body = json.dumps({"snippet": snippet, "status": status})
+
+        # Step 1: Initiate resumable upload
+        async with httpx.AsyncClient(timeout=600) as client:
+            init_resp = await client.post(
+                YT_UPLOAD,
+                params={"uploadType": "resumable", "part": "snippet,status"},
+                headers={
+                    **self._headers(),
+                    "Content-Type": "application/json; charset=UTF-8",
+                    "X-Upload-Content-Length": str(file_size),
+                    "X-Upload-Content-Type": "video/*",
+                },
+                content=body,
+            )
+            self._check_response(init_resp, "upload_init")
+
+            upload_url = init_resp.headers.get("Location")
+            if not upload_url:
+                raise PublishError("No upload URL in response", platform="youtube")
+
+            # Step 2: Upload the file
+            with open(video, "rb") as f:
+                upload_resp = await client.put(
+                    upload_url,
+                    content=f.read(),
+                    headers={
+                        "Content-Type": "video/*",
+                        "Content-Length": str(file_size),
+                    },
+                )
+                self._check_response(upload_resp, "upload_video")
+                data = upload_resp.json()
+
+        video_id = data.get("id", "")
+        logger.info("Uploaded video %s (id=%s)", video.name, video_id)
+        return video_id
+
+    async def update_video(self, video_id: str, metadata: dict[str, Any]) -> bool:
+        """Update metadata on an existing video."""
+        body: dict[str, Any] = {"id": video_id}
+
+        if any(k in metadata for k in ("title", "description", "tags", "categoryId")):
+            body["snippet"] = {}
+            for key in ("title", "description", "tags", "categoryId"):
+                if key in metadata:
+                    body["snippet"][key] = metadata[key]
+
+        if "privacyStatus" in metadata:
+            body["status"] = {"privacyStatus": metadata["privacyStatus"]}
+
+        parts = []
+        if "snippet" in body:
+            parts.append("snippet")
+        if "status" in body:
+            parts.append("status")
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{YT_API}/videos",
+                params={"part": ",".join(parts)},
+                headers={
+                    **self._headers(),
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body),
+            )
+            self._check_response(resp, "update_video")
+
+        return True

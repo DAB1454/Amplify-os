@@ -1,0 +1,12 @@
+environment       = "production"
+aws_region        = "us-east-1"
+db_instance_class = "db.t4g.medium"
+db_multi_az       = true
+redis_node_type   = "cache.t4g.small"
+api_cpu           = 512
+api_memory        = 1024
+api_desired_count = 2
+worker_cpu        = 512
+worker_memory     = 1024
+worker_desired_count = 2
+domain_name       = "amplify-os.com"

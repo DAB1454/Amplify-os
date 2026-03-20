@@ -1,0 +1,12 @@
+environment       = "staging"
+aws_region        = "us-east-1"
+db_instance_class = "db.t4g.micro"
+db_multi_az       = false
+redis_node_type   = "cache.t4g.micro"
+api_cpu           = 256
+api_memory        = 512
+api_desired_count = 1
+worker_cpu        = 256
+worker_memory     = 512
+worker_desired_count = 1
+domain_name       = "amplify-os.com"

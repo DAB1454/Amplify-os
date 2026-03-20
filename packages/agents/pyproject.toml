@@ -1,0 +1,18 @@
+[project]
+name = "amplify-agents"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40",
+    "pydantic>=2.0",
+    "structlog>=24.0",
+    "amplify-core",
+    "amplify-learning",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

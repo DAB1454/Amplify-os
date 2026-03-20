@@ -1,0 +1,87 @@
+databases:
+  - name: amplify-db
+    databaseName: amplify_os
+    user: amplify
+    plan: free
+    region: oregon
+
+services:
+  - type: redis
+    name: amplify-redis
+    plan: free
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+  - type: web
+    name: amplify-api
+    runtime: docker
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DEPLOYMENT_MODE
+        value: cloud
+      - key: DATABASE_URL
+        fromDatabase:
+          name: amplify-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: amplify-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: CORS_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: INSTAGRAM_CLIENT_ID
+        sync: false
+      - key: INSTAGRAM_CLIENT_SECRET
+        sync: false
+      - key: INSTAGRAM_REDIRECT_URI
+        sync: false
+      - key: YOUTUBE_CLIENT_ID
+        sync: false
+      - key: YOUTUBE_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_REDIRECT_URI
+        sync: false
+      - key: TIKTOK_CLIENT_KEY
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_REDIRECT_URI
+        sync: false
+
+  - type: worker
+    name: amplify-worker
+    runtime: docker
+    dockerfilePath: apps/worker/Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: starter
+    envVars:
+      - key: AMPLIFY_DATABASE_URL
+        fromDatabase:
+          name: amplify-db
+          property: connectionString
+      - key: AMPLIFY_REDIS_URL
+        fromService:
+          type: redis
+          name: amplify-redis
+          property: connectionString
+      - key: AMPLIFY_LOG_LEVEL
+        value: INFO
+      - key: ANTHROPIC_API_KEY
+        sync: false
