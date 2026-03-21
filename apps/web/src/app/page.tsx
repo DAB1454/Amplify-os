@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
+import { OnboardingBanner } from "@/components/onboarding/onboarding-banner";
 import { apiGet } from "@/lib/api";
 
 interface Overview {
@@ -138,6 +139,8 @@ export default function DashboardPage() {
   return (
     <>
       <Header title="Dashboard" />
+
+      <OnboardingBanner />
 
       {error && (
         <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
