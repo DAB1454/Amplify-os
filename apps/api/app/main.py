@@ -1,10 +1,14 @@
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import Settings
 from app.middleware.tenant import TenantMiddleware
+
+logger = logging.getLogger(__name__)
 from app.routes.health import router as health_router
 from app.routes.auth import router as auth_router
 from app.routes.tenants import router as tenants_router
@@ -105,6 +109,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Global exception handler — ensures CORS headers on 500 errors
+    @application.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled error: %s", exc)
+        origin = request.headers.get("origin", "")
+        headers = {}
+        if origin in settings.cors_origins:
+            headers["access-control-allow-origin"] = origin
+            headers["access-control-allow-credentials"] = "true"
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+            headers=headers,
+        )
 
     # Mount routers
     prefix = "/api/v1"
