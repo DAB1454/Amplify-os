@@ -18,9 +18,12 @@ from starlette.responses import JSONResponse, Response
 LOCAL_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 LOCAL_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
-# Paths that skip auth entirely
-SKIP_AUTH_PATHS = {"/health", "/healthz", "/docs", "/redoc", "/openapi.json"}
-SKIP_AUTH_PREFIXES = ("/api/v1/auth/", "/r/")
+# Paths that skip auth entirely (no JWT required)
+SKIP_AUTH_PATHS = {
+    "/health", "/healthz", "/docs", "/redoc", "/openapi.json",
+    "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",
+}
+SKIP_AUTH_PREFIXES = ("/r/", "/oauth/callback/")
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
