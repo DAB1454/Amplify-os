@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getAccessToken, clearAuth, fetchCurrentUser } from "@/lib/api";
+import { getAccessToken, clearAuth, fetchCurrentUser, ApiError } from "@/lib/api";
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -33,7 +33,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     fetchCurrentUser()
       .then((u) => setUser(u))
-      .catch(() => clearAuth())
+      .catch((err) => {
+        console.error("[AuthProvider] fetchCurrentUser failed:", err);
+        // Only clear auth on explicit 401 — other errors might be transient
+        if (err instanceof ApiError && err.status === 401) {
+          clearAuth();
+        } else {
+          // Non-auth error — still treat as authenticated since we have a token
+          setUser({ id: "", email: "", display_name: null });
+        }
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
