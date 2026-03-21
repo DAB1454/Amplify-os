@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir --prefix=/install \
     "pydantic-settings>=2.0" \
     "pyjwt>=2.9" \
     "passlib[bcrypt]>=1.7" \
+    "bcrypt>=4.0,<4.1" \
     "cryptography>=42.0" \
     "httpx>=0.27" \
     "python-multipart>=0.0.9"

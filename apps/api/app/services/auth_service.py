@@ -15,7 +15,7 @@ from amplify.db.models.tenant import TenantModel
 from amplify.db.models.membership import MembershipModel
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Token expiry durations
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
