@@ -88,21 +88,21 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # CORS
+    # Tenant isolation middleware (added first so CORS wraps it)
+    application.add_middleware(
+        TenantMiddleware,
+        deployment_mode=settings.deployment_mode,
+        jwt_secret=settings.jwt_secret,
+        jwt_algorithm=settings.jwt_algorithm,
+    )
+
+    # CORS (added last = outermost = runs first, handles OPTIONS preflight)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-    )
-
-    # Tenant isolation middleware
-    application.add_middleware(
-        TenantMiddleware,
-        deployment_mode=settings.deployment_mode,
-        jwt_secret=settings.jwt_secret,
-        jwt_algorithm=settings.jwt_algorithm,
     )
 
     # Mount routers
