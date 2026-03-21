@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { login, register } from "@/lib/api";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,8 +23,8 @@ export default function LoginPage() {
       } else {
         await login(email, password);
       }
-      router.push("/");
-      router.refresh();
+      // Full reload so AuthProvider picks up the new token
+      window.location.href = "/";
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
