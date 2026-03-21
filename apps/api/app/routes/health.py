@@ -6,6 +6,7 @@ from app.deps import get_settings
 router = APIRouter(tags=["health"])
 
 
+@router.get("/health")
 @router.get("/healthz")
 async def healthz(settings: Settings = Depends(get_settings)):
     return {
