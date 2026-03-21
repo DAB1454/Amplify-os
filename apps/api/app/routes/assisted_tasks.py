@@ -31,6 +31,7 @@ def _get_service(
 # ── CRUD ──────────────────────────────────────────────────────────
 
 
+@router.get("")
 @router.get("/")
 async def list_tasks(
     platform: str | None = Query(default=None),

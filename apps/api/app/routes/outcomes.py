@@ -45,6 +45,7 @@ def _get_outcome_service(
 # ── Endpoints ────────────────────────────────────────────────────
 
 
+@router.post("", response_model=PostOutcomeResponse, status_code=201)
 @router.post("/", response_model=PostOutcomeResponse, status_code=201)
 async def record_outcome(
     body: RecordOutcomeRequest,

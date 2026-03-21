@@ -3,6 +3,7 @@ from fastapi import APIRouter, status
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
+@router.get("")
 @router.get("/")
 async def list_assets():
     return []

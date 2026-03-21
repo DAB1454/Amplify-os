@@ -22,6 +22,7 @@ from amplify.db.repository import BaseRepository
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
 
+@router.get("", response_model=list[CampaignResponse])
 @router.get("/", response_model=list[CampaignResponse])
 async def list_campaigns(
     artist_id: uuid.UUID | None = Query(default=None),
@@ -39,6 +40,7 @@ async def list_campaigns(
     return await repo.list(**filters)
 
 
+@router.post("", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 async def create_campaign(
     body: CampaignCreateRequest,

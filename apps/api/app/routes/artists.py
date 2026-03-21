@@ -17,6 +17,7 @@ from amplify.db.repository import BaseRepository
 router = APIRouter(prefix="/artists", tags=["artists"])
 
 
+@router.get("", response_model=list[ArtistResponse])
 @router.get("/", response_model=list[ArtistResponse])
 async def list_artists(
     db: AsyncSession = Depends(get_db),

@@ -23,6 +23,7 @@ def _generate_slug(url: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:8]
 
 
+@router.post("", response_model=RedirectResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=RedirectResponse, status_code=status.HTTP_201_CREATED)
 async def create_redirect(
     body: RedirectCreateRequest,
@@ -62,6 +63,7 @@ async def create_redirect(
     return redirect
 
 
+@router.get("", response_model=list[RedirectResponse])
 @router.get("/", response_model=list[RedirectResponse])
 async def list_redirects(
     campaign_id: uuid.UUID | None = None,

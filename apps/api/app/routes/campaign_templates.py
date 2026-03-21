@@ -26,6 +26,7 @@ router = APIRouter(prefix="/campaign-templates", tags=["campaign-templates"])
 _metering = MeteringService()
 
 
+@router.get("", response_model=list[CampaignTemplateResponse])
 @router.get("/", response_model=list[CampaignTemplateResponse])
 async def list_templates(
     category: str | None = Query(default=None),
@@ -50,6 +51,7 @@ async def list_templates(
     return list(result.scalars().all())
 
 
+@router.post("", response_model=CampaignTemplateResponse, status_code=201)
 @router.post("/", response_model=CampaignTemplateResponse, status_code=201)
 async def create_template(
     body: CampaignTemplateCreateRequest,

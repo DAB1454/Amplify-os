@@ -27,6 +27,7 @@ async def list_platforms():
     ]
 
 
+@router.get("")
 @router.get("/")
 async def list_channels(
     db: AsyncSession = Depends(get_db),

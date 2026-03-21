@@ -23,6 +23,7 @@ from amplify.db.repository import BaseRepository
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
 
+@router.get("", response_model=list[CalendarItemResponse])
 @router.get("/", response_model=list[CalendarItemResponse])
 async def list_calendar_items(
     campaign_id: uuid.UUID | None = Query(default=None),
@@ -48,6 +49,7 @@ async def list_calendar_items(
     return list(result.scalars().all())
 
 
+@router.post("", response_model=CalendarItemResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=CalendarItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_calendar_item(
     body: CalendarItemCreateRequest,

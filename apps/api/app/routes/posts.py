@@ -47,6 +47,7 @@ def _get_publishing_service(
 # ── CRUD ─────────────────────────────────────────────────────────
 
 
+@router.get("", response_model=list[PostResponse])
 @router.get("/", response_model=list[PostResponse])
 async def list_posts(
     campaign_id: uuid.UUID | None = Query(default=None),
@@ -67,6 +68,7 @@ async def list_posts(
     return await repo.list(**filters)
 
 
+@router.post("", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(
     body: PostCreateRequest,

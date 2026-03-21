@@ -18,6 +18,7 @@ from amplify.db.repository import BaseRepository
 router = APIRouter(prefix="/releases", tags=["releases"])
 
 
+@router.get("", response_model=list[ReleaseResponse])
 @router.get("/", response_model=list[ReleaseResponse])
 async def list_releases(
     artist_id: uuid.UUID | None = Query(default=None),
@@ -32,6 +33,7 @@ async def list_releases(
     return await repo.list(**filters)
 
 
+@router.post("", response_model=ReleaseResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=ReleaseResponse, status_code=status.HTTP_201_CREATED)
 async def create_release(
     body: ReleaseCreateRequest,
