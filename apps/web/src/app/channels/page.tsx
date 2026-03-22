@@ -120,18 +120,21 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [connectBanner, setConnectBanner] = useState<{ platform: string; status: string; message?: string } | null>(null);
+  const [artistId, setArtistId] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [plats, chans, taskList] = await Promise.all([
+      const [plats, chans, taskList, artists] = await Promise.all([
         apiGet<PlatformInfo[]>("/api/v1/channels/platforms"),
         apiGet<Channel[]>("/api/v1/channels"),
         apiGet<AssistedTask[]>("/api/v1/assisted-tasks"),
+        apiGet<{ id: string }[]>("/api/v1/artists"),
       ]);
       setPlatforms(plats);
       setChannels(chans);
       setTasks(taskList);
+      if (artists.length > 0) setArtistId(artists[0].id);
     } catch {
       /* ignore */
     } finally {
@@ -289,7 +292,7 @@ export default function ChannelsPage() {
                         try {
                           // TODO: artist dropdown if tenant has multiple artists
                           const resp = await apiGet<{ auth_url: string | null; dry_run?: boolean; message?: string }>(
-                            `/api/v1/channels/connect/${p.platform}?artist_id=00000000-0000-0000-0000-000000000000`
+                            `/api/v1/channels/connect/${p.platform}?artist_id=${artistId}`
                           );
                           if (resp.dry_run) {
                             setConnectBanner({ platform: p.platform, status: "error", message: resp.message || "Dry-run mode — OAuth not configured" });
@@ -520,7 +523,7 @@ function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () =
                 onClick={async () => {
                   try {
                     const resp = await apiGet<{ auth_url: string | null }>(
-                      `/api/v1/channels/connect/${channel.platform}?artist_id=${channel.artist_id || "00000000-0000-0000-0000-000000000000"}`
+                      `/api/v1/channels/connect/${channel.platform}?artist_id=${channel.artist_id || artistId}`
                     );
                     if (resp.auth_url) window.location.href = resp.auth_url;
                   } catch { /* ignore */ }
