@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
 from app.deps import get_db, get_redis, get_settings, get_tenant_id
 from app.config import Settings
 
@@ -24,7 +26,7 @@ router = APIRouter(prefix="/channels", tags=["oauth"])
 @router.get("/connect/{platform}")
 async def connect_platform(
     platform: str,
-    artist_id: uuid.UUID = Query(...),
+    artist_id: uuid.UUID = Query(default=uuid.UUID("00000000-0000-0000-0000-000000000000")),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
     settings: Settings = Depends(get_settings),
@@ -33,6 +35,18 @@ async def connect_platform(
     """Generate an OAuth authorization URL for the given platform."""
     if platform not in SUPPORTED_PLATFORMS:
         raise HTTPException(status_code=400, detail=f"Unsupported platform: {platform}")
+
+    # Auto-resolve artist_id if placeholder/null UUID is sent
+    null_uuid = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    if artist_id == null_uuid:
+        from amplify.db.models.artist import ArtistModel
+        result = await db.execute(
+            select(ArtistModel.id).where(ArtistModel.tenant_id == tenant_id).limit(1)
+        )
+        resolved = result.scalar_one_or_none()
+        if not resolved:
+            raise HTTPException(status_code=400, detail="No artist found. Create an artist first.")
+        artist_id = resolved
 
     if settings.is_local:
         # Check if credentials are configured
