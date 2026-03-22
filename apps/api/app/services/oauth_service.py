@@ -24,12 +24,10 @@ logger = logging.getLogger(__name__)
 # Scopes required for full functionality per platform
 REQUIRED_SCOPES: dict[str, list[str]] = {
     "instagram": [
-        "instagram_basic",
-        "instagram_content_publish",
-        "instagram_manage_comments",
-        "instagram_manage_insights",
-        "pages_show_list",
-        "pages_read_engagement",
+        "instagram_business_basic",
+        "instagram_business_content_publish",
+        "instagram_business_manage_comments",
+        "instagram_business_manage_messages",
     ],
     "youtube": [
         "https://www.googleapis.com/auth/youtube",
@@ -46,9 +44,9 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
 
 SCOPE_CAPABILITIES: dict[str, dict[str, list[str]]] = {
     "instagram": {
-        "can_publish": ["instagram_content_publish"],
-        "can_fetch_comments": ["instagram_manage_comments"],
-        "can_sync_metrics": ["instagram_manage_insights"],
+        "can_publish": ["instagram_business_content_publish"],
+        "can_fetch_comments": ["instagram_business_manage_comments"],
+        "can_sync_metrics": ["instagram_business_basic"],
     },
     "youtube": {
         "can_publish": ["https://www.googleapis.com/auth/youtube.upload"],
