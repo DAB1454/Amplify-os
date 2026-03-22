@@ -173,10 +173,15 @@ async def oauth_callback(
                 url=f"{frontend_url}/channels?connected={platform}&status=error&message=invalid_state"
             )
         except Exception as exc:
-            logger.error("OAuth callback error for %s: %s", platform, exc, exc_info=True)
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("OAuth callback error for %s: %s\n%s", platform, exc, tb)
+            # Include error detail in redirect for debugging
+            from urllib.parse import quote
+            err_msg = quote(str(exc)[:200])
             await db.rollback()
             return RedirectResponse(
-                url=f"{frontend_url}/channels?connected={platform}&status=error&message=exchange_failed"
+                url=f"{frontend_url}/channels?connected={platform}&status=error&message={err_msg}"
             )
 
 
