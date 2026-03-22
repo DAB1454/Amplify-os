@@ -55,12 +55,8 @@ class InstagramAuth:
             "client_id": self.client_id,
             "redirect_uri": self.redirect_uri,
             "scope": ",".join(scopes or [
-                "instagram_basic",
-                "instagram_content_publish",
-                "instagram_manage_comments",
-                "instagram_manage_insights",
-                "pages_show_list",
-                "pages_read_engagement",
+                "public_profile",
+                "email",
             ]),
             "response_type": "code",
         }
