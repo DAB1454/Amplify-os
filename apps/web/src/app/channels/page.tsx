@@ -523,7 +523,7 @@ function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () =
                 onClick={async () => {
                   try {
                     const resp = await apiGet<{ auth_url: string | null }>(
-                      `/api/v1/channels/connect/${channel.platform}?artist_id=${channel.artist_id || artistId}`
+                      `/api/v1/channels/connect/${channel.platform}?artist_id=${channel.artist_id || "00000000-0000-0000-0000-000000000000"}`
                     );
                     if (resp.auth_url) window.location.href = resp.auth_url;
                   } catch { /* ignore */ }
