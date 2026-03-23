@@ -31,10 +31,20 @@ const statusColors: Record<string, string> = {
 
 const tabs = ["all", "draft", "queued", "scheduled", "published", "failed"] as const;
 
+interface Channel {
+  id: string;
+  platform: string;
+  display_name: string | null;
+  is_active: boolean;
+}
+
 export default function PostsPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("all");
   const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "" });
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -86,6 +96,99 @@ export default function PostsPage() {
   return (
     <>
       <Header title="Posts" />
+
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={async () => {
+            if (!showCreate) {
+              try {
+                const chans = await apiGet<Channel[]>("/api/v1/channels");
+                const active = chans.filter((c) => c.is_active && ["instagram", "youtube", "tiktok"].includes(c.platform));
+                setChannels(active);
+                if (active.length > 0) {
+                  setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "" });
+                }
+              } catch { /* ignore */ }
+            }
+            setShowCreate(!showCreate);
+          }}
+          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-gray-950 hover:opacity-90 transition-opacity"
+        >
+          {showCreate ? "Cancel" : "+ New Post"}
+        </button>
+      </div>
+
+      {showCreate && (
+        <form
+          className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5 space-y-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              await apiPost("/api/v1/posts", {
+                channel_id: newPost.channel_id,
+                platform: newPost.platform,
+                content_text: newPost.content_text,
+                media_urls: newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()) : [],
+              });
+              setShowCreate(false);
+              setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
+              fetchPosts();
+            } catch {
+              /* ignore */
+            }
+          }}
+        >
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Channel</label>
+            {channels.length === 0 ? (
+              <p className="text-xs text-red-400">No connected channels. Connect a platform first.</p>
+            ) : (
+              <select
+                value={newPost.channel_id}
+                onChange={(e) => {
+                  const ch = channels.find((c) => c.id === e.target.value);
+                  setNewPost({ ...newPost, channel_id: e.target.value, platform: ch?.platform || "" });
+                }}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                {channels.map((ch) => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.display_name || ch.platform} ({ch.platform})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Content</label>
+            <textarea
+              value={newPost.content_text}
+              onChange={(e) => setNewPost({ ...newPost, content_text: e.target.value })}
+              placeholder="Write your post content..."
+              required
+              rows={4}
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Media URLs (comma-separated, optional)</label>
+            <input
+              type="text"
+              value={newPost.media_urls}
+              onChange={(e) => setNewPost({ ...newPost, media_urls: e.target.value })}
+              placeholder="https://example.com/video.mp4"
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={channels.length === 0}
+            className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-gray-950 hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            Create Post
+          </button>
+        </form>
+      )}
 
       <div className="mt-8 flex gap-2 flex-wrap">
         {tabs.map((t) => (
