@@ -121,6 +121,7 @@ export default function ChannelsPage() {
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [connectBanner, setConnectBanner] = useState<{ platform: string; status: string; message?: string } | null>(null);
   const [artistId, setArtistId] = useState<string | null>(null);
+  const [assistedForm, setAssistedForm] = useState<{ platform: string; url: string; displayName: string } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -290,7 +291,6 @@ export default function ChannelsPage() {
                     <button
                       onClick={async () => {
                         try {
-                          // TODO: artist dropdown if tenant has multiple artists
                           const resp = await apiGet<{ auth_url: string | null; dry_run?: boolean; message?: string }>(
                             `/api/v1/channels/connect/${p.platform}?artist_id=${artistId}`
                           );
@@ -307,6 +307,68 @@ export default function ChannelsPage() {
                     >
                       Connect {p.label}
                     </button>
+                  )}
+                  {!isAutomatic && connected.length === 0 && (
+                    <>
+                      {assistedForm?.platform === p.platform ? (
+                        <form
+                          className="mt-3 space-y-2"
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            try {
+                              await apiPost("/api/v1/channels", {
+                                platform: p.platform,
+                                platform_url: assistedForm.url,
+                                display_name: assistedForm.displayName || p.label,
+                              });
+                              setAssistedForm(null);
+                              setConnectBanner({ platform: p.platform, status: "success", message: `${p.label} connected!` });
+                              fetchAll();
+                            } catch {
+                              setConnectBanner({ platform: p.platform, status: "error", message: `Failed to add ${p.label}` });
+                            }
+                          }}
+                        >
+                          <input
+                            type="text"
+                            placeholder="Display name (e.g. Drew Baird Music)"
+                            value={assistedForm.displayName}
+                            onChange={(e) => setAssistedForm({ ...assistedForm, displayName: e.target.value })}
+                            className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                          />
+                          <input
+                            type="url"
+                            placeholder={`${p.platform} URL`}
+                            value={assistedForm.url}
+                            onChange={(e) => setAssistedForm({ ...assistedForm, url: e.target.value })}
+                            required
+                            className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="submit"
+                              className="flex-1 rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-gray-950 hover:opacity-90 transition-opacity"
+                            >
+                              Add {p.label}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setAssistedForm(null)}
+                              className="rounded-lg border border-[var(--border-color)] px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <button
+                          onClick={() => setAssistedForm({ platform: p.platform, url: "", displayName: "" })}
+                          className="mt-3 w-full rounded-lg border border-[var(--border-color)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors"
+                        >
+                          Add {p.label}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               );
