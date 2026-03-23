@@ -42,6 +42,7 @@ async def list_channels(
     return [_channel_to_dict(ch) for ch in channels]
 
 
+@router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_channel(
     body: dict,
