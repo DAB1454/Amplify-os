@@ -57,10 +57,23 @@ async def create_channel(
     mode = PLATFORM_INTEGRATION_MODE.get(platform, "assisted")
     mode_str = mode.value if hasattr(mode, "value") else str(mode)
 
+    # Resolve artist_id — auto-pick tenant's first artist if not provided
+    artist_id = body.get("artist_id")
+    if not artist_id or artist_id == "00000000-0000-0000-0000-000000000000":
+        from amplify.db.models.artist import ArtistModel
+        result = await db.execute(
+            select(ArtistModel.id).where(ArtistModel.tenant_id == tenant_id).limit(1)
+        )
+        artist_id = result.scalar_one_or_none()
+        if not artist_id:
+            raise HTTPException(status_code=400, detail="No artist found. Create an artist first.")
+    else:
+        artist_id = uuid.UUID(artist_id) if isinstance(artist_id, str) else artist_id
+
     channel = ChannelConnectionModel(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
-        artist_id=body.get("artist_id", uuid.UUID(int=0)),
+        artist_id=artist_id,
         platform=platform_str,
         integration_mode=mode_str,
         platform_account_id=body.get("platform_account_id"),
