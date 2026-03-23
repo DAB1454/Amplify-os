@@ -522,7 +522,7 @@ function CapabilityBadge({ name, enabled }: { name: string; enabled: boolean }) 
 
 function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () => void }) {
   const status = channel.connection_status || (channel.is_active ? "connected" : "disconnected");
-  const showReconnect = status === "expired" || status === "revoked" || status === "error";
+  const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected";
   const isAutomatic = channel.integration_mode === "automatic";
 
   // Capabilities can be either a dict or array depending on whether OAuth has been done

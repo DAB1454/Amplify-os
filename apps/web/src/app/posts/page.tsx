@@ -103,7 +103,7 @@ export default function PostsPage() {
             if (!showCreate) {
               try {
                 const chans = await apiGet<Channel[]>("/api/v1/channels");
-                const active = chans.filter((c) => c.is_active && ["instagram", "youtube", "tiktok"].includes(c.platform));
+                const active = chans.filter((c) => ["instagram", "youtube", "tiktok"].includes(c.platform));
                 setChannels(active);
                 if (active.length > 0) {
                   setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "" });
