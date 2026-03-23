@@ -79,16 +79,25 @@ async def create_post(
     learning: LearningEventService = Depends(_get_learning_service),
 ):
     """Create a new post."""
-    repo = BaseRepository(db, PostModel, tenant_id)
-    entity = await repo.create(**body.model_dump())
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        repo = BaseRepository(db, PostModel, tenant_id)
+        entity = await repo.create(**body.model_dump())
+    except Exception as exc:
+        logger.error("Post create failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Post creation failed: {exc}")
 
-    await audit.log(
-        action="post.created",
-        entity_type="post",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=body.model_dump(),
-    )
+    try:
+        await audit.log(
+            action="post.created",
+            entity_type="post",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=body.model_dump(),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed: %s", exc)
 
     try:
         from amplify.learning.capture import post_created
