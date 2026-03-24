@@ -69,8 +69,13 @@ export default function PostsPage() {
   }, [fetchPosts]);
 
   const handleAction = async (postId: string, action: string) => {
-    await apiPost(`/api/v1/posts/${postId}/${action}`, {});
-    fetchPosts();
+    try {
+      await apiPost(`/api/v1/posts/${postId}/${action}`, {});
+      setFetchError(null);
+      fetchPosts();
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : `Failed to ${action} post`);
+    }
   };
 
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {

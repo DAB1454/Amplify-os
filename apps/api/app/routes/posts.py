@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,13 +211,16 @@ async def queue_post(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.queued",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-        changes={"policy_decision": result.get("policy_decision")},
-    )
+    try:
+        await audit.log(
+            action="post.queued",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+            changes={"policy_decision": result.get("policy_decision")},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
 
 
@@ -233,12 +239,15 @@ async def approve_post(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.approved",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="post.approved",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
 
 
@@ -257,12 +266,15 @@ async def reject_post(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.rejected",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="post.rejected",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
 
 
@@ -282,13 +294,16 @@ async def schedule_post(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.scheduled",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-        changes={"scheduled_at": body.scheduled_at.isoformat()},
-    )
+    try:
+        await audit.log(
+            action="post.scheduled",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+            changes={"scheduled_at": body.scheduled_at.isoformat()},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
 
 
@@ -307,13 +322,16 @@ async def publish_post_now(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.published",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-        changes={"status": result.get("status")},
-    )
+    try:
+        await audit.log(
+            action="post.published",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+            changes={"status": result.get("status")},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
 
 
@@ -359,10 +377,13 @@ async def retry_post(
     except InvalidTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    await audit.log(
-        action="post.retried",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="post.retried",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return result
