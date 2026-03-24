@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
 interface Artist {
   id: string;
@@ -244,7 +245,7 @@ export default function CampaignsPage() {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {editingId ? "Save Changes" : "Create Campaign"}
                 </button>
@@ -257,9 +258,7 @@ export default function CampaignsPage() {
       {/* List */}
       <div className="mt-6">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading campaigns...
-          </div>
+          <LoadingOverlay text="Loading campaigns..." />
         ) : campaigns.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No {activeTab.toLowerCase() !== "all" ? activeTab.toLowerCase() + " " : ""}campaigns yet.

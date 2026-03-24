@@ -3,6 +3,7 @@
 import { useState, useRef, DragEvent } from "react";
 import { Upload, X, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ButtonSpinner } from "@/components/ui/spinner";
 
 interface ImportResult {
   total_rows: number;
@@ -160,7 +161,7 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
                 disabled={!file || importing}
                 className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
-                {importing ? "Importing..." : "Import"}
+                {importing ? <ButtonSpinner label="Importing..." /> : "Import"}
               </button>
             </div>
           </>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay } from "@/components/ui/spinner";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -179,8 +180,8 @@ export default function AnalyticsPage() {
       )}
 
       {loading ? (
-        <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-          Loading analytics...
+        <div className="mt-6">
+          <LoadingOverlay text="Loading analytics..." />
         </div>
       ) : (
         <>

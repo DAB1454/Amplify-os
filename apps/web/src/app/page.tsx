@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { OnboardingBanner } from "@/components/onboarding/onboarding-banner";
 import { apiGet } from "@/lib/api";
+import { LoadingOverlay } from "@/components/ui/spinner";
 
 interface Overview {
   total_campaigns: number;
@@ -220,9 +221,7 @@ export default function DashboardPage() {
       <section className="mt-12">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">Active Campaigns</h2>
         {loading ? (
-          <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading...
-          </div>
+          <div className="mt-4"><LoadingOverlay text="Loading..." /></div>
         ) : campaigns.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No active campaigns. Create one from the Campaigns page.
@@ -253,9 +252,7 @@ export default function DashboardPage() {
       <section className="mt-12">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">Recent Posts</h2>
         {loading ? (
-          <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading...
-          </div>
+          <div className="mt-4"><LoadingOverlay text="Loading..." /></div>
         ) : recentPosts.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No posts yet.

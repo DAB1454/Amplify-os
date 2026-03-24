@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
+import { LoadingOverlay } from "@/components/ui/spinner";
 
 interface Comment {
   id: string;
@@ -155,9 +156,7 @@ export default function ApprovalsPage() {
       {/* List */}
       <div className="mt-6 space-y-4">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading...
-          </div>
+          <LoadingOverlay text="Loading approvals..." />
         ) : approvals.length === 0 ? (
           <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             {tab === "pending" ? "No pending approvals." : "No approval history yet."}

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
+import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 
 interface Post {
   id: string;
@@ -51,6 +52,8 @@ export default function PostsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [mediaFiles, setMediaFiles] = useState<{ file: File; url: string | null; uploading: boolean }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -72,6 +75,7 @@ export default function PostsPage() {
   }, [fetchPosts]);
 
   const handleAction = async (postId: string, action: string) => {
+    setActionLoading(`${postId}-${action}`);
     try {
       const result = await apiPost<{ status?: string; policy_decision?: string; reasons?: string[] }>(
         `/api/v1/posts/${postId}/${action}`, {}
@@ -84,6 +88,8 @@ export default function PostsPage() {
       fetchPosts();
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : `Failed to ${action} post`);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -272,7 +278,7 @@ export default function PostsPage() {
             disabled={channels.length === 0 || creating}
             className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {creating ? "Creating..." : "Create Post"}
+            {creating ? <ButtonSpinner label="Creating..." /> : "Create Post"}
           </button>
         </form>
       )}
@@ -301,9 +307,7 @@ export default function PostsPage() {
 
       <div className="mt-6 space-y-3">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading...
-          </div>
+          <LoadingOverlay text="Loading posts..." />
         ) : posts.length === 0 ? (
           <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No {activeTab !== "all" ? activeTab + " " : ""}posts.
@@ -369,24 +373,29 @@ export default function PostsPage() {
                     <button
                       key={btn.action}
                       onClick={() => handleAction(post.id, btn.action)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
+                      disabled={actionLoading === `${post.id}-${btn.action}`}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
                     >
-                      {btn.label}
+                      {actionLoading === `${post.id}-${btn.action}` ? <ButtonSpinner label={`${btn.label}...`} /> : btn.label}
                     </button>
                   ))}
                   <button
                     onClick={async () => {
                       if (!confirm("Delete this post?")) return;
+                      setDeletingId(post.id);
                       try {
                         await apiDelete(`/api/v1/posts/${post.id}`);
                         fetchPosts();
                       } catch (err) {
                         setFetchError(err instanceof Error ? err.message : "Failed to delete post");
+                      } finally {
+                        setDeletingId(null);
                       }
                     }}
-                    className="rounded-lg px-3 py-1.5 text-xs font-medium bg-red-100 text-red-600 hover:bg-red-200"
+                    disabled={deletingId === post.id}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-50"
                   >
-                    Delete
+                    {deletingId === post.id ? <ButtonSpinner label="Deleting..." spinnerClass="text-red-600" /> : "Delete"}
                   </button>
                 </div>
               </div>

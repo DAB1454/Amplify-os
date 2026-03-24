@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPut, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -113,8 +114,8 @@ export default function SettingsPage() {
     return (
       <div className="min-h-screen bg-[var(--bg-primary)]">
         <Header title="Settings" />
-        <div className="mx-auto max-w-4xl px-6 py-12 text-[var(--text-secondary)]">
-          Loading...
+        <div className="mx-auto max-w-4xl px-6 py-12">
+          <LoadingOverlay text="Loading settings..." />
         </div>
       </div>
     );
@@ -356,7 +357,7 @@ function ControlsTab({
             saving && "opacity-50 cursor-not-allowed"
           )}
         >
-          {saving ? "Saving..." : "Save Changes"}
+          {saving ? <ButtonSpinner label="Saving..." /> : "Save Changes"}
         </button>
       </div>
     </div>

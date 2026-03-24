@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
 interface Artist {
   id: string;
@@ -24,6 +25,8 @@ export default function ArtistsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: "", bio: "", genre: "" });
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchArtists = useCallback(async () => {
     setLoading(true);
@@ -44,6 +47,7 @@ export default function ArtistsPage() {
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) return;
+    setSaving(true);
     try {
       if (editingId) {
         await apiPut(`/api/v1/artists/${editingId}`, formData);
@@ -56,6 +60,8 @@ export default function ArtistsPage() {
       fetchArtists();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -66,11 +72,14 @@ export default function ArtistsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
       await apiDelete(`/api/v1/artists/${id}`);
       fetchArtists();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -146,9 +155,10 @@ export default function ArtistsPage() {
             </button>
             <button
               onClick={handleSubmit}
-              className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              disabled={saving}
+              className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {editingId ? "Save Changes" : "Create Artist"}
+              {saving ? <ButtonSpinner label={editingId ? "Saving..." : "Creating..."} /> : editingId ? "Save Changes" : "Create Artist"}
             </button>
           </div>
         </div>
@@ -157,9 +167,7 @@ export default function ArtistsPage() {
       {/* Artist list */}
       <div className="mt-6">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading artists...
-          </div>
+          <LoadingOverlay text="Loading artists..." />
         ) : artists.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No artists yet. Add your first artist to get started.

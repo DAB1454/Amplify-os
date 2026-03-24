@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { LoadingOverlay } from "@/components/ui/spinner";
 
 interface Artist {
   id: string;
@@ -215,9 +216,7 @@ export default function ReleasesPage() {
       {/* List */}
       <div className="mt-6">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-            Loading releases...
-          </div>
+          <LoadingOverlay text="Loading releases..." />
         ) : releases.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
             No releases yet. Add your first release to get started.

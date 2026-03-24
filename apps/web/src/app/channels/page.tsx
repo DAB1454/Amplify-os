@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -122,6 +123,8 @@ export default function ChannelsPage() {
   const [connectBanner, setConnectBanner] = useState<{ platform: string; status: string; message?: string } | null>(null);
   const [artistId, setArtistId] = useState<string | null>(null);
   const [assistedForm, setAssistedForm] = useState<{ platform: string; url: string; displayName: string } | null>(null);
+  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
+  const [addingAssisted, setAddingAssisted] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -225,8 +228,8 @@ export default function ChannelsPage() {
       )}
 
       {loading ? (
-        <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-          Loading...
+        <div className="mt-6">
+          <LoadingOverlay text="Loading channels..." />
         </div>
       ) : tab === "channels" ? (
         <>
@@ -290,22 +293,26 @@ export default function ChannelsPage() {
                   {isAutomatic && (
                     <button
                       onClick={async () => {
+                        setConnectingPlatform(p.platform);
                         try {
                           const resp = await apiGet<{ auth_url: string | null; dry_run?: boolean; message?: string }>(
                             `/api/v1/channels/connect/${p.platform}?artist_id=${artistId}`
                           );
                           if (resp.dry_run) {
                             setConnectBanner({ platform: p.platform, status: "error", message: resp.message || "Dry-run mode — OAuth not configured" });
+                            setConnectingPlatform(null);
                           } else if (resp.auth_url) {
                             window.location.href = resp.auth_url;
                           }
                         } catch {
                           setConnectBanner({ platform: p.platform, status: "error", message: "Failed to start OAuth flow" });
+                          setConnectingPlatform(null);
                         }
                       }}
-                      className="mt-3 w-full rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-white hover:opacity-90 transition-opacity"
+                      disabled={connectingPlatform === p.platform}
+                      className="mt-3 w-full rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
-                      Connect {p.label}
+                      {connectingPlatform === p.platform ? <ButtonSpinner label={`Connecting ${p.label}...`} /> : `Connect ${p.label}`}
                     </button>
                   )}
                   {!isAutomatic && connected.length === 0 && (
@@ -315,6 +322,7 @@ export default function ChannelsPage() {
                           className="mt-3 space-y-2"
                           onSubmit={async (e) => {
                             e.preventDefault();
+                            setAddingAssisted(true);
                             try {
                               await apiPost("/api/v1/channels", {
                                 platform: p.platform,
@@ -326,6 +334,8 @@ export default function ChannelsPage() {
                               fetchAll();
                             } catch {
                               setConnectBanner({ platform: p.platform, status: "error", message: `Failed to add ${p.label}` });
+                            } finally {
+                              setAddingAssisted(false);
                             }
                           }}
                         >
@@ -347,9 +357,10 @@ export default function ChannelsPage() {
                           <div className="flex gap-2">
                             <button
                               type="submit"
-                              className="flex-1 rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-opacity"
+                              disabled={addingAssisted}
+                              className="flex-1 rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                             >
-                              Add {p.label}
+                              {addingAssisted ? <ButtonSpinner label="Adding..." /> : `Add ${p.label}`}
                             </button>
                             <button
                               type="button"

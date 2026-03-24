@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { LoadingOverlay } from "@/components/ui/spinner";
 
 interface OnboardingStep {
   key: string;
@@ -68,8 +69,8 @@ export default function TenantsPage() {
       <Header title="Workspace Settings" />
 
       {loading ? (
-        <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
-          Loading...
+        <div className="mt-6">
+          <LoadingOverlay text="Loading workspace..." />
         </div>
       ) : (
         <>

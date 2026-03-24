@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { login, register } from "@/lib/api";
+import { ButtonSpinner } from "@/components/ui/spinner";
 
 export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
@@ -121,7 +122,7 @@ export default function LoginPage() {
             style={{ background: "var(--brand-gradient)" }}
           >
             {loading
-              ? "..."
+              ? <ButtonSpinner label={isRegister ? "Creating Account..." : "Signing In..."} />
               : isRegister
                 ? "Create Account"
                 : "Sign In"}

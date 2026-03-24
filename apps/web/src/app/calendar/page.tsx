@@ -6,6 +6,7 @@ import { CalendarImportModal } from "@/components/calendar/import-modal";
 import { CalendarItemList } from "@/components/calendar/item-list";
 import { cn } from "@/lib/utils";
 import { apiGet } from "@/lib/api";
+import { LoadingOverlay } from "@/components/ui/spinner";
 import type { CalendarItem } from "@/types";
 import { Upload } from "lucide-react";
 
@@ -71,7 +72,7 @@ export default function CalendarPage() {
       )}
 
       {loading ? (
-        <div className="mt-8 text-center text-[var(--text-secondary)]">Loading...</div>
+        <div className="mt-8"><LoadingOverlay text="Loading calendar..." /></div>
       ) : items.length === 0 ? (
         <div className="mt-8 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-12 text-center">
           <p className="text-[var(--text-secondary)]">No calendar items yet.</p>
