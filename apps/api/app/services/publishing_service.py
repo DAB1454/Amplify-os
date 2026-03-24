@@ -109,7 +109,7 @@ class PublishingService:
         self._assert_transition(post, PostStatus.QUEUED)
 
         # Run policy engine
-        policy_result = await self._evaluate_policy(post)
+        policy_result = self._evaluate_policy(post)
 
         # Capture policy evaluation
         await self._emit_learning(policy_evaluated(
@@ -341,47 +341,34 @@ class PublishingService:
 
     # ── internals ─────────────────────────────────────────────────────
 
-    async def _evaluate_policy(self, post: PostModel) -> dict:
-        """Run the policy engine against a post."""
-        # Resolve artist_id from the campaign if available
-        artist_id = ""
-        if post.campaign_id:
-            from amplify.db.models.campaign import CampaignModel
-            camp_result = await self.db.execute(
-                select(CampaignModel).where(CampaignModel.id == post.campaign_id)
+    def _evaluate_policy(self, post: PostModel) -> dict:
+        """Run the policy engine against a post.
+
+        Never raises — returns allow on error so posts aren't blocked
+        by policy engine bugs.
+        """
+        try:
+            ctx = ActionContext(
+                action_type="publish",
+                platform=post.platform or "",
+                content=post.content_text or "",
+                media_urls=post.media_urls or [],
+                destination_url=post.destination_url or "",
+                artist_id=str(post.channel_id) if post.channel_id else "",
+                release_id="",
+                campaign_id=str(post.campaign_id) if post.campaign_id else "",
             )
-            camp = camp_result.scalar_one_or_none()
-            if camp and camp.artist_id:
-                artist_id = str(camp.artist_id)
+            engine = create_default_engine()
+            result = engine.evaluate(ctx)
 
-        # If still no artist, try to resolve from channel
-        if not artist_id and hasattr(post, "channel_id") and post.channel_id:
-            from amplify.db.models.channel import ChannelModel
-            chan_result = await self.db.execute(
-                select(ChannelModel).where(ChannelModel.id == post.channel_id)
-            )
-            chan = chan_result.scalar_one_or_none()
-            if chan and hasattr(chan, "artist_id") and chan.artist_id:
-                artist_id = str(chan.artist_id)
-
-        ctx = ActionContext(
-            action_type="publish",
-            platform=post.platform or "",
-            content=post.content_text or "",
-            media_urls=post.media_urls or [],
-            destination_url=post.destination_url or "",
-            artist_id=artist_id,
-            release_id="",
-            campaign_id=str(post.campaign_id) if post.campaign_id else "",
-        )
-        engine = create_default_engine()
-        result = engine.evaluate(ctx)
-
-        if result.blocked:
-            return {"decision": "block", "reasons": result.blocking_reasons}
-        if result.needs_approval:
-            return {"decision": "require_approval", "reasons": result.approval_reasons}
-        return {"decision": "allow", "reasons": []}
+            if result.blocked:
+                return {"decision": "block", "reasons": result.blocking_reasons}
+            if result.needs_approval:
+                return {"decision": "require_approval", "reasons": result.approval_reasons}
+            return {"decision": "allow", "reasons": []}
+        except Exception:
+            logger.exception("Policy evaluation failed — defaulting to allow")
+            return {"decision": "allow", "reasons": []}
 
     async def _do_publish(self, post: PostModel) -> dict:
         """Call the platform adapter to publish.
