@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/header";
 import { OnboardingBanner } from "@/components/onboarding/onboarding-banner";
 import { apiGet } from "@/lib/api";
 import { LoadingOverlay } from "@/components/ui/spinner";
+import { formatLocalDate } from "@/lib/utils";
 
 interface Overview {
   total_campaigns: number;
@@ -269,7 +270,7 @@ export default function DashboardPage() {
                     {p.content_text || "(no content)"}
                   </p>
                   <p className="text-xs text-[var(--text-secondary)]">
-                    {p.platform} &middot; {new Date(p.created_at).toLocaleDateString()}
+                    {p.platform} &middot; {formatLocalDate(p.created_at)}
                   </p>
                 </div>
                 <span

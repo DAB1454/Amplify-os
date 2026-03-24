@@ -173,23 +173,38 @@ class InstagramAdapter(BaseAdapter):
         self._require_connected()
         self._check_token_expiry()
 
-        media_type = kwargs.get("media_type", "photo")
+        media_urls = media_paths or []
+        media_type = kwargs.get("media_type")
+
+        # Auto-detect media type from file extensions if not explicitly set
+        if not media_type and media_urls:
+            is_video = any(
+                u.lower().split("?")[0].endswith((".mp4", ".mov", ".webm"))
+                for u in media_urls
+            )
+            if len(media_urls) >= 2:
+                media_type = "carousel"
+            elif is_video:
+                media_type = "reel"
+            else:
+                media_type = "photo"
+        elif not media_type:
+            media_type = "photo"
 
         if self.dry_run:
             return self._dry_result(
                 "publish",
                 media_type=media_type,
                 content_length=len(content),
-                media_count=len(media_paths or []),
+                media_count=len(media_urls),
             )
 
         assert self._publisher is not None
-        media_urls = media_paths or []
 
         if media_type == "reel" and media_urls:
             post_id = await self._publisher.publish_reel(media_urls[0], content)
         elif media_type == "story" and media_urls:
-            is_video = any(u.endswith((".mp4", ".mov")) for u in media_urls)
+            is_video = any(u.lower().split("?")[0].endswith((".mp4", ".mov")) for u in media_urls)
             post_id = await self._publisher.publish_story(media_urls[0], is_video=is_video)
         elif media_type == "carousel" and len(media_urls) >= 2:
             post_id = await self._publisher.publish_carousel(media_urls, content)

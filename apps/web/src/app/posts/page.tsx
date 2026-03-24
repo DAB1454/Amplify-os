@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
+import { formatLocal } from "@/lib/utils";
 
 interface Post {
   id: string;
@@ -359,12 +360,12 @@ export default function PostsPage() {
 
                   <div className="mt-2 flex gap-4 text-xs text-[var(--text-secondary)]">
                     {post.scheduled_at && (
-                      <span>Scheduled: {new Date(post.scheduled_at).toLocaleString()}</span>
+                      <span>Scheduled: {formatLocal(post.scheduled_at)}</span>
                     )}
                     {post.published_at && (
-                      <span>Published: {new Date(post.published_at).toLocaleString()}</span>
+                      <span>Published: {formatLocal(post.published_at)}</span>
                     )}
-                    <span>Created: {new Date(post.created_at).toLocaleString()}</span>
+                    <span>Created: {formatLocal(post.created_at)}</span>
                   </div>
                 </div>
 

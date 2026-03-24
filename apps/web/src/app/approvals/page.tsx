@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
 import { LoadingOverlay } from "@/components/ui/spinner";
+import { formatLocal } from "@/lib/utils";
 
 interface Comment {
   id: string;
@@ -112,7 +113,7 @@ export default function ApprovalsPage() {
   };
 
   const formatAction = (t: string) => t.replace(/_/g, " ");
-  const formatDate = (s: string) => new Date(s).toLocaleString();
+  const formatDate = (s: string) => formatLocal(s);
 
   return (
     <>

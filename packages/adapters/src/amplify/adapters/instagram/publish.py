@@ -96,7 +96,10 @@ class InstagramPublisher:
         )
         container_id = container["id"]
 
-        # Step 2: Publish container
+        # Step 2: Wait for container processing
+        await self._wait_for_container(container_id)
+
+        # Step 3: Publish container
         result = await self._api_post(
             f"/{self.account_id}/media_publish",
             {"creation_id": container_id},
