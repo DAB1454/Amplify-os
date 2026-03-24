@@ -159,13 +159,16 @@ def _derive_connection_status(ch: ChannelConnectionModel) -> str:
         return "disconnected"
     if not ch.access_token:
         return "not_connected"
-    # Check last health status first
-    if ch.last_health_status in ("expired", "revoked", "error"):
+    # Check last health status first (but not "expired" — we re-derive that below)
+    if ch.last_health_status in ("revoked", "error"):
         return ch.last_health_status
     # Check token expiry
     if ch.token_expires_at:
         from datetime import datetime
         if datetime.utcnow() >= ch.token_expires_at:
+            # If there's a refresh token, it's just stale — not dead
+            if ch.refresh_token:
+                return "connected"
             return "expired"
     return "connected"
 
