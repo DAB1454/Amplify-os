@@ -83,5 +83,9 @@ services:
           property: connectionString
       - key: AMPLIFY_LOG_LEVEL
         value: INFO
+      - key: AMPLIFY_DEPLOYMENT_MODE
+        value: cloud
+      - key: AMPLIFY_TOKEN_ENCRYPTION_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false

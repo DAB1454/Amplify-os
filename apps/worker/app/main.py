@@ -143,6 +143,12 @@ class Worker:
         async def scheduled_health_check() -> None:
             await self._queue.enqueue("check_model_health", {})
 
+        # ── Scan for scheduled posts — every 60 seconds ──────────────
+        async def scheduled_scan_posts() -> None:
+            await self._queue.enqueue("scan_scheduled", {})
+
+        self._scheduler.register(scheduled_scan_posts, 60)                  # 60s
+
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h
         self._scheduler.register(scheduled_update_patterns, 86400)        # 24h

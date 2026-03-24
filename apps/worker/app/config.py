@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost:5432/amplify"
     redis_url: str = "redis://localhost:6379/0"
     log_level: str = "INFO"
+    deployment_mode: str = "local"
+
+    # Token encryption (must match API to decrypt channel credentials)
+    token_encryption_key: str = ""
+    token_encryption_old_keys: list[str] = []
 
     # Queue configuration
     max_retries: int = 3
@@ -32,5 +37,9 @@ class Settings(BaseSettings):
                 "database_url",
                 self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1),
             )
+
+    @property
+    def is_local(self) -> bool:
+        return self.deployment_mode == "local"
 
     model_config = {"env_prefix": "AMPLIFY_"}
