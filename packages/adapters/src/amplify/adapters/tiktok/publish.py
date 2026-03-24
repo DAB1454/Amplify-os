@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 TT_API = "https://open.tiktokapis.com/v2"
 MAX_VIDEO_SIZE = 4 * 1024 * 1024 * 1024  # 4 GB
+CHUNK_SIZE = 10 * 1024 * 1024  # 10 MB per chunk
 
 
 def _is_url(path: str) -> bool:
@@ -111,6 +112,8 @@ class TikTokPublisher:
                     "source_info": {
                         "source": "FILE_UPLOAD",
                         "video_size": video_size,
+                        "chunk_size": min(video_size, CHUNK_SIZE),
+                        "total_chunk_count": max(1, -(-video_size // CHUNK_SIZE)),
                     },
                 },
             )
@@ -184,22 +187,27 @@ class TikTokPublisher:
         if not upload_url:
             raise PublishError("No upload URL returned", platform="tiktok")
 
-        # Upload video bytes
+        # Upload video bytes in chunks
         async with httpx.AsyncClient(timeout=300) as client:
             with open(video, "rb") as f:
-                resp = await client.put(
-                    upload_url,
-                    content=f.read(),
-                    headers={
-                        "Content-Type": "video/mp4",
-                        "Content-Range": f"bytes 0-{file_size - 1}/{file_size}",
-                    },
-                )
-                if resp.status_code >= 400:
-                    raise PublishError(
-                        f"Video upload failed: {resp.status_code}",
-                        platform="tiktok",
+                offset = 0
+                while offset < file_size:
+                    chunk = f.read(CHUNK_SIZE)
+                    chunk_end = offset + len(chunk) - 1
+                    resp = await client.put(
+                        upload_url,
+                        content=chunk,
+                        headers={
+                            "Content-Type": "video/mp4",
+                            "Content-Range": f"bytes {offset}-{chunk_end}/{file_size}",
+                        },
                     )
+                    if resp.status_code >= 400:
+                        raise PublishError(
+                            f"Video upload failed: {resp.status_code}",
+                            platform="tiktok",
+                        )
+                    offset += len(chunk)
 
         return publish_id
 
