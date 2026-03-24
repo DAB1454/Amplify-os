@@ -109,7 +109,7 @@ class PublishingService:
         self._assert_transition(post, PostStatus.QUEUED)
 
         # Run policy engine
-        policy_result = self._evaluate_policy(post)
+        policy_result = await self._evaluate_policy(post)
 
         # Capture policy evaluation
         await self._emit_learning(policy_evaluated(
@@ -341,15 +341,36 @@ class PublishingService:
 
     # ── internals ─────────────────────────────────────────────────────
 
-    def _evaluate_policy(self, post: PostModel) -> dict:
+    async def _evaluate_policy(self, post: PostModel) -> dict:
         """Run the policy engine against a post."""
+        # Resolve artist_id from the campaign if available
+        artist_id = ""
+        if post.campaign_id:
+            from amplify.db.models.campaign import CampaignModel
+            camp_result = await self.db.execute(
+                select(CampaignModel).where(CampaignModel.id == post.campaign_id)
+            )
+            camp = camp_result.scalar_one_or_none()
+            if camp and camp.artist_id:
+                artist_id = str(camp.artist_id)
+
+        # If still no artist, try to resolve from channel
+        if not artist_id and hasattr(post, "channel_id") and post.channel_id:
+            from amplify.db.models.channel import ChannelModel
+            chan_result = await self.db.execute(
+                select(ChannelModel).where(ChannelModel.id == post.channel_id)
+            )
+            chan = chan_result.scalar_one_or_none()
+            if chan and hasattr(chan, "artist_id") and chan.artist_id:
+                artist_id = str(chan.artist_id)
+
         ctx = ActionContext(
             action_type="publish",
             platform=post.platform or "",
             content=post.content_text or "",
             media_urls=post.media_urls or [],
             destination_url=post.destination_url or "",
-            artist_id="",  # Resolved from campaign/channel in a full integration
+            artist_id=artist_id,
             release_id="",
             campaign_id=str(post.campaign_id) if post.campaign_id else "",
         )

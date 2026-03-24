@@ -70,8 +70,14 @@ export default function PostsPage() {
 
   const handleAction = async (postId: string, action: string) => {
     try {
-      await apiPost(`/api/v1/posts/${postId}/${action}`, {});
-      setFetchError(null);
+      const result = await apiPost<{ status?: string; policy_decision?: string; reasons?: string[] }>(
+        `/api/v1/posts/${postId}/${action}`, {}
+      );
+      if (result?.policy_decision === "block") {
+        setFetchError(`Policy blocked: ${result.reasons?.join(", ") || "Unknown reason"}`);
+      } else {
+        setFetchError(null);
+      }
       fetchPosts();
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : `Failed to ${action} post`);
