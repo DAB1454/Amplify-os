@@ -14,6 +14,7 @@ from app.routes.auth import router as auth_router
 from app.routes.tenants import router as tenants_router
 from app.routes.artists import router as artists_router
 from app.routes.releases import router as releases_router
+from app.routes.tracks import router as tracks_router
 from app.routes.channels import router as channels_router
 from app.routes.campaigns import router as campaigns_router
 from app.routes.calendar_items import router as calendar_items_router
@@ -133,6 +134,7 @@ def create_app() -> FastAPI:
     application.include_router(tenants_router, prefix=prefix)
     application.include_router(artists_router, prefix=prefix)
     application.include_router(releases_router, prefix=prefix)
+    application.include_router(tracks_router, prefix=prefix)
     application.include_router(channels_router, prefix=prefix)
     application.include_router(campaigns_router, prefix=prefix)
     application.include_router(calendar_items_router, prefix=prefix)

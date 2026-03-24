@@ -156,6 +156,43 @@ class ReleaseResponse(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
+# ── Track ─────────────────────────────────────────────────────────
+
+class TrackCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    track_number: int = 1
+    duration_seconds: int | None = None
+    isrc: str | None = None
+    audio_url: str | None = None
+    lyrics: str | None = None
+    is_single: bool = False
+
+class TrackUpdateRequest(BaseModel):
+    title: str | None = None
+    track_number: int | None = None
+    duration_seconds: int | None = None
+    isrc: str | None = None
+    audio_url: str | None = None
+    lyrics: str | None = None
+    is_single: bool | None = None
+
+class TrackResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    release_id: uuid.UUID
+    title: str
+    track_number: int
+    duration_seconds: int | None
+    isrc: str | None
+    audio_url: str | None
+    lyrics: str | None
+    is_single: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Campaign ──────────────────────────────────────────────────────
 
 class CampaignCreateRequest(BaseModel):
