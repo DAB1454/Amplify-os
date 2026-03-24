@@ -45,6 +45,8 @@ export default function PostsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "" });
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -123,6 +125,8 @@ export default function PostsPage() {
           className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5 space-y-3"
           onSubmit={async (e) => {
             e.preventDefault();
+            setCreateError(null);
+            setCreating(true);
             try {
               await apiPost("/api/v1/posts", {
                 channel_id: newPost.channel_id,
@@ -133,8 +137,10 @@ export default function PostsPage() {
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
               fetchPosts();
-            } catch {
-              /* ignore */
+            } catch (err) {
+              setCreateError(err instanceof Error ? err.message : "Failed to create post");
+            } finally {
+              setCreating(false);
             }
           }}
         >
@@ -180,12 +186,15 @@ export default function PostsPage() {
               className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
             />
           </div>
+          {createError && (
+            <p className="text-xs text-red-400">{createError}</p>
+          )}
           <button
             type="submit"
-            disabled={channels.length === 0}
+            disabled={channels.length === 0 || creating}
             className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-gray-950 hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            Create Post
+            {creating ? "Creating..." : "Create Post"}
           </button>
         </form>
       )}
