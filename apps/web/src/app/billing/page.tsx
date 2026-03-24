@@ -46,9 +46,11 @@ export default function BillingPage() {
   const [sub, setSub] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [p, u, s] = await Promise.all([
         apiGet<Plan[]>("/api/v1/billing/plans"),
@@ -58,8 +60,9 @@ export default function BillingPage() {
       setPlans(p);
       setUsage(u);
       setSub(s);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load billing data");
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -68,12 +71,20 @@ export default function BillingPage() {
     try {
       await apiPost(`/api/v1/billing/change-plan?plan_tier=${tier}`, {});
       fetchAll();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to change plan");
+    }
   };
 
   return (
     <>
       <Header title="Billing & Plans" />
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">

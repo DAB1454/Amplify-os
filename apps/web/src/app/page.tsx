@@ -102,19 +102,23 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, approvals, camps, posts, blended] = await Promise.all([
-        apiGet<Overview>("/api/v1/analytics/overview").catch(() => null),
-        apiGet<ApprovalCount>("/api/v1/approvals/count").catch(() => ({ pending_count: 0 })),
-        apiGet<Campaign[]>("/api/v1/campaigns/?status=active").catch(() => []),
-        apiGet<Post[]>("/api/v1/posts/").catch(() => []),
-        apiGet<BlendedResponse>("/api/v1/learning/tenant/me/blended-recommendations").catch(() => null),
+      const [ov, approvals, camps, posts, blended] = await Promise.allSettled([
+        apiGet<Overview>("/api/v1/analytics/overview"),
+        apiGet<ApprovalCount>("/api/v1/approvals/count"),
+        apiGet<Campaign[]>("/api/v1/campaigns/?status=active"),
+        apiGet<Post[]>("/api/v1/posts/"),
+        apiGet<BlendedResponse>("/api/v1/learning/tenant/me/blended-recommendations"),
       ]);
-      setOverview(ov);
-      setPendingCount(approvals.pending_count);
-      setCampaigns(camps);
+      const failures = [ov, approvals, camps, posts, blended].filter((r) => r.status === "rejected");
+      if (failures.length === 5) {
+        throw new Error((failures[0] as PromiseRejectedResult).reason?.message || "Failed to load dashboard");
+      }
+      setOverview(ov.status === "fulfilled" ? ov.value : null);
+      setPendingCount(approvals.status === "fulfilled" ? approvals.value.pending_count : 0);
+      setCampaigns(camps.status === "fulfilled" ? camps.value : []);
       // Show most recent 5 posts
-      setRecentPosts(posts.slice(0, 5));
-      setInsights(blended);
+      setRecentPosts(posts.status === "fulfilled" ? posts.value.slice(0, 5) : []);
+      setInsights(blended.status === "fulfilled" ? blended.value : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {

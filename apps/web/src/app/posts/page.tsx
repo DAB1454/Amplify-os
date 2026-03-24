@@ -47,15 +47,18 @@ export default function PostsPage() {
   const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "" });
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const query = activeTab === "all" ? "" : `?status=${activeTab}`;
       const data = await apiGet<Post[]>(`/api/v1/posts/${query}`);
       setPosts(data);
-    } catch {
+    } catch (err) {
       setPosts([]);
+      setFetchError(err instanceof Error ? err.message : "Failed to load posts");
     } finally {
       setLoading(false);
     }
@@ -110,7 +113,9 @@ export default function PostsPage() {
                 if (active.length > 0) {
                   setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "" });
                 }
-              } catch { /* ignore */ }
+              } catch (err) {
+                setCreateError(err instanceof Error ? err.message : "Failed to load channels");
+              }
             }
             setShowCreate(!showCreate);
           }}
@@ -197,6 +202,12 @@ export default function PostsPage() {
             {creating ? "Creating..." : "Create Post"}
           </button>
         </form>
+      )}
+
+      {fetchError && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {fetchError}
+        </div>
       )}
 
       <div className="mt-8 flex gap-2 flex-wrap">

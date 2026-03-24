@@ -70,8 +70,8 @@ export default function SettingsPage() {
       setControls(controlsData);
       setStats(statsData);
       setAnomalies(anomalyData.alerts);
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setBanner({ type: "error", message: err instanceof Error ? err.message : "Failed to load settings" });
     } finally {
       setLoading(false);
     }
@@ -99,8 +99,8 @@ export default function SettingsPage() {
     try {
       const result = await apiPost<RollbackResult>("/api/v1/safety/rollback-check", {});
       setRollback(result);
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setBanner({ type: "error", message: err instanceof Error ? err.message : "Rollback check failed" });
     }
   };
 

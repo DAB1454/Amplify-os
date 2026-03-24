@@ -40,9 +40,11 @@ export default function AdminPage() {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [tierFilter, setTierFilter] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const filter = tierFilter ? `?plan_tier=${tierFilter}` : "";
       const [s, t] = await Promise.all([
@@ -51,8 +53,9 @@ export default function AdminPage() {
       ]);
       setStats(s);
       setTenants(t);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load admin data");
+    } finally { setLoading(false); }
   }, [tierFilter]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -61,19 +64,29 @@ export default function AdminPage() {
     try {
       await apiPost(`/api/v1/admin/tenants/${tenantId}/toggle-active`, {});
       fetchAll();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to toggle tenant");
+    }
   };
 
   const handleChangePlan = async (tenantId: string, tier: string) => {
     try {
       await apiPost(`/api/v1/admin/tenants/${tenantId}/change-plan?plan_tier=${tier}`, {});
       fetchAll();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to change plan");
+    }
   };
 
   return (
     <>
       <Header title="Admin Console" />
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">

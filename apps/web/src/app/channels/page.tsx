@@ -136,8 +136,8 @@ export default function ChannelsPage() {
       setChannels(chans);
       setTasks(taskList);
       if (artists.length > 0) setArtistId(artists[0].id);
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setConnectBanner({ platform: "system", status: "error", message: err instanceof Error ? err.message : "Failed to load channels" });
     } finally {
       setLoading(false);
     }
@@ -386,7 +386,7 @@ export default function ChannelsPage() {
               </h3>
               <div className="mt-3 space-y-2">
                 {autoChannels.map((ch) => (
-                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} />
+                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} />
                 ))}
               </div>
             </>
@@ -403,7 +403,7 @@ export default function ChannelsPage() {
               </h3>
               <div className="mt-3 space-y-2">
                 {assistedChannels.map((ch) => (
-                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} />
+                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} />
                 ))}
               </div>
             </>
@@ -432,7 +432,9 @@ export default function ChannelsPage() {
                   try {
                     await apiPost(`/api/v1/assisted-tasks/templates/${action.template}`, {});
                     fetchAll();
-                  } catch { /* ignore */ }
+                  } catch (err) {
+                    setConnectBanner({ platform: action.template, status: "error", message: err instanceof Error ? err.message : "Failed to create task" });
+                  }
                 }}
                 className="flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors"
               >
@@ -520,7 +522,7 @@ function CapabilityBadge({ name, enabled }: { name: string; enabled: boolean }) 
   );
 }
 
-function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () => void }) {
+function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefresh: () => void; onError?: (msg: string) => void }) {
   const status = channel.connection_status || (channel.is_active ? "connected" : "disconnected");
   const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected";
   const isAutomatic = channel.integration_mode === "automatic";
@@ -573,7 +575,9 @@ function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () =
                 try {
                   await apiGet(`/api/v1/channels/${channel.id}/health`);
                   onRefresh();
-                } catch { /* ignore */ }
+                } catch (err) {
+                  onError?.(err instanceof Error ? err.message : "Health check failed");
+                }
               }}
               className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               title="Check Health"
@@ -588,7 +592,9 @@ function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () =
                       `/api/v1/channels/connect/${channel.platform}?artist_id=${channel.artist_id || "00000000-0000-0000-0000-000000000000"}`
                     );
                     if (resp.auth_url) window.location.href = resp.auth_url;
-                  } catch { /* ignore */ }
+                  } catch (err) {
+                    onError?.(err instanceof Error ? err.message : "Reconnect failed");
+                  }
                 }}
                 className="text-[10px] text-yellow-400 hover:text-yellow-300"
               >
@@ -600,7 +606,9 @@ function ChannelCard({ channel, onRefresh }: { channel: Channel; onRefresh: () =
                 try {
                   await apiPost(`/api/v1/channels/${channel.id}/disconnect`, {});
                   onRefresh();
-                } catch { /* ignore */ }
+                } catch (err) {
+                  onError?.(err instanceof Error ? err.message : "Disconnect failed");
+                }
               }}
               className="text-[10px] text-red-400/60 hover:text-red-400"
               title="Disconnect"
@@ -643,7 +651,9 @@ function TaskCard({
         {}
       );
       onRefresh();
-    } catch { /* ignore */ }
+    } catch {
+      // Checklist toggle is low-stakes — silently retry on next click
+    }
   };
 
   return (

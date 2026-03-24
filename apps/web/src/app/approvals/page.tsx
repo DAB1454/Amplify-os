@@ -54,9 +54,11 @@ export default function ApprovalsPage() {
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [decisionComment, setDecisionComment] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchApprovals = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const endpoint =
         tab === "pending"
@@ -64,8 +66,9 @@ export default function ApprovalsPage() {
           : "/api/v1/approvals/history";
       const data = await apiGet<ApprovalItem[]>(endpoint);
       setApprovals(data);
-    } catch {
+    } catch (err) {
       setApprovals([]);
+      setError(err instanceof Error ? err.message : "Failed to load approvals");
     } finally {
       setLoading(false);
     }
@@ -76,7 +79,7 @@ export default function ApprovalsPage() {
       const data = await apiGet<{ pending_count: number }>("/api/v1/approvals/count");
       setPendingCount(data.pending_count);
     } catch {
-      /* ignore */
+      // Count badge is non-critical
     }
   }, []);
 
@@ -142,6 +145,12 @@ export default function ApprovalsPage() {
           History
         </button>
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* List */}
       <div className="mt-6 space-y-4">

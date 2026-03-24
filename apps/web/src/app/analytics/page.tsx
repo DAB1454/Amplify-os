@@ -114,11 +114,13 @@ export default function AnalyticsPage() {
   const [scores, setScores] = useState<PostScore[]>([]);
   const [report, setReport] = useState<AnalystReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const days = dayMap[range];
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [ov, ts, sc, rp] = await Promise.all([
         apiGet<Overview>("/api/v1/analytics/overview"),
@@ -130,8 +132,8 @@ export default function AnalyticsPage() {
       setTimeseries(ts);
       setScores(sc);
       setReport(rp);
-    } catch {
-      /* ignore fetch errors */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load analytics");
     } finally {
       setLoading(false);
     }
@@ -169,6 +171,12 @@ export default function AnalyticsPage() {
           </span>
         )}
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-6 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">

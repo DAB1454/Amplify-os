@@ -16,14 +16,16 @@ export default function CalendarPage() {
   const [showImport, setShowImport] = useState(false);
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await apiGet<CalendarItem[]>("/api/v1/calendar");
       setItems(data);
-    } catch {
-      // Handle error silently for now
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load calendar");
     } finally {
       setLoading(false);
     }
@@ -61,6 +63,12 @@ export default function CalendarPage() {
           Import CSV
         </button>
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-8 text-center text-[var(--text-secondary)]">Loading...</div>

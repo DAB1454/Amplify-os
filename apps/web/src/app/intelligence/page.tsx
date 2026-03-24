@@ -198,6 +198,7 @@ function StatCard({ label, value, alert }: { label: string; value: number | stri
 export default function IntelligencePage() {
   const [tab, setTab] = useState<TabKey>("overview");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Data
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -219,6 +220,7 @@ export default function IntelligencePage() {
 
   const fetchTab = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       switch (tab) {
         case "overview": {
@@ -271,8 +273,8 @@ export default function IntelligencePage() {
           break;
         }
       }
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load intelligence data");
     } finally {
       setLoading(false);
     }
@@ -303,6 +305,12 @@ export default function IntelligencePage() {
           </button>
         ))}
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-8 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">

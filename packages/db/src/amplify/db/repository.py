@@ -57,6 +57,7 @@ class BaseRepository(Generic[T]):
         entity = self.model(**kwargs)
         self.session.add(entity)
         await self.session.flush()
+        await self.session.refresh(entity)
         return entity
 
     async def update(self, id: uuid.UUID, **kwargs: object) -> T | None:
