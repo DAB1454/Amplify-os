@@ -164,6 +164,66 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   });
 }
 
+/**
+ * Upload a file with progress reporting via XMLHttpRequest.
+ * onProgress receives a value from 0 to 100.
+ */
+export function apiUploadWithProgress<T>(
+  path: string,
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const token = getAccessToken();
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Invalid JSON response"));
+        }
+      } else {
+        let detail = `HTTP ${xhr.status}`;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          detail = body.detail || body.message || detail;
+        } catch { /* use default */ }
+        reject(new ApiError(xhr.status, detail));
+      }
+    });
+
+    xhr.addEventListener("error", () => reject(new Error("Upload failed — network error")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    xhr.open("POST", `${API_BASE}${path}`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Upload a CSV file (for track import).
+ */
+export async function apiUploadCSV<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<T>(path, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 // ── Auth helpers ────────────────────────────────────────────────
 
 export async function login(email: string, password: string) {

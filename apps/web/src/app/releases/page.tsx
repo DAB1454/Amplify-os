@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, apiUploadWithProgress, apiUploadCSV } from "@/lib/api";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
 interface Artist {
@@ -262,7 +262,7 @@ export default function ReleasesPage() {
                     onClick={() => toggleRelease(r.id)}
                     className="text-xs text-[var(--text-secondary)]"
                   >
-                    {expandedRelease === r.id ? "▼" : "▶"}
+                    {expandedRelease === r.id ? "\u25BC" : "\u25B6"}
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export default function ReleasesPage() {
                       {tracks[r.id] && (
                         <span className="text-[10px] text-[var(--text-secondary)]">
                           {tracks[r.id].length} track{tracks[r.id].length !== 1 ? "s" : ""}
-                          {" · "}
+                          {" \u00b7 "}
                           {tracks[r.id].filter((t) => t.audio_url).length} with audio
                         </span>
                       )}
@@ -327,7 +327,37 @@ export default function ReleasesPage() {
   );
 }
 
+// ── Upload Progress Bar ──────────────────────────────────────────
+
+function ProgressBar({ filename, progress, status }: { filename: string; progress: number; status: "uploading" | "processing" | "done" | "error" }) {
+  const barColor = status === "error" ? "bg-red-500" : status === "done" ? "bg-green-500" : "bg-[var(--brand-gold)]";
+  const textColor = status === "error" ? "text-red-600" : status === "done" ? "text-green-600" : "text-[var(--text-secondary)]";
+
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-[var(--text-primary)] truncate">{filename}</p>
+        <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${barColor}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+      <span className={`text-[10px] font-mono shrink-0 w-12 text-right ${textColor}`}>
+        {status === "done" ? "Done" : status === "error" ? "Fail" : status === "processing" ? "Saving..." : `${progress}%`}
+      </span>
+    </div>
+  );
+}
+
 // ── Track List Component ──────────────────────────────────────────
+
+interface UploadProgress {
+  filename: string;
+  progress: number;
+  status: "uploading" | "processing" | "done" | "error";
+}
 
 function TrackList({
   releaseId,
@@ -345,7 +375,13 @@ function TrackList({
   const [saving, setSaving] = useState(false);
   const [uploadingTrackId, setUploadingTrackId] = useState<string | null>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const bulkInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
   const [pendingTrackId, setPendingTrackId] = useState<string | null>(null);
+
+  // Bulk upload progress tracking
+  const [bulkUploads, setBulkUploads] = useState<Record<string, UploadProgress>>({});
+  const [showImportMenu, setShowImportMenu] = useState(false);
 
   const handleAddTrack = async () => {
     if (!newTrack.title.trim()) return;
@@ -369,7 +405,11 @@ function TrackList({
   const handleUploadAudio = async (trackId: string, file: File) => {
     setUploadingTrackId(trackId);
     try {
-      const result = await apiUpload<{ url: string }>("/api/v1/media/upload", file);
+      const result = await apiUploadWithProgress<{ url: string }>(
+        "/api/v1/media/upload",
+        file,
+        () => {},
+      );
       await apiPut(`/api/v1/releases/${releaseId}/tracks/${trackId}`, {
         audio_url: result.url,
       });
@@ -390,24 +430,189 @@ function TrackList({
     }
   };
 
+  const handleToggleSingle = async (track: Track) => {
+    try {
+      await apiPut(`/api/v1/releases/${releaseId}/tracks/${track.id}`, {
+        is_single: !track.is_single,
+      });
+      onRefresh();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to update track");
+    }
+  };
+
+  // ── Bulk audio upload (multiple files at once) ──
+  const handleBulkAudioUpload = async (files: FileList) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    // Initialize progress for all files
+    const initialProgress: Record<string, UploadProgress> = {};
+    fileArray.forEach((f) => {
+      initialProgress[f.name] = { filename: f.name, progress: 0, status: "uploading" };
+    });
+    setBulkUploads(initialProgress);
+
+    // Parse track info from filenames like "01 - Track Title.mp3" or "01_Track_Title.wav"
+    const parseFilename = (name: string): { trackNumber: number; title: string } => {
+      const ext = name.lastIndexOf(".");
+      const base = ext > 0 ? name.substring(0, ext) : name;
+
+      // Try "01 - Title" pattern
+      const dashMatch = base.match(/^(\d+)\s*[-–—]\s*(.+)$/);
+      if (dashMatch) {
+        return { trackNumber: parseInt(dashMatch[1]), title: dashMatch[2].trim() };
+      }
+
+      // Try "01_Title" or "01 Title" pattern
+      const spaceMatch = base.match(/^(\d+)[_\s]+(.+)$/);
+      if (spaceMatch) {
+        return { trackNumber: parseInt(spaceMatch[1]), title: spaceMatch[2].replace(/_/g, " ").trim() };
+      }
+
+      // No number prefix — use file order
+      return { trackNumber: 0, title: base.replace(/_/g, " ").trim() };
+    };
+
+    // Sort files by parsed track number for consistent ordering
+    const parsed = fileArray.map((f) => ({ file: f, ...parseFilename(f.name) }));
+    parsed.sort((a, b) => (a.trackNumber || 999) - (b.trackNumber || 999));
+
+    // Upload all files simultaneously, create tracks from results
+    const trackItems: { title: string; track_number: number; audio_url: string }[] = [];
+    const existingMax = tracks.length > 0 ? Math.max(...tracks.map((t) => t.track_number)) : 0;
+
+    const uploadPromises = parsed.map(async ({ file, trackNumber, title }, idx) => {
+      try {
+        const result = await apiUploadWithProgress<{ url: string }>(
+          "/api/v1/media/upload",
+          file,
+          (pct) => {
+            setBulkUploads((prev) => ({
+              ...prev,
+              [file.name]: { ...prev[file.name], progress: pct },
+            }));
+          },
+        );
+
+        setBulkUploads((prev) => ({
+          ...prev,
+          [file.name]: { ...prev[file.name], progress: 100, status: "processing" },
+        }));
+
+        trackItems.push({
+          title,
+          track_number: trackNumber || (existingMax + idx + 1),
+          audio_url: result.url,
+        });
+
+        setBulkUploads((prev) => ({
+          ...prev,
+          [file.name]: { ...prev[file.name], status: "done" },
+        }));
+      } catch (err) {
+        setBulkUploads((prev) => ({
+          ...prev,
+          [file.name]: { ...prev[file.name], status: "error", progress: 0 },
+        }));
+      }
+    });
+
+    await Promise.all(uploadPromises);
+
+    // Bulk create tracks from all successful uploads
+    if (trackItems.length > 0) {
+      try {
+        await apiPost(`/api/v1/releases/${releaseId}/tracks/bulk`, {
+          tracks: trackItems,
+        });
+        onRefresh();
+      } catch (err) {
+        onError(err instanceof Error ? err.message : "Failed to create tracks from uploaded files");
+      }
+    }
+
+    // Clear progress after a moment so user can see final state
+    setTimeout(() => setBulkUploads({}), 3000);
+  };
+
+  // ── CSV import ──
+  const handleCSVImport = async (file: File) => {
+    try {
+      const result = await apiUploadCSV<{ created: number; skipped: number; errors: string[] }>(
+        `/api/v1/releases/${releaseId}/tracks/import-csv`,
+        file,
+      );
+      onRefresh();
+      if (result.errors.length > 0) {
+        onError(`Imported ${result.created} tracks (${result.skipped} skipped). Issues: ${result.errors.join("; ")}`);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "CSV import failed");
+    }
+  };
+
+  const hasActiveUploads = Object.values(bulkUploads).some((u) => u.status === "uploading" || u.status === "processing");
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
           Tracks
         </h4>
-        <button
-          onClick={() => {
-            setNewTrack({ title: "", track_number: tracks.length + 1, isrc: "" });
-            setShowAddTrack(!showAddTrack);
-          }}
-          className="text-xs text-[var(--brand-gold)] hover:underline"
-        >
-          {showAddTrack ? "Cancel" : "+ Add Track"}
-        </button>
+        <div className="flex items-center gap-3 relative">
+          {/* Import dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowImportMenu(!showImportMenu)}
+              className="text-xs text-indigo-500 hover:underline"
+            >
+              Import / Bulk Upload
+            </button>
+            {showImportMenu && (
+              <div className="absolute right-0 top-6 z-20 w-56 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] shadow-lg py-1">
+                <button
+                  onClick={() => {
+                    setShowImportMenu(false);
+                    bulkInputRef.current?.click();
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors"
+                >
+                  <span className="font-medium">Upload Audio Files</span>
+                  <br />
+                  <span className="text-[var(--text-secondary)]">
+                    Drop multiple audio files — auto-creates tracks
+                  </span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowImportMenu(false);
+                    csvInputRef.current?.click();
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors border-t border-[var(--border-color)]"
+                >
+                  <span className="font-medium">Import from CSV</span>
+                  <br />
+                  <span className="text-[var(--text-secondary)]">
+                    Columns: title, track_number, isrc, duration, is_single
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              setNewTrack({ title: "", track_number: tracks.length + 1, isrc: "" });
+              setShowAddTrack(!showAddTrack);
+            }}
+            className="text-xs text-[var(--brand-gold)] hover:underline"
+          >
+            {showAddTrack ? "Cancel" : "+ Add Track"}
+          </button>
+        </div>
       </div>
 
-      {/* Hidden file input for audio upload */}
+      {/* Hidden file inputs */}
       <input
         ref={audioInputRef}
         type="file"
@@ -422,6 +627,60 @@ function TrackList({
           setPendingTrackId(null);
         }}
       />
+      <input
+        ref={bulkInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0) handleBulkAudioUpload(files);
+          if (bulkInputRef.current) bulkInputRef.current.value = "";
+        }}
+      />
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleCSVImport(file);
+          if (csvInputRef.current) csvInputRef.current.value = "";
+        }}
+      />
+
+      {/* Close import menu on outside click */}
+      {showImportMenu && (
+        <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
+      )}
+
+      {/* Bulk upload progress */}
+      {Object.keys(bulkUploads).length > 0 && (
+        <div className="mb-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h5 className="text-xs font-semibold text-[var(--text-primary)]">
+              Uploading {Object.keys(bulkUploads).length} file{Object.keys(bulkUploads).length !== 1 ? "s" : ""}
+            </h5>
+            {hasActiveUploads && (
+              <span className="text-[10px] text-[var(--text-secondary)] animate-pulse">
+                Processing...
+              </span>
+            )}
+          </div>
+          <div className="space-y-1">
+            {Object.values(bulkUploads).map((u) => (
+              <ProgressBar
+                key={u.filename}
+                filename={u.filename}
+                progress={u.progress}
+                status={u.status}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Add track form */}
       {showAddTrack && (
@@ -467,8 +726,25 @@ function TrackList({
       )}
 
       {/* Track list */}
-      {tracks.length === 0 ? (
-        <p className="text-xs text-[var(--text-secondary)] italic">No tracks yet. Add tracks to this release.</p>
+      {tracks.length === 0 && Object.keys(bulkUploads).length === 0 ? (
+        <div
+          className="rounded-lg border-2 border-dashed border-[var(--border-color)] p-6 text-center cursor-pointer hover:border-[var(--brand-gold)] transition-colors"
+          onClick={() => bulkInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleBulkAudioUpload(files);
+          }}
+        >
+          <p className="text-sm text-[var(--text-secondary)]">
+            No tracks yet. Drop audio files here or click to upload.
+          </p>
+          <p className="text-[10px] text-[var(--text-secondary)] mt-1">
+            Supports MP3, WAV, FLAC, AAC, OGG &bull; Filenames like &quot;01 - Title.mp3&quot; auto-fill track info
+          </p>
+        </div>
       ) : (
         <div className="space-y-1.5">
           {tracks.map((track) => (
@@ -492,9 +768,23 @@ function TrackList({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {/* Single toggle */}
+                <button
+                  onClick={() => handleToggleSingle(track)}
+                  className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                    track.is_single
+                      ? "bg-blue-100 text-blue-600 hover:bg-blue-200"
+                      : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-blue-400 hover:text-blue-500"
+                  }`}
+                  title={track.is_single ? "Remove as single" : "Release as single"}
+                >
+                  {track.is_single ? "Single" : "Mark Single"}
+                </button>
+
+                {/* Audio status / upload */}
                 {track.audio_url ? (
                   <span className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-0.5 text-[10px] text-green-600">
-                    <span>🎵</span> Audio uploaded
+                    Audio uploaded
                   </span>
                 ) : uploadingTrackId === track.id ? (
                   <ButtonSpinner label="Uploading..." />
@@ -529,6 +819,23 @@ function TrackList({
               </div>
             </div>
           ))}
+
+          {/* Drop zone at bottom for adding more files */}
+          <div
+            className="rounded-lg border border-dashed border-[var(--border-color)] px-3 py-2 text-center cursor-pointer hover:border-[var(--brand-gold)] transition-colors"
+            onClick={() => bulkInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const files = e.dataTransfer.files;
+              if (files.length > 0) handleBulkAudioUpload(files);
+            }}
+          >
+            <p className="text-[10px] text-[var(--text-secondary)]">
+              Drop more audio files here or click to upload
+            </p>
+          </div>
         </div>
       )}
     </div>
