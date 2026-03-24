@@ -99,6 +99,7 @@ async def create_post(
     except Exception as exc:
         logger.warning("Audit log failed: %s", exc)
 
+    # Learning event — fire-and-forget, must not break the main transaction
     try:
         from amplify.learning.capture import post_created
         event_data = post_created(
@@ -110,16 +111,11 @@ async def create_post(
             content_length=len(entity.content_text or ""),
             has_media=bool(entity.media_urls),
         )
-        nested = await db.begin_nested()
         await learning.emit(**{
             k: v for k, v in event_data.items() if k != "tenant_id"
         })
-        await nested.commit()
-    except Exception:
-        try:
-            await nested.rollback()
-        except Exception:
-            pass
+    except Exception as exc:
+        logger.warning("Learning event failed (non-fatal): %s", exc)
 
     return entity
 
