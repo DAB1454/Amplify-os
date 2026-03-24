@@ -154,6 +154,16 @@ export async function apiDelete<T = void>(path: string): Promise<T> {
   return apiFetch<T>(path, { method: "DELETE" });
 }
 
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file);
+  // Don't set Content-Type — browser sets multipart boundary automatically
+  return apiFetch<T>(path, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 // ── Auth helpers ────────────────────────────────────────────────
 
 export async function login(email: string, password: string) {

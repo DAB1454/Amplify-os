@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = ""
 
+    # Storage (S3-compatible)
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    media_base_url: str = ""  # Override URL prefix for serving media
+
     # Frontend URL for OAuth callback redirects
     frontend_url: str = "http://localhost:3000"
 

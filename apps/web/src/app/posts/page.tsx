@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, apiUpload } from "@/lib/api";
+import { useRef } from "react";
 
 interface Post {
   id: string;
@@ -48,6 +49,8 @@ export default function PostsPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<{ file: File; url: string | null; uploading: boolean }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -144,14 +147,28 @@ export default function PostsPage() {
             setCreateError(null);
             setCreating(true);
             try {
+              // Upload any pending files first
+              const uploadedUrls: string[] = [];
+              for (const mf of mediaFiles) {
+                if (mf.url) {
+                  uploadedUrls.push(mf.url);
+                } else {
+                  const result = await apiUpload<{ url: string }>("/api/v1/media/upload", mf.file);
+                  uploadedUrls.push(result.url);
+                }
+              }
+              // Also include any manually entered URLs
+              const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
+
               await apiPost("/api/v1/posts", {
                 channel_id: newPost.channel_id,
                 platform: newPost.platform,
                 content_text: newPost.content_text,
-                media_urls: newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()) : [],
+                media_urls: [...uploadedUrls, ...manualUrls],
               });
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
+              setMediaFiles([]);
               fetchPosts();
             } catch (err) {
               setCreateError(err instanceof Error ? err.message : "Failed to create post");
@@ -193,7 +210,52 @@ export default function PostsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Media URLs (comma-separated, optional)</label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Media Files</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,audio/*,image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setMediaFiles((prev) => [
+                  ...prev,
+                  ...files.map((f) => ({ file: f, url: null, uploading: false })),
+                ]);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+            />
+            <div className="flex flex-wrap gap-2 mb-2">
+              {mediaFiles.map((mf, i) => (
+                <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] px-2 py-1 text-xs">
+                  <span className="truncate max-w-[200px]">
+                    {mf.file.type.startsWith("video/") ? "🎬" : mf.file.type.startsWith("audio/") ? "🎵" : "🖼️"}{" "}
+                    {mf.file.name}
+                  </span>
+                  <span className="text-[var(--text-secondary)]">
+                    ({(mf.file.size / (1024 * 1024)).toFixed(1)} MB)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMediaFiles((prev) => prev.filter((_, j) => j !== i))}
+                    className="ml-1 text-red-500 hover:text-red-700"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
+            >
+              + Add Video, Audio, or Image
+            </button>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Or paste media URLs (comma-separated)</label>
             <input
               type="text"
               value={newPost.media_urls}
