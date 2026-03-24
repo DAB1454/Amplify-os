@@ -67,7 +67,7 @@ async def create_calendar_item(
         entity_type="calendar_item",
         entity_id=entity.id,
         user_id=user_id,
-        changes=body.model_dump(),
+        changes=body.model_dump(mode="json"),
     )
 
     return entity

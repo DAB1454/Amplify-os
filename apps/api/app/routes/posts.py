@@ -94,7 +94,7 @@ async def create_post(
             entity_type="post",
             entity_id=entity.id,
             user_id=user_id,
-            changes=body.model_dump(),
+            changes=body.model_dump(mode="json"),
         )
     except Exception as exc:
         logger.warning("Audit log failed: %s", exc)

@@ -83,7 +83,7 @@ async def create_template(
         entity_type="campaign_template",
         entity_id=template.id,
         user_id=user_id,
-        changes=body.model_dump(),
+        changes=body.model_dump(mode="json"),
     )
     return template
 

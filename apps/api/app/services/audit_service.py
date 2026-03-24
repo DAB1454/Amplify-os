@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from amplify.db.models.audit_log import AuditLogModel
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert non-JSON-serializable types (UUID, date, etc.)."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    return obj
 
 
 class AuditService:
@@ -34,7 +51,7 @@ class AuditService:
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
-            changes=changes or {},
+            changes=_json_safe(changes or {}),
             ip_address=ip_address,
         )
         self.session.add(entry)

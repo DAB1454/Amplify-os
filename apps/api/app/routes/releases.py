@@ -55,7 +55,7 @@ async def create_release(
         entity_type="release",
         entity_id=entity.id,
         user_id=user_id,
-        changes=body.model_dump(),
+        changes=body.model_dump(mode="json"),
     )
 
     return entity
@@ -103,7 +103,7 @@ async def update_release(
         entity_type="release",
         entity_id=entity.id,
         user_id=user_id,
-        changes=body.model_dump(exclude_unset=True),
+        changes=body.model_dump(mode="json", exclude_unset=True),
     )
 
     return entity

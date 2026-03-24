@@ -58,7 +58,7 @@ async def create_campaign(
         entity_type="campaign",
         entity_id=entity.id,
         user_id=user_id,
-        changes=body.model_dump(),
+        changes=body.model_dump(mode="json"),
     )
 
     return entity
