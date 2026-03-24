@@ -128,9 +128,24 @@ async def disconnect_channel(
 
     try:
         await svc.disconnect_channel(channel_id, tenant_id)
-        return {"status": "disconnected"}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+    # Delete the channel record so it doesn't linger in the UI
+    from amplify.db.models.channel import ChannelConnectionModel
+    from sqlalchemy import select
+    result = await db.execute(
+        select(ChannelConnectionModel).where(
+            ChannelConnectionModel.id == channel_id,
+            ChannelConnectionModel.tenant_id == tenant_id,
+        )
+    )
+    channel = result.scalar_one_or_none()
+    if channel:
+        await db.delete(channel)
+        await db.commit()
+
+    return {"status": "disconnected"}
 
 
 # ── Public callback router (no tenant middleware) ─────────────
