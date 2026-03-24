@@ -226,10 +226,13 @@ class OAuthService:
         # Exchange code with PKCE verifier
         tokens: TokenSet = await auth.exchange_code(code, code_verifier=verifier)
 
-        # Instagram: upgrade to long-lived token
+        # Instagram: upgrade to long-lived token (preserve scopes + account_id)
         if platform == "instagram" and tokens.access_token:
+            short_lived_scopes = tokens.scopes
+            short_lived_account_id = tokens.account_id
             tokens = await auth.exchange_long_lived(tokens.access_token)
-            tokens.account_id = tokens.account_id or ""
+            tokens.scopes = short_lived_scopes
+            tokens.account_id = short_lived_account_id or tokens.account_id or ""
 
         # Compute capabilities from granted scopes
         capabilities = self._compute_capabilities(platform, tokens.scopes)
