@@ -297,3 +297,14 @@ class BaseAdapter(ABC):
         platform_post_id: str,
     ) -> MetricSnapshot:
         ...
+
+    async def delete_post(self, platform_post_id: str) -> bool:
+        """Delete a post from the platform. Returns True if successful.
+
+        Default implementation is a no-op (returns False) for platforms
+        that don't support deletion via API.
+        """
+        if self.dry_run:
+            self.logger.info("[DRY RUN] delete_post: %s", platform_post_id)
+            return True
+        return False

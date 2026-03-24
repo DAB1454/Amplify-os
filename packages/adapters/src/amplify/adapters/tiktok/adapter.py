@@ -203,6 +203,17 @@ class TikTokAdapter(BaseAdapter):
             },
         )
 
+    async def delete_post(self, platform_post_id: str) -> bool:
+        """TikTok does not support video deletion via API.
+
+        Returns False — the user must delete from TikTok directly.
+        """
+        logger.warning(
+            "TikTok does not support API deletion. Video %s must be deleted manually.",
+            platform_post_id,
+        )
+        return False
+
     async def fetch_post(self, platform_post_id: str) -> FetchedPost:
         """Fetch a single video by ID."""
         self._require_connected()

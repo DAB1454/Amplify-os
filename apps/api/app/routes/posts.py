@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_tenant_id, get_user_id, get_audit_service
+from app.deps import get_db, get_settings, get_tenant_id, get_user_id, get_audit_service
+from app.config import Settings
 from app.schemas import (
     PostCreateRequest,
     PostUpdateRequest,
@@ -175,11 +176,33 @@ async def update_post(
 async def delete_post(
     post_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Delete a post by ID."""
+    """Delete a post — removes from platform first, then from DB."""
+    from sqlalchemy import select
+
+    # Load the post to get platform_post_id and channel_id
+    result = await db.execute(
+        select(PostModel).where(PostModel.id == post_id, PostModel.tenant_id == tenant_id)
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Best-effort remote deletion if the post was published
+    if post.platform_post_id and post.channel_id:
+        try:
+            from app.services.adapter_factory import get_adapter
+            adapter = await get_adapter(db, post.channel_id, settings)
+            deleted_remote = await adapter.delete_post(post.platform_post_id)
+            if not deleted_remote:
+                logger.warning("Remote delete not supported or failed for %s post %s", post.platform, post.platform_post_id)
+        except Exception as exc:
+            logger.warning("Remote delete error for post %s (non-fatal): %s", post_id, exc)
+
     # Delete child records that reference this post (no CASCADE on FK)
     for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
         try:
@@ -191,9 +214,7 @@ async def delete_post(
             logger.warning("Cleanup %s failed (non-fatal): %s", child_table, exc)
 
     repo = BaseRepository(db, PostModel, tenant_id)
-    deleted = await repo.delete(post_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Post not found")
+    await repo.delete(post_id)
 
     try:
         await audit.log(
