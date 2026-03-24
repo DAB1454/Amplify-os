@@ -122,28 +122,38 @@ async def disconnect_channel(
     settings: Settings = Depends(get_settings),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
 ):
-    """Disconnect a channel — revoke upstream + clear local tokens."""
-    from app.services.oauth_service import OAuthService
-    svc = OAuthService(db, redis, settings)
+    """Disconnect a channel — revoke upstream + delete record."""
+    import logging
+    logger = logging.getLogger(__name__)
 
+    # Best-effort upstream token revocation
     try:
-        await svc.disconnect_channel(channel_id, tenant_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        from app.services.oauth_service import OAuthService
+        svc = OAuthService(db, redis, settings)
+        await svc.revoke_channel_token(channel_id, tenant_id)
+    except Exception as exc:
+        logger.warning("Upstream revocation failed (non-fatal): %s", exc)
 
-    # Delete the channel record so it doesn't linger in the UI
-    from amplify.db.models.channel import ChannelConnectionModel
-    from sqlalchemy import select
-    result = await db.execute(
-        select(ChannelConnectionModel).where(
-            ChannelConnectionModel.id == channel_id,
-            ChannelConnectionModel.tenant_id == tenant_id,
+    # Delete the channel record directly
+    try:
+        from amplify.db.models.channel import ChannelConnectionModel
+        from sqlalchemy import select
+        result = await db.execute(
+            select(ChannelConnectionModel).where(
+                ChannelConnectionModel.id == channel_id,
+                ChannelConnectionModel.tenant_id == tenant_id,
+            )
         )
-    )
-    channel = result.scalar_one_or_none()
-    if channel:
+        channel = result.scalar_one_or_none()
+        if not channel:
+            raise HTTPException(status_code=404, detail="Channel not found")
         await db.delete(channel)
         await db.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Channel delete failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Disconnect failed: {exc}")
 
     return {"status": "disconnected"}
 
