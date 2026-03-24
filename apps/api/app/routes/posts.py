@@ -8,6 +8,7 @@ import uuid
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_tenant_id, get_user_id, get_audit_service
@@ -179,6 +180,16 @@ async def delete_post(
     audit: AuditService = Depends(get_audit_service),
 ):
     """Delete a post by ID."""
+    # Delete child records that reference this post (no CASCADE on FK)
+    for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
+        try:
+            await db.execute(
+                text(f"DELETE FROM {child_table} WHERE post_id = :pid"),
+                {"pid": str(post_id)},
+            )
+        except Exception as exc:
+            logger.warning("Cleanup %s failed (non-fatal): %s", child_table, exc)
+
     repo = BaseRepository(db, PostModel, tenant_id)
     deleted = await repo.delete(post_id)
     if not deleted:
