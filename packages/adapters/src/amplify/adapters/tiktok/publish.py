@@ -9,8 +9,10 @@ Two-phase upload flow:
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -20,6 +22,41 @@ logger = logging.getLogger(__name__)
 
 TT_API = "https://open.tiktokapis.com/v2"
 MAX_VIDEO_SIZE = 4 * 1024 * 1024 * 1024  # 4 GB
+
+
+def _is_url(path: str) -> bool:
+    """Check if a string looks like a URL."""
+    try:
+        parsed = urlparse(str(path))
+        return parsed.scheme in ("http", "https")
+    except Exception:
+        return False
+
+
+async def _download_video(url: str) -> Path:
+    """Download a video URL to a temporary file. Returns the temp file path."""
+    logger.info("Downloading video from URL: %s", url)
+    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+        resp = await client.get(url)
+        if resp.status_code >= 400:
+            raise ValidationError(
+                f"Failed to download video from {url} (HTTP {resp.status_code})",
+                platform="tiktok",
+            )
+        content_type = resp.headers.get("content-type", "")
+        if resp.num_bytes_downloaded == 0 and len(resp.content) == 0:
+            raise ValidationError(
+                f"Downloaded empty file from {url}",
+                platform="tiktok",
+            )
+        suffix = ".mp4"
+        if "webm" in content_type:
+            suffix = ".webm"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp.write(resp.content)
+        tmp.close()
+        logger.info("Downloaded %d bytes to %s", len(resp.content), tmp.name)
+        return Path(tmp.name)
 
 
 class TikTokPublisher:
@@ -88,8 +125,39 @@ class TikTokPublisher:
         privacy_level: str = "SELF_ONLY",
         as_draft: bool = False,
     ) -> str:
-        """Upload a video to TikTok. Returns the publish_id."""
-        video = Path(video_path)
+        """Upload a video to TikTok. Returns the publish_id.
+
+        video_path can be a local file path or an HTTP(S) URL.
+        URLs are downloaded to a temp file before uploading.
+        """
+        downloaded_tmp: Path | None = None
+        if _is_url(str(video_path)):
+            downloaded_tmp = await _download_video(str(video_path))
+            video = downloaded_tmp
+        else:
+            video = Path(video_path)
+
+        try:
+            return await self._upload_from_file(
+                video, caption,
+                privacy_level=privacy_level, as_draft=as_draft,
+            )
+        finally:
+            if downloaded_tmp is not None:
+                try:
+                    downloaded_tmp.unlink()
+                except OSError:
+                    pass
+
+    async def _upload_from_file(
+        self,
+        video: Path,
+        caption: str,
+        *,
+        privacy_level: str = "SELF_ONLY",
+        as_draft: bool = False,
+    ) -> str:
+        """Upload a local video file to TikTok. Returns the publish_id."""
         if not video.exists():
             raise ValidationError(f"Video not found: {video}", platform="tiktok")
 

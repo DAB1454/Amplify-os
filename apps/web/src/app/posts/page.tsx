@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
 
 interface Post {
   id: string;
@@ -312,6 +312,20 @@ export default function PostsPage() {
                       {btn.label}
                     </button>
                   ))}
+                  <button
+                    onClick={async () => {
+                      if (!confirm("Delete this post?")) return;
+                      try {
+                        await apiDelete(`/api/v1/posts/${post.id}`);
+                        fetchPosts();
+                      } catch (err) {
+                        setFetchError(err instanceof Error ? err.message : "Failed to delete post");
+                      }
+                    }}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium bg-red-100 text-red-600 hover:bg-red-200"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             </div>
