@@ -10,7 +10,7 @@ from amplify.adapters.base import FetchError, PublishError, RateLimitError, Comm
 
 logger = logging.getLogger(__name__)
 
-GRAPH_API = "https://graph.facebook.com/v19.0"
+GRAPH_API = "https://graph.instagram.com/v21.0"
 
 
 class InstagramComments:

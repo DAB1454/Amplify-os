@@ -19,7 +19,7 @@ from amplify.adapters.base import PublishError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
-GRAPH_API = "https://graph.facebook.com/v19.0"
+GRAPH_API = "https://graph.instagram.com/v21.0"
 CONTAINER_POLL_INTERVAL = 3  # seconds
 CONTAINER_POLL_MAX = 60  # max attempts
 
