@@ -74,6 +74,47 @@ async def upload_media(
     }
 
 
+@router.post("/merge")
+async def merge_media(
+    video_url: str,
+    audio_url: str,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    svc: MediaService = Depends(_get_media_service),
+):
+    """Merge a video file with an audio track. Returns the URL of the merged file.
+
+    Both video_url and audio_url should be URLs (e.g. from prior /upload calls).
+    The video's original audio is replaced with the provided audio track.
+    """
+    from app.services.merge_service import merge_video_audio
+
+    if not video_url or not audio_url:
+        raise HTTPException(status_code=400, detail="Both video_url and audio_url are required")
+
+    try:
+        merged_path = await merge_video_audio(video_url, audio_url)
+    except Exception as exc:
+        logger.error("Merge failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Merge failed: {exc}")
+
+    try:
+        import io
+        with open(merged_path, "rb") as f:
+            merged_bytes = f.read()
+        file_obj = io.BytesIO(merged_bytes)
+        url = await svc.upload(tenant_id, file_obj, f"merged-{uuid.uuid4()}.mp4", "video/mp4")
+    except Exception as exc:
+        logger.error("Upload of merged file failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
+    finally:
+        merged_path.unlink(missing_ok=True)
+
+    return {
+        "url": url,
+        "size": len(merged_bytes),
+    }
+
+
 @router.get("/files/{path:path}")
 async def serve_media(path: str):
     """Serve locally-stored media files (dev/fallback when S3 not configured)."""

@@ -52,7 +52,10 @@ export default function PostsPage() {
   const [creating, setCreating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [mediaFiles, setMediaFiles] = useState<{ file: File; url: string | null; uploading: boolean }[]>([]);
+  const [audioFile, setAudioFile] = useState<{ file: File; url: string | null } | null>(null);
+  const [merging, setMerging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -164,6 +167,21 @@ export default function PostsPage() {
                   uploadedUrls.push(result.url);
                 }
               }
+
+              // If audio file is attached, upload it and merge with the first video
+              if (audioFile && uploadedUrls.length > 0) {
+                setMerging(true);
+                let audioUrl = audioFile.url;
+                if (!audioUrl) {
+                  const audioResult = await apiUpload<{ url: string }>("/api/v1/media/upload", audioFile.file);
+                  audioUrl = audioResult.url;
+                }
+                // Merge audio with the first video file
+                const mergeResult = await apiPost<{ url: string }>(`/api/v1/media/merge?video_url=${encodeURIComponent(uploadedUrls[0])}&audio_url=${encodeURIComponent(audioUrl)}`, {});
+                uploadedUrls[0] = mergeResult.url;
+                setMerging(false);
+              }
+
               // Also include any manually entered URLs
               const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
 
@@ -176,8 +194,10 @@ export default function PostsPage() {
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
               setMediaFiles([]);
+              setAudioFile(null);
               fetchPosts();
             } catch (err) {
+              setMerging(false);
               setCreateError(err instanceof Error ? err.message : "Failed to create post");
             } finally {
               setCreating(false);
@@ -258,8 +278,49 @@ export default function PostsPage() {
               onClick={() => fileInputRef.current?.click()}
               className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
             >
-              + Add Video, Audio, or Image
+              + Add Video or Image
             </button>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              Audio Track <span className="text-[var(--text-secondary)] font-normal">(optional — merges with video)</span>
+            </label>
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) setAudioFile({ file, url: null });
+                if (audioInputRef.current) audioInputRef.current.value = "";
+              }}
+            />
+            {audioFile ? (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] px-2 py-1 text-xs">
+                <span className="truncate max-w-[200px]">
+                  🎵 {audioFile.file.name}
+                </span>
+                <span className="text-[var(--text-secondary)]">
+                  ({(audioFile.file.size / (1024 * 1024)).toFixed(1)} MB)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAudioFile(null)}
+                  className="ml-1 text-red-500 hover:text-red-700"
+                >
+                  ×
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+                className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
+              >
+                + Add Audio Track
+              </button>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Or paste media URLs (comma-separated)</label>
@@ -279,7 +340,7 @@ export default function PostsPage() {
             disabled={channels.length === 0 || creating}
             className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {creating ? <ButtonSpinner label="Creating..." /> : "Create Post"}
+            {merging ? <ButtonSpinner label="Merging audio..." /> : creating ? <ButtonSpinner label="Creating..." /> : "Create Post"}
           </button>
         </form>
       )}
