@@ -156,13 +156,16 @@ async def update_post(
     if entity is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    await audit.log(
-        action="post.updated",
-        entity_type="post",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=updates,
-    )
+    try:
+        await audit.log(
+            action="post.updated",
+            entity_type="post",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=updates,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -181,12 +184,15 @@ async def delete_post(
     if not deleted:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    await audit.log(
-        action="post.deleted",
-        entity_type="post",
-        entity_id=post_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="post.deleted",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
