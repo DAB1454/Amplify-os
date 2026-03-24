@@ -134,10 +134,14 @@ async def disconnect_channel(
     except Exception as exc:
         logger.warning("Upstream revocation failed (non-fatal): %s", exc)
 
-    # Delete the channel record directly
+    # Nullify channel_id on any posts referencing this channel, then delete
     try:
         from amplify.db.models.channel import ChannelConnectionModel
-        from sqlalchemy import select
+        from sqlalchemy import select, text
+        await db.execute(
+            text("UPDATE posts SET channel_id = NULL WHERE channel_id = :cid"),
+            {"cid": str(channel_id)},
+        )
         result = await db.execute(
             select(ChannelConnectionModel).where(
                 ChannelConnectionModel.id == channel_id,
