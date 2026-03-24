@@ -271,7 +271,7 @@ export default function PostsPage() {
             />
           </div>
           {createError && (
-            <p className="text-xs text-red-600">{createError}</p>
+            <p className="text-xs text-red-600 break-words whitespace-pre-wrap">{createError}</p>
           )}
           <button
             type="submit"
@@ -284,7 +284,7 @@ export default function PostsPage() {
       )}
 
       {fetchError && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 break-words whitespace-pre-wrap overflow-hidden">
           {fetchError}
         </div>
       )}
@@ -352,7 +352,7 @@ export default function PostsPage() {
                   )}
 
                   {post.last_error && (
-                    <p className="mt-1 text-xs text-red-600 truncate">
+                    <p className="mt-1 text-xs text-red-600 break-words whitespace-pre-wrap">
                       Error: {post.last_error}
                     </p>
                   )}

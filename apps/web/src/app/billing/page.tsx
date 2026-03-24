@@ -82,7 +82,7 @@ export default function BillingPage() {
       <Header title="Billing & Plans" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 break-words overflow-hidden">
           {error}
         </div>
       )}

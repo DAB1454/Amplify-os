@@ -115,7 +115,7 @@ export default function ReleasesPage() {
       <Header title="Releases" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 flex items-center justify-between">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 break-words overflow-hidden flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
