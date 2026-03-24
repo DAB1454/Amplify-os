@@ -214,10 +214,14 @@ class InstagramAdapter(BaseAdapter):
             from amplify.adapters.base import PublishError
             raise PublishError("Instagram requires at least one media URL", platform="instagram")
 
+        # Fetch the real permalink from Instagram
+        permalink = await self._publisher.get_permalink(post_id)
+        url = permalink or f"https://www.instagram.com/"
+
         return PublishResult(
             platform=self.platform,
             platform_post_id=post_id,
-            url=f"https://www.instagram.com/p/{post_id}/",
+            url=url,
             status="published",
             metadata={"media_type": media_type},
         )

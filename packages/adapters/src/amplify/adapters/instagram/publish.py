@@ -87,6 +87,17 @@ class InstagramPublisher:
             platform="instagram",
         )
 
+    async def get_permalink(self, media_id: str) -> str | None:
+        """Fetch the permalink for a published media item."""
+        try:
+            data = await self._api_get(
+                f"/{media_id}",
+                params={"fields": "permalink"},
+            )
+            return data.get("permalink")
+        except Exception:
+            return None
+
     async def publish_photo(self, image_url: str, caption: str) -> str:
         """Publish a single photo post. Returns the media ID."""
         # Step 1: Create container
