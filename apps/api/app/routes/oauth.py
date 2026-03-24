@@ -138,8 +138,14 @@ async def disconnect_channel(
     try:
         from amplify.db.models.channel import ChannelConnectionModel
         from sqlalchemy import select, text
+        # Delete child records of posts tied to this channel
+        for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
+            await db.execute(
+                text(f"DELETE FROM {child_table} WHERE post_id IN (SELECT id FROM posts WHERE channel_id = :cid)"),
+                {"cid": str(channel_id)},
+            )
         await db.execute(
-            text("UPDATE posts SET channel_id = NULL WHERE channel_id = :cid"),
+            text("DELETE FROM posts WHERE channel_id = :cid"),
             {"cid": str(channel_id)},
         )
         result = await db.execute(
