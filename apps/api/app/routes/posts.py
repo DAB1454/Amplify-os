@@ -172,7 +172,7 @@ async def update_post(
     return entity
 
 
-@router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{post_id}")
 async def delete_post(
     post_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -181,7 +181,10 @@ async def delete_post(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Delete a post — removes from platform first, then from DB."""
+    """Delete a post — attempts platform removal, then deletes from DB.
+
+    Returns JSON with deletion status so the frontend can inform the user.
+    """
     from sqlalchemy import select
 
     # Load the post to get platform_post_id and channel_id
@@ -193,15 +196,19 @@ async def delete_post(
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Best-effort remote deletion if the post was published
+    platform_deleted = None  # None = not attempted, True/False = result
+    platform_message = None
     if post.platform_post_id and post.channel_id:
         try:
             from app.services.adapter_factory import get_adapter
-            adapter = await get_adapter(db, post.channel_id, settings)
-            deleted_remote = await adapter.delete_post(post.platform_post_id)
-            if not deleted_remote:
-                logger.warning("Remote delete not supported or failed for %s post %s", post.platform, post.platform_post_id)
+            adapter = await get_adapter(db, post.channel_id, settings, require_publish=False)
+            platform_deleted = await adapter.delete_post(post.platform_post_id)
+            if not platform_deleted:
+                platform_message = f"Post removed from AmplifyMe but must be deleted manually on {post.platform.title()}"
         except Exception as exc:
-            logger.warning("Remote delete error for post %s (non-fatal): %s", post_id, exc)
+            platform_deleted = False
+            platform_message = f"Could not reach {post.platform.title()} — delete manually if needed"
+            logger.warning("Remote delete error for post %s: %s", post_id, exc)
 
     # Delete child records that reference this post (no CASCADE on FK)
     for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
@@ -226,7 +233,11 @@ async def delete_post(
     except Exception as exc:
         logger.warning("Audit log failed (non-fatal): %s", exc)
 
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return {
+        "status": "deleted",
+        "platform_deleted": platform_deleted,
+        "message": platform_message,
+    }
 
 
 # ── Publishing Workflow ────────────────────────────────────────────

@@ -27,10 +27,13 @@ async def get_adapter(
     db: AsyncSession,
     channel_id: uuid.UUID,
     settings: Settings,
+    *,
+    require_publish: bool = True,
 ):
     """Load a channel, decrypt its tokens, and return a configured adapter.
 
-    Pre-publish checks: verifies channel capabilities include can_publish.
+    Pre-publish checks: verifies channel capabilities include can_publish
+    (unless require_publish=False, e.g. for deletion).
     Uses dry_run mode when deployment_mode is local.
     """
     from amplify.db.models.channel import ChannelConnectionModel
@@ -46,14 +49,15 @@ async def get_adapter(
     if platform not in ADAPTER_MAP:
         raise ValueError(f"Unsupported adapter platform: {platform}")
 
-    # Verify publish capability
-    capabilities = channel.capabilities or {}
-    if not capabilities.get("can_publish", False):
-        raise AuthenticationError(
-            f"Channel {channel_id} does not have publish capability. "
-            "Reconnect with required scopes.",
-            platform=platform,
-        )
+    # Verify publish capability (skip for non-publish operations like delete)
+    if require_publish:
+        capabilities = channel.capabilities or {}
+        if not capabilities.get("can_publish", False):
+            raise AuthenticationError(
+                f"Channel {channel_id} does not have publish capability. "
+                "Reconnect with required scopes.",
+                platform=platform,
+            )
 
     # Decrypt tokens
     encryptor = TokenEncryptor(

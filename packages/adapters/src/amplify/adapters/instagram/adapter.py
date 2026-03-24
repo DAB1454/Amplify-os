@@ -227,23 +227,15 @@ class InstagramAdapter(BaseAdapter):
         )
 
     async def delete_post(self, platform_post_id: str) -> bool:
-        """Delete a post from Instagram."""
-        self._require_connected()
-        self._check_token_expiry()
+        """Instagram does not support post deletion via API.
 
-        if self.dry_run:
-            self.logger.info("[DRY RUN] delete_post: %s", platform_post_id)
-            return True
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.delete(
-                f"{GRAPH_API}/{platform_post_id}",
-                params={"access_token": self._access_token},
-            )
-            if resp.status_code >= 400:
-                logger.warning("Instagram delete failed (%s): %s", resp.status_code, resp.text[:200])
-                return False
-            return True
+        Returns False — the user must delete from Instagram directly.
+        """
+        logger.warning(
+            "Instagram does not support API deletion. Post %s must be deleted manually.",
+            platform_post_id,
+        )
+        return False
 
     async def fetch_post(self, platform_post_id: str) -> FetchedPost:
         """Fetch a single post by its Instagram media ID."""

@@ -385,7 +385,10 @@ export default function PostsPage() {
                       if (!confirm("Delete this post?")) return;
                       setDeletingId(post.id);
                       try {
-                        await apiDelete(`/api/v1/posts/${post.id}`);
+                        const result = await apiDelete<{ status: string; platform_deleted: boolean | null; message: string | null }>(`/api/v1/posts/${post.id}`);
+                        if (result?.message) {
+                          alert(result.message);
+                        }
                         fetchPosts();
                       } catch (err) {
                         setFetchError(err instanceof Error ? err.message : "Failed to delete post");
