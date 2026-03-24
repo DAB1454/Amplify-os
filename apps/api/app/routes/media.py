@@ -60,7 +60,11 @@ async def upload_media(
     import io
     file_obj = io.BytesIO(contents)
 
-    url = await svc.upload(tenant_id, file_obj, file.filename, content_type)
+    try:
+        url = await svc.upload(tenant_id, file_obj, file.filename, content_type)
+    except Exception as exc:
+        logger.error("Media upload failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
 
     return {
         "url": url,
