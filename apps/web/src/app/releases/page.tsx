@@ -478,11 +478,12 @@ function TrackList({
     const parsed = fileArray.map((f) => ({ file: f, ...parseFilename(f.name) }));
     parsed.sort((a, b) => (a.trackNumber || 999) - (b.trackNumber || 999));
 
-    // Upload all files simultaneously, create tracks from results
+    // Upload files 2 at a time to avoid overwhelming server memory
+    const MAX_CONCURRENT = 2;
     const trackItems: { title: string; track_number: number; audio_url: string }[] = [];
     const existingMax = tracks.length > 0 ? Math.max(...tracks.map((t) => t.track_number)) : 0;
 
-    const uploadPromises = parsed.map(async ({ file, trackNumber, title }, idx) => {
+    const uploadOne = async ({ file, trackNumber, title }: typeof parsed[0], idx: number) => {
       try {
         const result = await apiUploadWithProgress<{ url: string }>(
           "/api/v1/media/upload",
@@ -510,15 +511,19 @@ function TrackList({
           ...prev,
           [file.name]: { ...prev[file.name], status: "done" },
         }));
-      } catch (err) {
+      } catch {
         setBulkUploads((prev) => ({
           ...prev,
           [file.name]: { ...prev[file.name], status: "error", progress: 0 },
         }));
       }
-    });
+    };
 
-    await Promise.all(uploadPromises);
+    // Process in batches of MAX_CONCURRENT
+    for (let i = 0; i < parsed.length; i += MAX_CONCURRENT) {
+      const batch = parsed.slice(i, i + MAX_CONCURRENT);
+      await Promise.all(batch.map((item, batchIdx) => uploadOne(item, i + batchIdx)));
+    }
 
     // Bulk create tracks from all successful uploads
     if (trackItems.length > 0) {

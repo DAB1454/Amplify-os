@@ -38,7 +38,10 @@ async def upload_media(
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     svc: MediaService = Depends(_get_media_service),
 ):
-    """Upload a media file. Returns the URL to use in post media_urls."""
+    """Upload a media file. Returns the URL to use in post media_urls.
+
+    Streams directly to S3 without buffering the entire file in memory.
+    """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -49,28 +52,43 @@ async def upload_media(
             detail=f"File type '{content_type}' not allowed. Supported: video, audio, images.",
         )
 
-    # Check file size (read into memory for small files, stream for large)
-    contents = await file.read()
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File too large ({len(contents)} bytes). Max: {MAX_FILE_SIZE // (1024*1024)} MB.",
-        )
-
-    import io
-    file_obj = io.BytesIO(contents)
+    # Stream to a temp file to avoid holding everything in memory.
+    # FastAPI's UploadFile already uses a SpooledTemporaryFile, but it
+    # spools to memory for small files. For large uploads we need disk.
+    import tempfile
+    tmp = tempfile.SpooledTemporaryFile(max_size=2 * 1024 * 1024)  # spool >2MB to disk
+    total_size = 0
+    chunk_size = 256 * 1024  # 256 KB chunks
 
     try:
-        url = await svc.upload(tenant_id, file_obj, file.filename, content_type)
-    except Exception as exc:
-        logger.error("Media upload failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > MAX_FILE_SIZE:
+                tmp.close()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File too large (>{MAX_FILE_SIZE // (1024*1024)} MB).",
+                )
+            tmp.write(chunk)
+
+        tmp.seek(0)
+
+        try:
+            url = await svc.upload(tenant_id, tmp, file.filename, content_type)
+        except Exception as exc:
+            logger.error("Media upload failed: %s", exc, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
+    finally:
+        tmp.close()
 
     return {
         "url": url,
         "filename": file.filename,
         "content_type": content_type,
-        "size": len(contents),
+        "size": total_size,
     }
 
 
