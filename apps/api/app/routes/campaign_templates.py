@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
@@ -78,13 +81,16 @@ async def create_template(
     await db.flush()
     await db.refresh(template)
 
-    await audit.log(
-        action="campaign_template.created",
-        entity_type="campaign_template",
-        entity_id=template.id,
-        user_id=user_id,
-        changes=body.model_dump(mode="json"),
-    )
+    try:
+        await audit.log(
+            action="campaign_template.created",
+            entity_type="campaign_template",
+            entity_id=template.id,
+            user_id=user_id,
+            changes=body.model_dump(mode="json"),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
     return template
 
 
@@ -164,13 +170,16 @@ async def clone_template(
     await db.flush()
     await db.refresh(campaign)
 
-    await audit.log(
-        action="campaign.cloned_from_template",
-        entity_type="campaign",
-        entity_id=campaign.id,
-        user_id=user_id,
-        changes={"template_id": str(template_id), "campaign_name": campaign.name},
-    )
+    try:
+        await audit.log(
+            action="campaign.cloned_from_template",
+            entity_type="campaign",
+            entity_id=campaign.id,
+            user_id=user_id,
+            changes={"template_id": str(template_id), "campaign_name": campaign.name},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {
         "campaign_id": str(campaign.id),

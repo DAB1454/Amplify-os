@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,13 +56,16 @@ async def create_campaign(
     repo = BaseRepository(db, CampaignModel, tenant_id)
     entity = await repo.create(**body.model_dump())
 
-    await audit.log(
-        action="campaign.created",
-        entity_type="campaign",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=body.model_dump(mode="json"),
-    )
+    try:
+        await audit.log(
+            action="campaign.created",
+            entity_type="campaign",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=body.model_dump(mode="json"),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -97,13 +103,16 @@ async def update_campaign(
     if entity is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    await audit.log(
-        action="campaign.updated",
-        entity_type="campaign",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=updates,
-    )
+    try:
+        await audit.log(
+            action="campaign.updated",
+            entity_type="campaign",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=updates,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -126,12 +135,15 @@ async def delete_campaign(
     if not deleted:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    await audit.log(
-        action="campaign.deleted",
-        entity_type="campaign",
-        entity_id=campaign_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="campaign.deleted",
+            entity_type="campaign",
+            entity_id=campaign_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -150,13 +162,16 @@ async def launch_campaign(
     if entity is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    await audit.log(
-        action="campaign.launched",
-        entity_type="campaign",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes={"status": "active"},
-    )
+    try:
+        await audit.log(
+            action="campaign.launched",
+            entity_type="campaign",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes={"status": "active"},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -175,13 +190,16 @@ async def pause_campaign(
     if entity is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    await audit.log(
-        action="campaign.paused",
-        entity_type="campaign",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes={"status": "paused"},
-    )
+    try:
+        await audit.log(
+            action="campaign.paused",
+            entity_type="campaign",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes={"status": "paused"},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 

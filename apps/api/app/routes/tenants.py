@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -65,13 +68,16 @@ async def update_current_tenant(
     await db.flush()
     await db.refresh(tenant)
 
-    await audit.log(
-        action="tenant.updated",
-        entity_type="tenant",
-        entity_id=tenant.id,
-        user_id=user_id,
-        changes=updates,
-    )
+    try:
+        await audit.log(
+            action="tenant.updated",
+            entity_type="tenant",
+            entity_id=tenant.id,
+            user_id=user_id,
+            changes=updates,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return tenant
 

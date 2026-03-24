@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Optional
 
@@ -14,6 +15,8 @@ from app.schemas import ReleaseCreateRequest, ReleaseUpdateRequest, ReleaseRespo
 from app.services.audit_service import AuditService
 from amplify.db.models.release import ReleaseModel
 from amplify.db.repository import BaseRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/releases", tags=["releases"])
 
@@ -50,13 +53,16 @@ async def create_release(
         data["metadata_"] = data.pop("metadata")
     entity = await repo.create(**data)
 
-    await audit.log(
-        action="release.created",
-        entity_type="release",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=body.model_dump(mode="json"),
-    )
+    try:
+        await audit.log(
+            action="release.created",
+            entity_type="release",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=body.model_dump(mode="json"),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -98,13 +104,16 @@ async def update_release(
     if entity is None:
         raise HTTPException(status_code=404, detail="Release not found")
 
-    await audit.log(
-        action="release.updated",
-        entity_type="release",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=body.model_dump(mode="json", exclude_unset=True),
-    )
+    try:
+        await audit.log(
+            action="release.updated",
+            entity_type="release",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=body.model_dump(mode="json", exclude_unset=True),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -127,11 +136,14 @@ async def delete_release(
     if not deleted:
         raise HTTPException(status_code=404, detail="Release not found")
 
-    await audit.log(
-        action="release.deleted",
-        entity_type="release",
-        entity_id=release_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="release.deleted",
+            entity_type="release",
+            entity_id=release_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

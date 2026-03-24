@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,6 +17,8 @@ from amplify.billing.metering import MeteringService
 from amplify.billing.plans import DEFAULT_PLANS, get_plan
 from amplify.billing.stripe_client import StubPaymentProvider
 from amplify.db.models.tenant import TenantModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -152,13 +155,16 @@ async def create_checkout(
         cancel_url="http://localhost:3000/billing?canceled=true",
     )
 
-    await audit.log(
-        action="billing.checkout_created",
-        entity_type="tenant",
-        entity_id=tenant_id,
-        user_id=user_id,
-        changes={"plan_tier": plan_tier, "billing_period": billing_period},
-    )
+    try:
+        await audit.log(
+            action="billing.checkout_created",
+            entity_type="tenant",
+            entity_id=tenant_id,
+            user_id=user_id,
+            changes={"plan_tier": plan_tier, "billing_period": billing_period},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {"checkout_url": session.url, "session_id": session.session_id}
 
@@ -183,13 +189,16 @@ async def change_plan(
     old_tier = tenant.plan_tier
     tenant.plan_tier = plan_tier
 
-    await audit.log(
-        action="billing.plan_changed",
-        entity_type="tenant",
-        entity_id=tenant_id,
-        user_id=user_id,
-        changes={"from": old_tier, "to": plan_tier},
-    )
+    try:
+        await audit.log(
+            action="billing.plan_changed",
+            entity_type="tenant",
+            entity_id=tenant_id,
+            user_id=user_id,
+            changes={"from": old_tier, "to": plan_tier},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {"plan_tier": plan_tier, "plan_name": plan.name}
 

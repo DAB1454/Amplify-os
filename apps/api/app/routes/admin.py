@@ -7,6 +7,7 @@ additional authentication.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +27,8 @@ from amplify.db.models.membership import MembershipModel
 from amplify.db.models.post import PostModel
 from amplify.db.models.user import UserModel
 from amplify.db.models.audit_log import AuditLogModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin",
@@ -154,13 +157,16 @@ async def admin_change_plan(
     old_tier = tenant.plan_tier
     tenant.plan_tier = plan_tier
 
-    await audit.log(
-        action="admin.plan_changed",
-        entity_type="tenant",
-        entity_id=tenant_id,
-        user_id=user_id,
-        changes={"from": old_tier, "to": plan_tier},
-    )
+    try:
+        await audit.log(
+            action="admin.plan_changed",
+            entity_type="tenant",
+            entity_id=tenant_id,
+            user_id=user_id,
+            changes={"from": old_tier, "to": plan_tier},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {"tenant_id": str(tenant_id), "plan_tier": plan_tier}
 
@@ -182,13 +188,16 @@ async def toggle_tenant_active(
 
     tenant.is_active = not tenant.is_active
 
-    await audit.log(
-        action="admin.tenant_toggled",
-        entity_type="tenant",
-        entity_id=tenant_id,
-        user_id=user_id,
-        changes={"is_active": tenant.is_active},
-    )
+    try:
+        await audit.log(
+            action="admin.tenant_toggled",
+            entity_type="tenant",
+            entity_id=tenant_id,
+            user_id=user_id,
+            changes={"is_active": tenant.is_active},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {"tenant_id": str(tenant_id), "is_active": tenant.is_active}
 
@@ -215,12 +224,15 @@ async def make_template_global(
 
     template.is_global = True
 
-    await audit.log(
-        action="admin.template_made_global",
-        entity_type="campaign_template",
-        entity_id=template_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="admin.template_made_global",
+            entity_type="campaign_template",
+            entity_id=template_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return {"template_id": str(template_id), "is_global": True}
 

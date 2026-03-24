@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,13 +45,16 @@ async def create_artist(
     data["slug"] = body.name.lower().replace(" ", "-")
     entity = await repo.create(**data)
 
-    await audit.log(
-        action="artist.created",
-        entity_type="artist",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=data,
-    )
+    try:
+        await audit.log(
+            action="artist.created",
+            entity_type="artist",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=data,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -86,13 +92,16 @@ async def update_artist(
     if entity is None:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    await audit.log(
-        action="artist.updated",
-        entity_type="artist",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=updates,
-    )
+    try:
+        await audit.log(
+            action="artist.updated",
+            entity_type="artist",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=updates,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -115,11 +124,14 @@ async def delete_artist(
     if not deleted:
         raise HTTPException(status_code=404, detail="Artist not found")
 
-    await audit.log(
-        action="artist.deleted",
-        entity_type="artist",
-        entity_id=artist_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="artist.deleted",
+            entity_type="artist",
+            entity_id=artist_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

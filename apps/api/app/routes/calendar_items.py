@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -62,13 +65,16 @@ async def create_calendar_item(
     repo = BaseRepository(db, CalendarItemModel, tenant_id)
     entity = await repo.create(**body.model_dump())
 
-    await audit.log(
-        action="calendar_item.created",
-        entity_type="calendar_item",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=body.model_dump(mode="json"),
-    )
+    try:
+        await audit.log(
+            action="calendar_item.created",
+            entity_type="calendar_item",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=body.model_dump(mode="json"),
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -106,13 +112,16 @@ async def update_calendar_item(
     if entity is None:
         raise HTTPException(status_code=404, detail="Calendar item not found")
 
-    await audit.log(
-        action="calendar_item.updated",
-        entity_type="calendar_item",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes=updates,
-    )
+    try:
+        await audit.log(
+            action="calendar_item.updated",
+            entity_type="calendar_item",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes=updates,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -131,12 +140,15 @@ async def delete_calendar_item(
     if not deleted:
         raise HTTPException(status_code=404, detail="Calendar item not found")
 
-    await audit.log(
-        action="calendar_item.deleted",
-        entity_type="calendar_item",
-        entity_id=item_id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="calendar_item.deleted",
+            entity_type="calendar_item",
+            entity_id=item_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -155,13 +167,16 @@ async def complete_calendar_item(
     if entity is None:
         raise HTTPException(status_code=404, detail="Calendar item not found")
 
-    await audit.log(
-        action="calendar_item.completed",
-        entity_type="calendar_item",
-        entity_id=entity.id,
-        user_id=user_id,
-        changes={"is_completed": True},
-    )
+    try:
+        await audit.log(
+            action="calendar_item.completed",
+            entity_type="calendar_item",
+            entity_id=entity.id,
+            user_id=user_id,
+            changes={"is_completed": True},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
 
@@ -194,16 +209,19 @@ async def import_calendar_csv(
     service = CalendarImportService(db, tenant_id)
     result = await service.import_csv(csv_text, campaign_id=campaign_id)
 
-    await audit.log(
-        action="calendar.imported",
-        entity_type="calendar_item",
-        user_id=user_id,
-        changes={
-            "filename": file.filename,
-            "total_rows": result.total_rows,
-            "imported": result.imported,
-            "skipped": result.skipped,
-        },
-    )
+    try:
+        await audit.log(
+            action="calendar.imported",
+            entity_type="calendar_item",
+            user_id=user_id,
+            changes={
+                "filename": file.filename,
+                "total_rows": result.total_rows,
+                "imported": result.imported,
+                "skipped": result.skipped,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return result.to_dict()

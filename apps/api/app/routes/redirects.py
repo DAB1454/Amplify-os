@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -13,6 +14,8 @@ from app.deps import get_db, get_tenant_id, get_user_id, get_audit_service
 from app.schemas import RedirectCreateRequest, RedirectResponse
 from app.services.audit_service import AuditService
 from amplify.db.models.redirect import RedirectModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/links", tags=["links"])
 
@@ -52,13 +55,16 @@ async def create_redirect(
     db.add(redirect)
     await db.flush()
 
-    await audit.log(
-        action="redirect.created",
-        entity_type="redirect",
-        entity_id=redirect.id,
-        user_id=user_id,
-        changes={"slug": slug, "target_url": body.target_url},
-    )
+    try:
+        await audit.log(
+            action="redirect.created",
+            entity_type="redirect",
+            entity_id=redirect.id,
+            user_id=user_id,
+            changes={"slug": slug, "target_url": body.target_url},
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return redirect
 
@@ -118,12 +124,15 @@ async def delete_redirect(
     await db.delete(redirect)
     await db.flush()
 
-    await audit.log(
-        action="redirect.deleted",
-        entity_type="redirect",
-        entity_id=redirect.id,
-        user_id=user_id,
-    )
+    try:
+        await audit.log(
+            action="redirect.deleted",
+            entity_type="redirect",
+            entity_id=redirect.id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
