@@ -30,9 +30,9 @@ interface TenantSummary {
 }
 
 const tierBadge: Record<string, string> = {
-  solo: "bg-gray-500/20 text-gray-400",
+  solo: "bg-gray-100 text-gray-500",
   pro: "bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]",
-  agency: "bg-purple-500/20 text-purple-400",
+  agency: "bg-purple-100 text-purple-600",
 };
 
 export default function AdminPage() {
@@ -83,7 +83,7 @@ export default function AdminPage() {
       <Header title="Admin Console" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -138,7 +138,7 @@ export default function AdminPage() {
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     tierFilter === t
-                      ? "bg-[var(--brand-gold)] text-black"
+                      ? "bg-[var(--brand-gold)] text-white"
                       : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
                   )}
                 >
@@ -168,12 +168,12 @@ export default function AdminPage() {
                         {t.plan_tier}
                       </span>
                       {!t.is_active && (
-                        <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600">
                           disabled
                         </span>
                       )}
                       {!t.onboarding_completed && (
-                        <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
+                        <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs text-yellow-600">
                           onboarding
                         </span>
                       )}
@@ -201,8 +201,8 @@ export default function AdminPage() {
                       className={cn(
                         "rounded px-2 py-1 text-xs font-medium transition-colors",
                         t.is_active
-                          ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                          : "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                          ? "bg-red-100 text-red-600 hover:bg-red-500/30"
+                          : "bg-green-100 text-green-600 hover:bg-green-500/30"
                       )}
                     >
                       {t.is_active ? "Disable" : "Enable"}

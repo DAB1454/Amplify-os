@@ -37,7 +37,7 @@ interface Subscription {
 const tierAccent: Record<string, string> = {
   solo: "text-gray-400",
   pro: "text-[var(--brand-gold)]",
-  agency: "text-purple-400",
+  agency: "text-purple-600",
 };
 
 export default function BillingPage() {
@@ -81,7 +81,7 @@ export default function BillingPage() {
       <Header title="Billing & Plans" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -142,7 +142,7 @@ export default function BillingPage() {
                   className={cn(
                     "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
                     billing === b
-                      ? "bg-[var(--brand-gold)] text-black"
+                      ? "bg-[var(--brand-gold)] text-white"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   )}
                 >
@@ -187,7 +187,7 @@ export default function BillingPage() {
                   <ul className="mt-4 space-y-2">
                     {plan.features.map((f) => (
                       <li key={f} className="flex items-start gap-2 text-sm text-[var(--text-secondary)]">
-                        <span className="mt-0.5 text-green-400 shrink-0">✓</span>
+                        <span className="mt-0.5 text-green-600 shrink-0">✓</span>
                         {f}
                       </li>
                     ))}
@@ -199,7 +199,7 @@ export default function BillingPage() {
                       className={cn(
                         "mt-6 w-full rounded-lg py-2 text-sm font-medium transition-colors",
                         plan.tier === "pro"
-                          ? "bg-[var(--brand-gold)] text-black hover:bg-[var(--brand-gold)]/90"
+                          ? "bg-[var(--brand-gold)] text-white hover:bg-[var(--brand-gold)]/90"
                           : "bg-[var(--bg-surface-hover)] text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
                       )}
                     >

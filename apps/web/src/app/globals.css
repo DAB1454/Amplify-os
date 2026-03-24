@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --brand-gold: #c9a84c;
-  --bg-primary: #0a0a0f;
-  --bg-surface: #111118;
-  --bg-surface-hover: #1a1a24;
-  --border-color: #1f1f2e;
-  --text-primary: #f1f1f4;
-  --text-secondary: #9ca3af;
+  --brand-gold: #6366F1;
+  --brand-gradient: linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899);
+  --bg-primary: #ffffff;
+  --bg-surface: #f8fafc;
+  --bg-surface-hover: #f1f5f9;
+  --border-color: #e2e8f0;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
 }
 
 body {

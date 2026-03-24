@@ -77,14 +77,14 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && !importing && onClose()}
     >
-      <div className="w-full max-w-lg rounded-xl border border-[var(--border-color)] bg-gray-900 p-6 shadow-2xl">
+      <div className="w-full max-w-lg rounded-xl border border-[var(--border-color)] bg-white p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">
             Import Content Calendar
           </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             disabled={importing}
           >
             <X size={20} />
@@ -105,22 +105,22 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
                 "mt-4 flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-8 transition-colors",
                 dragOver
                   ? "border-[var(--brand-gold)] bg-[var(--brand-gold)]/10"
-                  : "border-gray-700 hover:border-gray-500",
+                  : "border-[var(--border-color)] hover:border-[var(--border-color)]",
                 file && "border-green-600 bg-green-900/10"
               )}
             >
               <Upload
                 size={24}
-                className={file ? "text-green-400" : "text-gray-400"}
+                className={file ? "text-green-600" : "text-[var(--text-secondary)]"}
               />
               {file ? (
-                <p className="text-sm text-green-400">{file.name}</p>
+                <p className="text-sm text-green-600">{file.name}</p>
               ) : (
                 <>
-                  <p className="text-sm text-gray-300">
+                  <p className="text-sm text-[var(--text-primary)]">
                     Drop your CSV here or click to browse
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-[var(--text-secondary)]">
                     Columns: date, time, type, title, platform, caption,
                     asset_ref, cta
                   </p>
@@ -136,7 +136,7 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
             </div>
 
             <div className="mt-4">
-              <label className="text-xs font-medium text-gray-400">
+              <label className="text-xs font-medium text-[var(--text-secondary)]">
                 Campaign ID (optional)
               </label>
               <input
@@ -144,21 +144,21 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
                 value={campaignId}
                 onChange={(e) => setCampaignId(e.target.value)}
                 placeholder="Link all items to a campaign..."
-                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-[var(--brand-gold)] focus:outline-none"
+                className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:border-[var(--brand-gold)] focus:outline-none"
               />
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={onClose}
-                className="rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white"
+                className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={!file || importing}
-                className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+                className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
                 {importing ? "Importing..." : "Import"}
               </button>
@@ -171,10 +171,10 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
               className={cn(
                 "flex items-center gap-2 rounded-lg p-3 text-sm",
                 result.success
-                  ? "bg-green-900/30 text-green-400"
+                  ? "bg-green-900/30 text-green-600"
                   : result.imported > 0
-                    ? "bg-yellow-900/30 text-yellow-400"
-                    : "bg-red-900/30 text-red-400"
+                    ? "bg-yellow-900/30 text-yellow-600"
+                    : "bg-red-900/30 text-red-600"
               )}
             >
               {result.success ? (
@@ -191,7 +191,7 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
             {/* Warnings */}
             {result.warnings.length > 0 && (
               <div className="rounded-lg bg-yellow-900/20 p-3">
-                <p className="text-xs font-medium text-yellow-400">Warnings</p>
+                <p className="text-xs font-medium text-yellow-600">Warnings</p>
                 <ul className="mt-1 space-y-1">
                   {result.warnings.map((w, i) => (
                     <li key={i} className="text-xs text-yellow-300">
@@ -205,11 +205,11 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
             {/* Errors table */}
             {result.errors.length > 0 && (
               <div className="rounded-lg bg-red-900/20 p-3">
-                <p className="text-xs font-medium text-red-400">Errors</p>
+                <p className="text-xs font-medium text-red-600">Errors</p>
                 <div className="mt-2 max-h-40 overflow-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-left text-red-400">
+                      <tr className="text-left text-red-600">
                         <th className="pb-1 pr-2">Row</th>
                         <th className="pb-1 pr-2">Column</th>
                         <th className="pb-1">Reason</th>
@@ -233,14 +233,14 @@ export function CalendarImportModal({ onClose, onSuccess }: Props) {
               {result.imported > 0 && (
                 <button
                   onClick={onSuccess}
-                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black"
+                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white"
                 >
                   View Calendar
                 </button>
               )}
               <button
                 onClick={onClose}
-                className="rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white"
+                className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 Close
               </button>

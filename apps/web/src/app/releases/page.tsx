@@ -22,10 +22,10 @@ interface Release {
 }
 
 const typeColors: Record<string, string> = {
-  single: "bg-blue-500/20 text-blue-400",
-  ep: "bg-purple-500/20 text-purple-400",
+  single: "bg-blue-100 text-blue-600",
+  ep: "bg-purple-100 text-purple-600",
   album: "bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]",
-  compilation: "bg-gray-500/20 text-gray-400",
+  compilation: "bg-gray-100 text-gray-500",
 };
 
 export default function ReleasesPage() {
@@ -114,7 +114,7 @@ export default function ReleasesPage() {
       <Header title="Releases" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
@@ -128,7 +128,7 @@ export default function ReleasesPage() {
             setFormData({ artist_id: artists[0]?.id || "", title: "", release_type: "single", release_date: "" });
             setShowForm(!showForm);
           }}
-          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-black hover:opacity-90 transition-opacity"
+          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
         >
           {showForm ? "Cancel" : "Add Release"}
         </button>
@@ -202,7 +202,7 @@ export default function ReleasesPage() {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
+                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
                 >
                   {editingId ? "Save Changes" : "Create Release"}
                 </button>
@@ -232,7 +232,7 @@ export default function ReleasesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text-primary)]">{r.title}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${typeColors[r.release_type] || "bg-gray-500/20 text-gray-400"}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${typeColors[r.release_type] || "bg-gray-100 text-gray-500"}`}>
                       {r.release_type}
                     </span>
                     <span className="rounded-full bg-gray-500/20 px-2 py-0.5 text-[10px] text-gray-400">
@@ -253,7 +253,7 @@ export default function ReleasesPage() {
                   </button>
                   <button
                     onClick={() => handleDelete(r.id)}
-                    className="text-xs text-red-400/60 hover:text-red-400"
+                    className="text-xs text-red-600/60 hover:text-red-600"
                   >
                     Delete
                   </button>

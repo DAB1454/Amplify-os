@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { login, register } from "@/lib/api";
 
@@ -35,22 +36,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "var(--bg-primary)" }}>
-      <div
-        className="w-full max-w-md p-8 rounded-xl border"
-        style={{
-          backgroundColor: "var(--bg-surface)",
-          borderColor: "var(--border-color)",
-        }}
-      >
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="w-full max-w-md p-8 rounded-xl border border-[var(--border-color)] bg-white shadow-lg">
         <div className="text-center mb-8">
-          <h1
-            className="text-3xl font-bold mb-2"
-            style={{ color: "var(--brand-gold)" }}
-          >
-            Amplify OS
+          <div className="flex justify-center mb-4">
+            <Image src="/logo.png" alt="AmplifyMe" width={80} height={80} className="rounded-2xl" />
+          </div>
+          <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-500 via-violet-500 to-pink-500 bg-clip-text text-transparent">
+            AmplifyMe
           </h1>
-          <p style={{ color: "var(--text-secondary)" }}>
+          <p className="text-[var(--text-secondary)]">
             {isRegister ? "Create your account" : "Sign in to your account"}
           </p>
         </div>
@@ -59,10 +54,7 @@ export default function LoginPage() {
           {isRegister && (
             <>
               <div>
-                <label
-                  className="block text-sm font-medium mb-1"
-                  style={{ color: "var(--text-secondary)" }}
-                >
+                <label className="block text-sm font-medium mb-1 text-[var(--text-secondary)]">
                   Organization Name
                 </label>
                 <input
@@ -71,19 +63,11 @@ export default function LoginPage() {
                   onChange={(e) => setTenantName(e.target.value)}
                   required
                   placeholder="e.g. Drew Baird Music"
-                  className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-                  style={{
-                    backgroundColor: "var(--bg-primary)",
-                    borderColor: "var(--border-color)",
-                    color: "var(--text-primary)",
-                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--brand-gold)]/30 focus:border-[var(--brand-gold)]"
                 />
               </div>
               <div>
-                <label
-                  className="block text-sm font-medium mb-1"
-                  style={{ color: "var(--text-secondary)" }}
-                >
+                <label className="block text-sm font-medium mb-1 text-[var(--text-secondary)]">
                   Display Name
                 </label>
                 <input
@@ -91,22 +75,14 @@ export default function LoginPage() {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="e.g. Drew Baird"
-                  className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-                  style={{
-                    backgroundColor: "var(--bg-primary)",
-                    borderColor: "var(--border-color)",
-                    color: "var(--text-primary)",
-                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--brand-gold)]/30 focus:border-[var(--brand-gold)]"
                 />
               </div>
             </>
           )}
 
           <div>
-            <label
-              className="block text-sm font-medium mb-1"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <label className="block text-sm font-medium mb-1 text-[var(--text-secondary)]">
               Email
             </label>
             <input
@@ -115,20 +91,12 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               placeholder="you@example.com"
-              className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-              style={{
-                backgroundColor: "var(--bg-primary)",
-                borderColor: "var(--border-color)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--brand-gold)]/30 focus:border-[var(--brand-gold)]"
             />
           </div>
 
           <div>
-            <label
-              className="block text-sm font-medium mb-1"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <label className="block text-sm font-medium mb-1 text-[var(--text-secondary)]">
               Password
             </label>
             <input
@@ -138,27 +106,19 @@ export default function LoginPage() {
               required
               minLength={8}
               placeholder="Min 8 characters"
-              className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-              style={{
-                backgroundColor: "var(--bg-primary)",
-                borderColor: "var(--border-color)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm outline-none focus:ring-2 focus:ring-[var(--brand-gold)]/30 focus:border-[var(--brand-gold)]"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-400">{error}</p>
+            <p className="text-sm text-red-500">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-lg font-semibold text-sm transition-opacity disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--brand-gold)",
-              color: "#0a0a0f",
-            }}
+            className="w-full py-2.5 rounded-lg font-semibold text-sm text-white transition-opacity disabled:opacity-50"
+            style={{ background: "var(--brand-gradient)" }}
           >
             {loading
               ? "..."
@@ -168,18 +128,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p
-          className="text-center text-sm mt-6"
-          style={{ color: "var(--text-secondary)" }}
-        >
+        <p className="text-center text-sm mt-6 text-[var(--text-secondary)]">
           {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
           <button
             onClick={() => {
               setIsRegister(!isRegister);
               setError("");
             }}
-            className="underline font-medium"
-            style={{ color: "var(--brand-gold)" }}
+            className="underline font-medium text-[var(--brand-gold)]"
           >
             {isRegister ? "Sign In" : "Register"}
           </button>

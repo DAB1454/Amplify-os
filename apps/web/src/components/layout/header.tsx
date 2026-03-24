@@ -14,7 +14,7 @@ export function Header({ title }: HeaderProps) {
         <button className="rounded-lg p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors">
           <Bell className="h-5 w-5" />
         </button>
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--brand-gold)]/10 text-[var(--brand-gold)]">
           <User className="h-5 w-5" />
         </div>
       </div>

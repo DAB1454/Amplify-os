@@ -64,7 +64,7 @@ export function DestinationCard({ campaignId }: DestinationCardProps) {
   if (error) {
     return (
       <div className="rounded-xl border border-red-500/30 bg-[var(--bg-surface)] p-6">
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red-600">{error}</p>
         <button
           onClick={fetchReport}
           className="mt-2 text-xs text-[var(--brand-gold)] hover:underline"
@@ -89,7 +89,7 @@ export function DestinationCard({ campaignId }: DestinationCardProps) {
           CTA Destination
         </h3>
         {allGood && (
-          <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
+          <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-600">
             All posts linked
           </span>
         )}
@@ -107,7 +107,7 @@ export function DestinationCard({ campaignId }: DestinationCardProps) {
           </code>
           <button
             onClick={() => copyUrl(report.canonicalUrl!)}
-            className="shrink-0 rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-black transition-colors hover:bg-[var(--brand-gold)]/80"
+            className="shrink-0 rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-gold)]/80"
           >
             {copied ? "Copied" : "Copy"}
           </button>

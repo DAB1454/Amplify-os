@@ -85,12 +85,12 @@ const platformColors: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400",
-  in_progress: "bg-blue-500/20 text-blue-400",
-  waiting_verification: "bg-purple-500/20 text-purple-400",
-  completed: "bg-green-500/20 text-green-400",
-  skipped: "bg-gray-500/20 text-gray-400",
-  failed: "bg-red-500/20 text-red-400",
+  pending: "bg-yellow-100 text-yellow-600",
+  in_progress: "bg-blue-100 text-blue-600",
+  waiting_verification: "bg-purple-100 text-purple-600",
+  completed: "bg-green-100 text-green-600",
+  skipped: "bg-gray-100 text-gray-500",
+  failed: "bg-red-100 text-red-600",
 };
 
 function ModeBadge({ mode }: { mode: string }) {
@@ -100,7 +100,7 @@ function ModeBadge({ mode }: { mode: string }) {
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium",
         isAuto
-          ? "bg-green-500/15 text-green-400 ring-1 ring-green-500/30"
+          ? "bg-green-50 text-green-600 ring-1 ring-green-500/30"
           : "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30"
       )}
     >
@@ -206,8 +206,8 @@ export default function ChannelsPage() {
           className={cn(
             "mt-4 rounded-lg px-4 py-3 text-sm flex items-center justify-between",
             connectBanner.status === "success"
-              ? "bg-green-500/15 text-green-400 border border-green-500/30"
-              : "bg-red-500/15 text-red-400 border border-red-500/30"
+              ? "bg-green-50 text-green-600 border border-green-500/30"
+              : "bg-red-50 text-red-600 border border-red-500/30"
           )}
         >
           <span>
@@ -269,7 +269,7 @@ export default function ChannelsPage() {
                       </div>
                     </div>
                     {connected.length > 0 && (
-                      <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-400">
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-600">
                         {connected.length} connected
                       </span>
                     )}
@@ -303,7 +303,7 @@ export default function ChannelsPage() {
                           setConnectBanner({ platform: p.platform, status: "error", message: "Failed to start OAuth flow" });
                         }
                       }}
-                      className="mt-3 w-full rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-gray-950 hover:opacity-90 transition-opacity"
+                      className="mt-3 w-full rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-medium text-white hover:opacity-90 transition-opacity"
                     >
                       Connect {p.label}
                     </button>
@@ -347,7 +347,7 @@ export default function ChannelsPage() {
                           <div className="flex gap-2">
                             <button
                               type="submit"
-                              className="flex-1 rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-gray-950 hover:opacity-90 transition-opacity"
+                              className="flex-1 rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-opacity"
                             >
                               Add {p.label}
                             </button>
@@ -513,8 +513,8 @@ function CapabilityBadge({ name, enabled }: { name: string; enabled: boolean }) 
       className={cn(
         "rounded px-1.5 py-0.5 text-[10px]",
         enabled
-          ? "bg-green-500/15 text-green-400"
-          : "bg-gray-500/15 text-gray-500"
+          ? "bg-green-50 text-green-600"
+          : "bg-gray-100 text-gray-500"
       )}
     >
       {name.replace("can_", "")}
@@ -596,7 +596,7 @@ function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefr
                     onError?.(err instanceof Error ? err.message : "Reconnect failed");
                   }
                 }}
-                className="text-[10px] text-yellow-400 hover:text-yellow-300"
+                className="text-[10px] text-yellow-600 hover:text-yellow-300"
               >
                 Reconnect
               </button>
@@ -610,7 +610,7 @@ function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefr
                   onError?.(err instanceof Error ? err.message : "Disconnect failed");
                 }
               }}
-              className="text-[10px] text-red-400/60 hover:text-red-400"
+              className="text-[10px] text-red-600/60 hover:text-red-600"
               title="Disconnect"
             >
               Disconnect
@@ -740,7 +740,7 @@ function TaskCard({
               <div className="space-y-1">
                 {task.url_validations.map((v, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
-                    <span className={v.is_valid ? "text-green-400" : "text-red-400"}>
+                    <span className={v.is_valid ? "text-green-600" : "text-red-600"}>
                       {v.is_valid ? "✓" : "✗"}
                     </span>
                     <a
@@ -755,7 +755,7 @@ function TaskCard({
                       <span className="text-[var(--text-secondary)] truncate">— {v.title}</span>
                     )}
                     {v.error && (
-                      <span className="text-red-400 truncate">({v.error})</span>
+                      <span className="text-red-600 truncate">({v.error})</span>
                     )}
                   </div>
                 ))}

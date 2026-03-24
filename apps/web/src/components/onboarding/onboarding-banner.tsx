@@ -92,7 +92,7 @@ export function OnboardingBanner() {
             <span
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                 step.is_completed
-                  ? "bg-green-500/20 text-green-400"
+                  ? "bg-green-100 text-green-600"
                   : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
               }`}
             >
@@ -102,7 +102,7 @@ export function OnboardingBanner() {
               <p
                 className={`text-sm font-medium ${
                   step.is_completed
-                    ? "text-green-400"
+                    ? "text-green-600"
                     : "text-[var(--text-primary)]"
                 }`}
               >

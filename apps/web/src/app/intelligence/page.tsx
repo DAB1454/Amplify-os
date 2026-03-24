@@ -118,9 +118,9 @@ function ConfidenceBar({ value }: { value: number }) {
 
 function SeverityBadge({ severity }: { severity: string }) {
   const styles: Record<string, string> = {
-    error: "bg-red-500/20 text-red-400",
-    warning: "bg-yellow-500/20 text-yellow-400",
-    info: "bg-blue-500/20 text-blue-400",
+    error: "bg-red-100 text-red-600",
+    warning: "bg-yellow-100 text-yellow-600",
+    info: "bg-blue-100 text-blue-600",
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[severity] || styles.info}`}>
@@ -131,11 +131,11 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function SourceBadge({ source }: { source: string }) {
   const styles: Record<string, { label: string; cls: string }> = {
-    tenant: { label: "Tenant", cls: "bg-green-500/20 text-green-400" },
-    global_prior: { label: "Global", cls: "bg-blue-500/20 text-blue-400" },
-    cohort_prior: { label: "Cohort", cls: "bg-purple-500/20 text-purple-400" },
+    tenant: { label: "Tenant", cls: "bg-green-100 text-green-600" },
+    global_prior: { label: "Global", cls: "bg-blue-100 text-blue-600" },
+    cohort_prior: { label: "Cohort", cls: "bg-purple-100 text-purple-600" },
   };
-  const s = styles[source] || { label: source, cls: "bg-gray-500/20 text-gray-400" };
+  const s = styles[source] || { label: source, cls: "bg-gray-100 text-gray-500" };
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${s.cls}`}>
       {s.label}
@@ -148,8 +148,8 @@ function DirectionBadge({ direction }: { direction: string }) {
     <span
       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
         direction === "winning"
-          ? "bg-green-500/20 text-green-400"
-          : "bg-red-500/20 text-red-400"
+          ? "bg-green-100 text-green-600"
+          : "bg-red-100 text-red-600"
       }`}
     >
       {direction}
@@ -186,7 +186,7 @@ function StatCard({ label, value, alert }: { label: string; value: number | stri
   return (
     <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5">
       <p className="text-xs text-[var(--text-secondary)]">{label}</p>
-      <p className={cn("mt-1 text-2xl font-bold", alert ? "text-red-400" : "text-[var(--brand-gold)]")}>
+      <p className={cn("mt-1 text-2xl font-bold", alert ? "text-red-600" : "text-[var(--brand-gold)]")}>
         {value}
       </p>
     </div>
@@ -307,7 +307,7 @@ export default function IntelligencePage() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -431,7 +431,7 @@ export default function IntelligencePage() {
                             <p className="text-sm font-medium text-[var(--text-primary)]">
                               {p.feature_name} = {p.feature_value}
                             </p>
-                            <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-600">
                               {p.category || "uncategorized"}
                             </span>
                           </div>
@@ -469,7 +469,7 @@ export default function IntelligencePage() {
                     className={cn(
                       "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                       rewardDays === d
-                        ? "bg-[var(--brand-gold)] text-black"
+                        ? "bg-[var(--brand-gold)] text-white"
                         : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
                     )}
                   >
@@ -560,7 +560,7 @@ export default function IntelligencePage() {
                         <span
                           className={cn(
                             "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            r.status === "completed" ? "bg-green-500/20 text-green-400" : "bg-gray-500/20 text-gray-400"
+                            r.status === "completed" ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-500"
                           )}
                         >
                           {r.status}

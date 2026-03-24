@@ -66,15 +66,15 @@ function SourceBadge({ source }: { source: string }) {
   const config: Record<string, { label: string; className: string }> = {
     global_prior: {
       label: "Global Default",
-      className: "bg-blue-500/20 text-blue-400",
+      className: "bg-blue-100 text-blue-600",
     },
     cohort_prior: {
       label: "Cohort Insight",
-      className: "bg-purple-500/20 text-purple-400",
+      className: "bg-purple-100 text-purple-600",
     },
     tenant_learned: {
       label: "Your Data",
-      className: "bg-green-500/20 text-green-400",
+      className: "bg-green-100 text-green-600",
     },
     blended: {
       label: "Blended",
@@ -147,7 +147,7 @@ export default function DashboardPage() {
       <OnboardingBanner />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -240,7 +240,7 @@ export default function DashboardPage() {
                     {c.phase} &middot; {c.start_date || "No start date"}
                   </p>
                 </div>
-                <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-600">
                   {c.status}
                 </span>
               </div>
@@ -278,12 +278,12 @@ export default function DashboardPage() {
                 <span
                   className={`ml-3 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
                     p.status === "published"
-                      ? "bg-green-500/20 text-green-400"
+                      ? "bg-green-100 text-green-600"
                       : p.status === "failed"
-                        ? "bg-red-500/20 text-red-400"
+                        ? "bg-red-100 text-red-600"
                         : p.status === "scheduled"
-                          ? "bg-blue-500/20 text-blue-400"
-                          : "bg-gray-500/20 text-gray-400"
+                          ? "bg-blue-100 text-blue-600"
+                          : "bg-gray-100 text-gray-500"
                   }`}
                 >
                   {p.status}

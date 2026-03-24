@@ -79,7 +79,7 @@ export default function ArtistsPage() {
       <Header title="Artists" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
@@ -93,7 +93,7 @@ export default function ArtistsPage() {
             setFormData({ name: "", bio: "", genre: "" });
             setShowForm(!showForm);
           }}
-          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-black hover:opacity-90 transition-opacity"
+          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
         >
           {showForm ? "Cancel" : "Add Artist"}
         </button>
@@ -146,7 +146,7 @@ export default function ArtistsPage() {
             </button>
             <button
               onClick={handleSubmit}
-              className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
+              className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
             >
               {editingId ? "Save Changes" : "Create Artist"}
             </button>
@@ -196,7 +196,7 @@ export default function ArtistsPage() {
                   </button>
                   <button
                     onClick={() => handleDelete(artist.id)}
-                    className="text-xs text-red-400/60 hover:text-red-400"
+                    className="text-xs text-red-600/60 hover:text-red-600"
                   >
                     Delete
                   </button>

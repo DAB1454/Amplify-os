@@ -3,15 +3,15 @@ import { cn } from "@/lib/utils";
 
 // Color map for item types
 const typeColors: Record<string, string> = {
-  post: "bg-blue-500/20 text-blue-400",
-  story: "bg-purple-500/20 text-purple-400",
-  reel: "bg-pink-500/20 text-pink-400",
-  email: "bg-green-500/20 text-green-400",
-  ad: "bg-orange-500/20 text-orange-400",
+  post: "bg-blue-100 text-blue-600",
+  story: "bg-purple-100 text-purple-600",
+  reel: "bg-pink-500/20 text-pink-600",
+  email: "bg-green-100 text-green-600",
+  ad: "bg-orange-100 text-orange-600",
   milestone: "bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]",
-  release: "bg-red-500/20 text-red-400",
-  deadline: "bg-yellow-500/20 text-yellow-400",
-  reminder: "bg-gray-500/20 text-gray-400",
+  release: "bg-red-100 text-red-600",
+  deadline: "bg-yellow-100 text-yellow-600",
+  reminder: "bg-gray-100 text-gray-500",
 };
 
 interface Props {
@@ -47,7 +47,7 @@ export function CalendarItemList({ items }: Props) {
               <h3
                 className={cn(
                   "text-sm font-semibold",
-                  isToday ? "text-[var(--brand-gold)]" : "text-gray-300"
+                  isToday ? "text-[var(--brand-gold)]" : "text-[var(--text-primary)]"
                 )}
               >
                 {formatted}
@@ -57,7 +57,7 @@ export function CalendarItemList({ items }: Props) {
                   Today
                 </span>
               )}
-              <div className="h-px flex-1 bg-gray-800" />
+              <div className="h-px flex-1 bg-[var(--bg-surface)]" />
             </div>
 
             <div className="mt-2 space-y-2">
@@ -73,12 +73,12 @@ export function CalendarItemList({ items }: Props) {
                   <div
                     key={item.id}
                     className={cn(
-                      "flex items-start gap-3 rounded-lg border border-gray-800 bg-[var(--bg-surface)] p-3 transition-colors hover:border-gray-700",
+                      "flex items-start gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] p-3 transition-colors hover:border-[var(--border-color)]",
                       item.is_completed && "opacity-50"
                     )}
                   >
                     {/* Time */}
-                    <div className="w-16 flex-shrink-0 text-xs text-gray-500">
+                    <div className="w-16 flex-shrink-0 text-xs text-[var(--text-secondary)]">
                       {item.scheduled_time?.slice(0, 5) || "\u2014"}
                     </div>
 
@@ -103,7 +103,7 @@ export function CalendarItemList({ items }: Props) {
                         {item.title}
                       </p>
                       {descWithoutPlatform && (
-                        <p className="mt-1 line-clamp-2 text-xs text-gray-400">
+                        <p className="mt-1 line-clamp-2 text-xs text-[var(--text-secondary)]">
                           {descWithoutPlatform}
                         </p>
                       )}
@@ -111,7 +111,7 @@ export function CalendarItemList({ items }: Props) {
 
                     {/* Platform tag */}
                     {platform && (
-                      <span className="flex-shrink-0 rounded bg-gray-800 px-2 py-0.5 text-xs text-gray-400">
+                      <span className="flex-shrink-0 rounded bg-[var(--bg-surface)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">
                         {platform}
                       </span>
                     )}

@@ -20,13 +20,13 @@ interface Post {
 }
 
 const statusColors: Record<string, string> = {
-  draft: "bg-gray-500/20 text-gray-400",
-  queued: "bg-yellow-500/20 text-yellow-400",
-  approved: "bg-green-500/20 text-green-400",
-  scheduled: "bg-blue-500/20 text-blue-400",
-  publishing: "bg-purple-500/20 text-purple-400",
-  published: "bg-emerald-500/20 text-emerald-400",
-  failed: "bg-red-500/20 text-red-400",
+  draft: "bg-gray-100 text-gray-500",
+  queued: "bg-yellow-100 text-yellow-600",
+  approved: "bg-green-100 text-green-600",
+  scheduled: "bg-blue-100 text-blue-600",
+  publishing: "bg-purple-100 text-purple-600",
+  published: "bg-emerald-100 text-emerald-600",
+  failed: "bg-red-100 text-red-600",
 };
 
 const tabs = ["all", "draft", "queued", "scheduled", "published", "failed"] as const;
@@ -81,23 +81,23 @@ export default function PostsPage() {
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {
     switch (status) {
       case "draft":
-        return [{ label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-black" }];
+        return [{ label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" }];
       case "queued":
         return [
           { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
-          { label: "Reject", action: "reject", style: "bg-red-600/20 text-red-400" },
+          { label: "Reject", action: "reject", style: "bg-red-100 text-red-600" },
         ];
       case "approved":
         return [
-          { label: "Publish", action: "publish", style: "bg-[var(--brand-gold)] text-black" },
-          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-400" },
+          { label: "Publish", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
       case "scheduled":
         return [
-          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-400" },
+          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
       case "failed":
-        return [{ label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-black" }];
+        return [{ label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" }];
       default:
         return [];
     }
@@ -124,7 +124,7 @@ export default function PostsPage() {
             }
             setShowCreate(!showCreate);
           }}
-          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-gray-950 hover:opacity-90 transition-opacity"
+          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
         >
           {showCreate ? "Cancel" : "+ New Post"}
         </button>
@@ -157,7 +157,7 @@ export default function PostsPage() {
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Channel</label>
             {channels.length === 0 ? (
-              <p className="text-xs text-red-400">No connected channels. Connect a platform first.</p>
+              <p className="text-xs text-red-600">No connected channels. Connect a platform first.</p>
             ) : (
               <select
                 value={newPost.channel_id}
@@ -197,12 +197,12 @@ export default function PostsPage() {
             />
           </div>
           {createError && (
-            <p className="text-xs text-red-400">{createError}</p>
+            <p className="text-xs text-red-600">{createError}</p>
           )}
           <button
             type="submit"
             disabled={channels.length === 0 || creating}
-            className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-gray-950 hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             {creating ? "Creating..." : "Create Post"}
           </button>
@@ -210,7 +210,7 @@ export default function PostsPage() {
       )}
 
       {fetchError && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {fetchError}
         </div>
       )}
@@ -222,7 +222,7 @@ export default function PostsPage() {
             onClick={() => setActiveTab(t)}
             className={`rounded-lg px-4 py-2 text-sm font-medium capitalize transition-colors ${
               activeTab === t
-                ? "bg-[var(--brand-gold)] text-black"
+                ? "bg-[var(--brand-gold)] text-white"
                 : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
             }`}
           >
@@ -252,7 +252,7 @@ export default function PostsPage() {
                     <span className="text-sm font-medium capitalize">{post.platform}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        statusColors[post.status] || "bg-gray-500/20 text-gray-400"
+                        statusColors[post.status] || "bg-gray-100 text-gray-500"
                       }`}
                     >
                       {post.status}
@@ -280,7 +280,7 @@ export default function PostsPage() {
                   )}
 
                   {post.last_error && (
-                    <p className="mt-1 text-xs text-red-400 truncate">
+                    <p className="mt-1 text-xs text-red-600 truncate">
                       Error: {post.last_error}
                     </p>
                   )}

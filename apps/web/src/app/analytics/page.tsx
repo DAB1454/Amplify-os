@@ -60,9 +60,9 @@ const ranges = ["7d", "14d", "30d"] as const;
 const dayMap: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30 };
 
 const verdictColors: Record<string, string> = {
-  keep: "bg-green-500/20 text-green-400",
-  remix: "bg-yellow-500/20 text-yellow-400",
-  stop: "bg-red-500/20 text-red-400",
+  keep: "bg-green-100 text-green-600",
+  remix: "bg-yellow-100 text-yellow-600",
+  stop: "bg-red-100 text-red-600",
 };
 
 const platformColors: Record<string, string> = {
@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
             className={cn(
               "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
               range === r
-                ? "bg-[var(--brand-gold)] text-black"
+                ? "bg-[var(--brand-gold)] text-white"
                 : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
             )}
           >
@@ -166,14 +166,14 @@ export default function AnalyticsPage() {
           </button>
         ))}
         {timeseries?.source === "mock" && (
-          <span className="ml-auto self-center rounded bg-purple-500/20 px-2 py-1 text-xs text-purple-400">
+          <span className="ml-auto self-center rounded bg-purple-100 px-2 py-1 text-xs text-purple-600">
             Mock data
           </span>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -303,9 +303,9 @@ export default function AnalyticsPage() {
               {/* Verdict summary */}
               <div className="mt-4 flex gap-4">
                 {[
-                  { label: "Keep", count: report.keep_count, color: "text-green-400" },
-                  { label: "Remix", count: report.remix_count, color: "text-yellow-400" },
-                  { label: "Stop", count: report.stop_count, color: "text-red-400" },
+                  { label: "Keep", count: report.keep_count, color: "text-green-600" },
+                  { label: "Remix", count: report.remix_count, color: "text-yellow-600" },
+                  { label: "Stop", count: report.stop_count, color: "text-red-600" },
                 ].map((v) => (
                   <div
                     key={v.label}

@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Amplify-OS",
+  title: "AmplifyMe",
   description: "Music marketing command center",
 };
 
@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`${inter.variable} antialiased`}>
         <AuthProvider>
           <AuthLayout>{children}</AuthLayout>

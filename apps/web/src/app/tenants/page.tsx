@@ -133,7 +133,7 @@ export default function TenantsPage() {
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold shrink-0",
                         step.is_completed
-                          ? "bg-green-500/20 text-green-400"
+                          ? "bg-green-100 text-green-600"
                           : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
                       )}
                     >
@@ -148,7 +148,7 @@ export default function TenantsPage() {
                           {step.label}
                         </span>
                         {step.is_required && !step.is_completed && (
-                          <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] text-red-400">
+                          <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] text-red-600">
                             required
                           </span>
                         )}
@@ -168,7 +168,7 @@ export default function TenantsPage() {
 
           {onboarding?.completed && (
             <div className="mt-6 rounded-xl border border-green-500/30 bg-green-500/5 p-6 text-center">
-              <p className="text-sm text-green-400">
+              <p className="text-sm text-green-600">
                 Onboarding complete! Your workspace is ready to go.
               </p>
             </div>

@@ -26,10 +26,10 @@ interface Campaign {
 const tabs = ["All", "Active", "Draft", "Paused", "Completed"] as const;
 
 const statusColors: Record<string, string> = {
-  draft: "bg-gray-500/20 text-gray-400",
-  active: "bg-green-500/20 text-green-400",
-  paused: "bg-yellow-500/20 text-yellow-400",
-  completed: "bg-blue-500/20 text-blue-400",
+  draft: "bg-gray-100 text-gray-500",
+  active: "bg-green-100 text-green-600",
+  paused: "bg-yellow-100 text-yellow-600",
+  completed: "bg-blue-100 text-blue-600",
 };
 
 export default function CampaignsPage() {
@@ -132,7 +132,7 @@ export default function CampaignsPage() {
       <Header title="Campaigns" />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 flex items-center justify-between">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
@@ -147,7 +147,7 @@ export default function CampaignsPage() {
               className={cn(
                 "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
                 activeTab === tab
-                  ? "bg-[var(--brand-gold)] text-black"
+                  ? "bg-[var(--brand-gold)] text-white"
                   : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
               )}
             >
@@ -161,7 +161,7 @@ export default function CampaignsPage() {
             setFormData({ artist_id: artists[0]?.id || "", name: "", phase: "pre_release", start_date: "", end_date: "" });
             setShowForm(!showForm);
           }}
-          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-black hover:opacity-90 transition-opacity"
+          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
         >
           {showForm ? "Cancel" : "New Campaign"}
         </button>
@@ -244,7 +244,7 @@ export default function CampaignsPage() {
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
+                  className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
                 >
                   {editingId ? "Save Changes" : "Create Campaign"}
                 </button>
@@ -274,7 +274,7 @@ export default function CampaignsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text-primary)]">{c.name}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[c.status] || "bg-gray-500/20 text-gray-400"}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[c.status] || "bg-gray-100 text-gray-500"}`}>
                       {c.status}
                     </span>
                     <span className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
@@ -299,7 +299,7 @@ export default function CampaignsPage() {
                   {c.status === "active" && (
                     <button
                       onClick={() => handleAction(c.id, "pause")}
-                      className="rounded-lg bg-yellow-600/20 px-3 py-1.5 text-xs font-medium text-yellow-400 hover:opacity-90"
+                      className="rounded-lg bg-yellow-600/20 px-3 py-1.5 text-xs font-medium text-yellow-600 hover:opacity-90"
                     >
                       Pause
                     </button>
@@ -307,7 +307,7 @@ export default function CampaignsPage() {
                   {c.status === "paused" && (
                     <button
                       onClick={() => handleAction(c.id, "launch")}
-                      className="rounded-lg bg-green-600/20 px-3 py-1.5 text-xs font-medium text-green-400 hover:opacity-90"
+                      className="rounded-lg bg-green-600/20 px-3 py-1.5 text-xs font-medium text-green-600 hover:opacity-90"
                     >
                       Resume
                     </button>
@@ -320,7 +320,7 @@ export default function CampaignsPage() {
                   </button>
                   <button
                     onClick={() => handleDelete(c.id)}
-                    className="text-xs text-red-400/60 hover:text-red-400"
+                    className="text-xs text-red-600/60 hover:text-red-600"
                   >
                     Delete
                   </button>

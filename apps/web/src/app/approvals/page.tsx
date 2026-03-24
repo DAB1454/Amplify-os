@@ -29,19 +29,19 @@ interface ApprovalItem {
 }
 
 const riskColors: Record<string, string> = {
-  low: "bg-green-500/20 text-green-400",
-  medium: "bg-yellow-500/20 text-yellow-400",
-  high: "bg-orange-500/20 text-orange-400",
-  critical: "bg-red-500/20 text-red-400",
+  low: "bg-green-100 text-green-600",
+  medium: "bg-yellow-100 text-yellow-600",
+  high: "bg-orange-100 text-orange-600",
+  critical: "bg-red-100 text-red-600",
 };
 
 const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400",
-  resubmitted: "bg-blue-500/20 text-blue-400",
-  approved: "bg-green-500/20 text-green-400",
-  rejected: "bg-red-500/20 text-red-400",
-  revision_requested: "bg-orange-500/20 text-orange-400",
-  expired: "bg-gray-500/20 text-gray-400",
+  pending: "bg-yellow-100 text-yellow-600",
+  resubmitted: "bg-blue-100 text-blue-600",
+  approved: "bg-green-100 text-green-600",
+  rejected: "bg-red-100 text-red-600",
+  revision_requested: "bg-orange-100 text-orange-600",
+  expired: "bg-gray-100 text-gray-500",
 };
 
 type TabKey = "pending" | "history";
@@ -123,14 +123,14 @@ export default function ApprovalsPage() {
           onClick={() => setTab("pending")}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             tab === "pending"
-              ? "bg-[var(--brand-gold)] text-black"
+              ? "bg-[var(--brand-gold)] text-white"
               : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
           }`}
         >
           Pending
         </button>
         {pendingCount > 0 && (
-          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--brand-gold)] px-2 text-xs font-bold text-black">
+          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--brand-gold)] px-2 text-xs font-bold text-white">
             {pendingCount}
           </span>
         )}
@@ -138,7 +138,7 @@ export default function ApprovalsPage() {
           onClick={() => setTab("history")}
           className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
             tab === "history"
-              ? "bg-[var(--brand-gold)] text-black"
+              ? "bg-[var(--brand-gold)] text-white"
               : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
           }`}
         >
@@ -147,7 +147,7 @@ export default function ApprovalsPage() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -183,14 +183,14 @@ export default function ApprovalsPage() {
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            statusColors[item.status] || "bg-gray-500/20 text-gray-400"
+                            statusColors[item.status] || "bg-gray-100 text-gray-500"
                           }`}
                         >
                           {item.status.replace(/_/g, " ")}
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            riskColors[item.risk_level] || "bg-gray-500/20 text-gray-400"
+                            riskColors[item.risk_level] || "bg-gray-100 text-gray-500"
                           }`}
                         >
                           {item.risk_level} risk
@@ -296,13 +296,13 @@ export default function ApprovalsPage() {
                           </button>
                           <button
                             onClick={() => handleDecision(item.id, "reject")}
-                            className="rounded-lg bg-red-600/20 px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-600/30"
+                            className="rounded-lg bg-red-100 px-4 py-2 text-xs font-medium text-red-600 hover:bg-red-600/30"
                           >
                             Reject
                           </button>
                           <button
                             onClick={() => handleDecision(item.id, "request-revision")}
-                            className="rounded-lg bg-orange-600/20 px-4 py-2 text-xs font-medium text-orange-400 hover:bg-orange-600/30"
+                            className="rounded-lg bg-orange-100 px-4 py-2 text-xs font-medium text-orange-600 hover:bg-orange-600/30"
                           >
                             Request Revision
                           </button>
@@ -313,7 +313,7 @@ export default function ApprovalsPage() {
                     {(item.status === "rejected" || item.status === "revision_requested") && (
                       <button
                         onClick={() => handleResubmit(item.id)}
-                        className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-xs font-medium text-black hover:opacity-90"
+                        className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-xs font-medium text-white hover:opacity-90"
                       >
                         Resubmit
                       </button>

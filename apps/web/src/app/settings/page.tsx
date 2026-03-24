@@ -130,8 +130,8 @@ export default function SettingsPage() {
             className={cn(
               "mb-6 rounded-lg px-4 py-3 text-sm",
               banner.type === "success"
-                ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                : "bg-red-500/15 text-red-400 border border-red-500/30"
+                ? "bg-green-50 text-green-600 border border-green-500/30"
+                : "bg-red-50 text-red-600 border border-red-500/30"
             )}
           >
             {banner.message}
@@ -352,7 +352,7 @@ function ControlsTab({
           disabled={saving}
           className={cn(
             "rounded-lg px-6 py-2.5 text-sm font-medium transition-colors",
-            "bg-[var(--brand-gold)] text-black hover:bg-[var(--brand-gold)]/90",
+            "bg-[var(--brand-gold)] text-white hover:bg-[var(--brand-gold)]/90",
             saving && "opacity-50 cursor-not-allowed"
           )}
         >
@@ -426,10 +426,10 @@ function MonitoringTab({
                 className={cn(
                   "rounded-lg px-3 py-2 text-sm border",
                   a.severity === "critical"
-                    ? "bg-red-500/10 text-red-400 border-red-500/30"
+                    ? "bg-red-50 text-red-600 border-red-500/30"
                     : a.severity === "warning"
                     ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                    : "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                    : "bg-blue-500/10 text-blue-600 border-blue-500/30"
                 )}
               >
                 <span className="font-medium uppercase text-xs mr-2">{a.severity}</span>
@@ -509,7 +509,7 @@ function ToggleRow({
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-[var(--brand-gold)]" : "bg-gray-600"
+          checked ? "bg-[var(--brand-gold)]" : "bg-gray-300"
         )}
       >
         <span

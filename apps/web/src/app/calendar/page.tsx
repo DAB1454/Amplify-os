@@ -47,7 +47,7 @@ export default function CalendarPage() {
               className={cn(
                 "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
                 view === v
-                  ? "bg-[var(--brand-gold)] text-black"
+                  ? "bg-[var(--brand-gold)] text-white"
                   : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
               )}
             >
@@ -57,7 +57,7 @@ export default function CalendarPage() {
         </div>
         <button
           onClick={() => setShowImport(true)}
-          className="flex items-center gap-2 rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-black transition-opacity hover:opacity-90"
+          className="flex items-center gap-2 rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
         >
           <Upload size={16} />
           Import CSV
@@ -65,7 +65,7 @@ export default function CalendarPage() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}

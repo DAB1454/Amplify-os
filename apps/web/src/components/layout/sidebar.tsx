@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -47,15 +48,24 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-[var(--border-color)] bg-[var(--bg-surface)] transition-all duration-200",
+        "fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-[var(--border-color)] bg-white transition-all duration-200",
         collapsed ? "w-[68px]" : "w-[240px]"
       )}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 px-4">
-        <span className="text-xl font-bold text-[var(--brand-gold)]">
-          {collapsed ? "A" : "Amplify-OS"}
-        </span>
+      <div className="flex h-16 items-center gap-2 px-3">
+        <Image
+          src="/logo.png"
+          alt="AmplifyMe"
+          width={40}
+          height={40}
+          className="shrink-0 rounded-lg"
+        />
+        {!collapsed && (
+          <span className="text-lg font-bold bg-gradient-to-r from-blue-500 via-violet-500 to-pink-500 bg-clip-text text-transparent">
+            AmplifyMe
+          </span>
+        )}
       </div>
 
       {/* Navigation */}
@@ -113,7 +123,7 @@ export function Sidebar() {
         </button>
         <button
           onClick={logout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-red-400 transition-colors"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-red-500 transition-colors"
         >
           <LogOut className="h-5 w-5 shrink-0" />
           {!collapsed && <span>Sign Out</span>}
