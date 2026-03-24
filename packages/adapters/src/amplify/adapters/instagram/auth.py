@@ -97,6 +97,14 @@ class InstagramAuth:
             account_id=user_id,
             # Short-lived tokens expire in ~1 hour
             expires_at=datetime.utcnow() + timedelta(hours=1),
+            # Instagram doesn't return scopes in token response —
+            # they were granted when the user authorized
+            scopes=[
+                "instagram_business_basic",
+                "instagram_business_content_publish",
+                "instagram_business_manage_comments",
+                "instagram_business_manage_messages",
+            ],
         )
 
     async def exchange_long_lived(self, short_lived_token: str) -> TokenSet:
