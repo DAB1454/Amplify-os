@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -19,6 +21,43 @@ logger = logging.getLogger(__name__)
 YT_API = "https://www.googleapis.com/youtube/v3"
 YT_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos"
 MAX_VIDEO_SIZE = 256 * 1024 * 1024 * 1024  # 256 GB
+
+
+def _is_url(path: str) -> bool:
+    """Check if a string looks like a URL."""
+    try:
+        parsed = urlparse(str(path))
+        return parsed.scheme in ("http", "https")
+    except Exception:
+        return False
+
+
+async def _download_video(url: str) -> Path:
+    """Download a video URL to a temporary file."""
+    logger.info("Downloading video from URL: %s", url)
+    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+        resp = await client.get(url)
+        if resp.status_code >= 400:
+            raise ValidationError(
+                f"Failed to download video from {url} (HTTP {resp.status_code})",
+                platform="youtube",
+            )
+        if len(resp.content) == 0:
+            raise ValidationError(
+                f"Downloaded empty file from {url}",
+                platform="youtube",
+            )
+        suffix = ".mp4"
+        content_type = resp.headers.get("content-type", "")
+        if "webm" in content_type:
+            suffix = ".webm"
+        elif "quicktime" in content_type or "mov" in content_type:
+            suffix = ".mov"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp.write(resp.content)
+        tmp.close()
+        logger.info("Downloaded %d bytes to %s", len(resp.content), tmp.name)
+        return Path(tmp.name)
 
 
 class YouTubeUploader:
@@ -51,6 +90,9 @@ class YouTubeUploader:
     async def upload_video(self, video_path: str | Path, metadata: dict[str, Any]) -> str:
         """Upload a video to YouTube. Returns the video ID.
 
+        video_path can be a local file path or an HTTP(S) URL.
+        URLs are downloaded to a temp file before uploading.
+
         metadata keys:
             title: str (required)
             description: str
@@ -58,7 +100,24 @@ class YouTubeUploader:
             categoryId: str (default "10" = Music)
             privacyStatus: "private" | "unlisted" | "public"
         """
-        video = Path(video_path)
+        downloaded_tmp: Path | None = None
+        if _is_url(str(video_path)):
+            downloaded_tmp = await _download_video(str(video_path))
+            video = downloaded_tmp
+        else:
+            video = Path(video_path)
+
+        try:
+            return await self._upload_from_file(video, metadata)
+        finally:
+            if downloaded_tmp is not None:
+                try:
+                    downloaded_tmp.unlink()
+                except OSError:
+                    pass
+
+    async def _upload_from_file(self, video: Path, metadata: dict[str, Any]) -> str:
+        """Upload a local video file to YouTube. Returns the video ID."""
         if not video.exists():
             raise ValidationError(f"Video not found: {video}", platform="youtube")
 
