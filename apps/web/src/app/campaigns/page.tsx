@@ -106,6 +106,7 @@ export default function CampaignsPage() {
     if (!formData.name.trim() || !formData.artist_id) return;
     setCreating(true);
     setError(null);
+    const selectedMode = formData.mode;
     try {
       const payload: Record<string, unknown> = {
         artist_id: formData.artist_id,
@@ -115,7 +116,7 @@ export default function CampaignsPage() {
       if (formData.release_id) payload.release_id = formData.release_id;
       if (formData.start_date) payload.start_date = formData.start_date;
       if (formData.end_date) payload.end_date = formData.end_date;
-      payload.mode = formData.mode;
+      payload.mode = selectedMode;
 
       let campaignId = editingId;
 
@@ -129,18 +130,14 @@ export default function CampaignsPage() {
       setShowForm(false);
       setEditingId(null);
       setFormData({ artist_id: "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "", mode: "ai_plan" });
-      await fetchData();
 
-      // If user clicked "Create + AI Plan", generate immediately
-      if (generatePlan && campaignId) {
-        await handleGeneratePlan(campaignId);
-      }
-
-      // Navigate to detail page for AI modes
-      if (formData.mode !== "manual" && campaignId) {
-        router.push(`/campaigns/${campaignId}`);
+      // For AI modes, redirect to detail page with auto-generate flag
+      if (generatePlan && selectedMode !== "manual" && campaignId) {
+        router.push(`/campaigns/${campaignId}?generate=true`);
         return;
       }
+
+      await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
