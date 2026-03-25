@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiDelete, apiUpload } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 import { formatLocal } from "@/lib/utils";
@@ -60,6 +60,12 @@ export default function PostsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState("");
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [previewPostId, setPreviewPostId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -119,15 +125,47 @@ export default function PostsPage() {
     }
   };
 
+  const handleEditSave = async (postId: string) => {
+    setEditSaving(true);
+    try {
+      await apiPut(`/api/v1/posts/${postId}`, { content_text: editContent });
+      setEditingPostId(null);
+      setEditContent("");
+      setFetchError(null);
+      fetchPosts();
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "Failed to save edit");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handlePreview = async (postId: string) => {
+    setPreviewPostId(postId);
+    setPreviewLoading(true);
+    setPreviewData(null);
+    try {
+      const data = await apiPost<Record<string, unknown>>(`/api/v1/posts/${postId}/preview`, {});
+      setPreviewData(data);
+    } catch (err) {
+      setPreviewData({ error: err instanceof Error ? err.message : "Preview failed" });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {
     switch (status) {
       case "draft":
         return [
+          { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" },
           { label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
         ];
       case "queued":
         return [
+          { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" },
+          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
           { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
           { label: "Reject", action: "reject", style: "bg-red-100 text-red-600" },
         ];
@@ -468,7 +506,6 @@ export default function PostsPage() {
                             setSchedulingPostId(null);
                           } else {
                             setSchedulingPostId(post.id);
-                            // Default to tomorrow at 10am local
                             const tomorrow = new Date();
                             tomorrow.setDate(tomorrow.getDate() + 1);
                             tomorrow.setHours(10, 0, 0, 0);
@@ -481,6 +518,30 @@ export default function PostsPage() {
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
                       >
                         Schedule
+                      </button>
+                    ) : btn.action === "edit" ? (
+                      <button
+                        key="edit"
+                        onClick={() => {
+                          if (editingPostId === post.id) {
+                            setEditingPostId(null);
+                          } else {
+                            setEditingPostId(post.id);
+                            setEditContent(post.content_text || "");
+                          }
+                        }}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
+                      >
+                        {editingPostId === post.id ? "Cancel Edit" : "Edit"}
+                      </button>
+                    ) : btn.action === "preview" ? (
+                      <button
+                        key="preview"
+                        onClick={() => handlePreview(post.id)}
+                        disabled={previewLoading && previewPostId === post.id}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {previewLoading && previewPostId === post.id ? <ButtonSpinner label="Loading..." /> : "Preview"}
                       </button>
                     ) : (
                       <button
@@ -518,6 +579,32 @@ export default function PostsPage() {
                       </button>
                     </div>
                   )}
+                  {/* Inline edit */}
+                  {editingPostId === post.id && (
+                    <div className="mt-2 w-full">
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        rows={4}
+                        className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                      />
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => handleEditSave(post.id)}
+                          disabled={editSaving || editContent === post.content_text}
+                          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                        >
+                          {editSaving ? <ButtonSpinner label="Saving..." /> : "Save"}
+                        </button>
+                        <button
+                          onClick={() => setEditingPostId(null)}
+                          className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={async () => {
                       if (!confirm("Delete this post?")) return;
@@ -545,6 +632,75 @@ export default function PostsPage() {
           ))
         )}
       </div>
+
+      {/* Preview modal */}
+      {previewPostId && previewData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Post Preview</h3>
+              <button
+                onClick={() => { setPreviewPostId(null); setPreviewData(null); }}
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-lg"
+              >
+                &times;
+              </button>
+            </div>
+            {previewData.error ? (
+              <p className="text-sm text-red-600">{String(previewData.error)}</p>
+            ) : (() => {
+              const pv = (previewData.preview || {}) as Record<string, unknown>;
+              const mediaUrls = Array.isArray(pv.media_urls) ? (pv.media_urls as string[]) : [];
+              return (
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">Platform</span>
+                    <p className="text-sm capitalize text-[var(--text-primary)]">
+                      {String(pv.platform || "—")}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">Content</span>
+                    <p className="mt-1 rounded-lg bg-[var(--bg-primary)] p-3 text-sm text-[var(--text-primary)] whitespace-pre-wrap">
+                      {String(pv.content || "(no content)")}
+                    </p>
+                  </div>
+                  {mediaUrls.length > 0 && (
+                    <div>
+                      <span className="text-xs font-medium text-[var(--text-secondary)]">Media</span>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {mediaUrls.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--brand-gold)] hover:underline truncate max-w-[200px]">
+                            {url.split("/").pop()}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {pv.destination_url ? (
+                    <div>
+                      <span className="text-xs font-medium text-[var(--text-secondary)]">Link</span>
+                      <p className="text-sm text-[var(--brand-gold)]">
+                        {String(pv.destination_url)}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                    <span>Policy: {String(previewData.policy_decision || "—")}</span>
+                    <span>Status: {String(previewData.status || "—")}</span>
+                  </div>
+                </div>
+              );
+            })()}
+            <button
+              onClick={() => { setPreviewPostId(null); setPreviewData(null); }}
+              className="mt-4 w-full rounded-lg bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

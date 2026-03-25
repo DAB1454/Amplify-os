@@ -68,6 +68,7 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
                     "campaign_id": str(post.campaign_id) if post.campaign_id else "",
                     "retry_count": post.retry_count or 0,
                     "max_retries": post.max_retries or 3,
+                    "skip_policy": True,
                 }
 
                 await queue.enqueue(

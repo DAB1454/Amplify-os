@@ -52,92 +52,98 @@ async def publish_post(payload: dict) -> dict:
     4. On failure, compute retry backoff.
     5. On permanent failure, trigger alert.
     """
-    from amplify.core.policies.engine import ActionContext, create_default_engine
-
     post_id = payload.get("post_id", "unknown")
     tenant_id = payload.get("tenant_id", "")
     dry_run = payload.get("dry_run", False)
     retry_count = payload.get("retry_count", 0)
     max_retries = payload.get("max_retries", 3)
+    # Posts from scan_scheduled were already approved — skip re-evaluation
+    skip_policy = payload.get("skip_policy", False)
 
-    # Build action context from payload
-    scheduled_at = payload.get("scheduled_at")
-    if isinstance(scheduled_at, str):
-        try:
-            scheduled_at = datetime.fromisoformat(scheduled_at)
-        except ValueError:
-            scheduled_at = None
+    policy_decision = "allow"
+    platform = payload.get("platform", "")
 
-    # Allow explicit "now" override for deterministic testing
-    now_raw = payload.get("now")
-    now_kwargs: dict = {}
-    if isinstance(now_raw, str):
-        try:
-            now_kwargs["now"] = datetime.fromisoformat(now_raw)
-        except ValueError:
-            pass
-    elif isinstance(now_raw, datetime):
-        now_kwargs["now"] = now_raw
+    if not skip_policy:
+        from amplify.core.policies.engine import ActionContext, create_default_engine
 
-    ctx = ActionContext(
-        action_type="publish",
-        platform=payload.get("platform", ""),
-        content=payload.get("content", ""),
-        media_urls=payload.get("media_urls", []),
-        destination_url=payload.get("destination_url", ""),
-        artist_id=payload.get("artist_id", ""),
-        release_id=payload.get("release_id", ""),
-        campaign_id=payload.get("campaign_id", ""),
-        scheduled_at=scheduled_at,
-        recent_posts=payload.get("recent_posts", []),
-        recent_captions=payload.get("recent_captions", []),
-        **now_kwargs,
-    )
+        # Build action context from payload
+        scheduled_at = payload.get("scheduled_at")
+        if isinstance(scheduled_at, str):
+            try:
+                scheduled_at = datetime.fromisoformat(scheduled_at)
+            except ValueError:
+                scheduled_at = None
 
-    # ── Policy check ──────────────────────────────────────────────
-    engine = create_default_engine()
-    result = engine.evaluate(ctx)
+        now_raw = payload.get("now")
+        now_kwargs: dict = {}
+        if isinstance(now_raw, str):
+            try:
+                now_kwargs["now"] = datetime.fromisoformat(now_raw)
+            except ValueError:
+                pass
+        elif isinstance(now_raw, datetime):
+            now_kwargs["now"] = now_raw
 
-    if result.blocked:
-        logger.warning("Publish blocked by policy: %s", result.summary())
-        await _update_post_status(post_id, tenant_id, "draft", last_error="Blocked by policy")
-        return {
-            "status": "blocked",
-            "post_id": post_id,
-            "published": False,
-            "policy_decision": result.final_decision.value,
-            "reasons": result.blocking_reasons,
-        }
+        ctx = ActionContext(
+            action_type="publish",
+            platform=platform,
+            content=payload.get("content", ""),
+            media_urls=payload.get("media_urls", []),
+            destination_url=payload.get("destination_url", ""),
+            artist_id=payload.get("artist_id", ""),
+            release_id=payload.get("release_id", ""),
+            campaign_id=payload.get("campaign_id", ""),
+            scheduled_at=scheduled_at,
+            recent_posts=payload.get("recent_posts", []),
+            recent_captions=payload.get("recent_captions", []),
+            **now_kwargs,
+        )
 
-    if result.needs_approval:
-        logger.info("Publish requires approval: %s", result.summary())
-        await _update_post_status(post_id, tenant_id, "queued")
-        return {
-            "status": "pending_approval",
-            "post_id": post_id,
-            "published": False,
-            "policy_decision": result.final_decision.value,
-            "reasons": result.approval_reasons,
-        }
+        # ── Policy check ──────────────────────────────────────────────
+        engine = create_default_engine()
+        result = engine.evaluate(ctx)
+        policy_decision = result.final_decision.value
+
+        if result.blocked:
+            logger.warning("Publish blocked by policy: %s", result.summary())
+            await _update_post_status(post_id, tenant_id, "draft", last_error="Blocked by policy")
+            return {
+                "status": "blocked",
+                "post_id": post_id,
+                "published": False,
+                "policy_decision": policy_decision,
+                "reasons": result.blocking_reasons,
+            }
+
+        if result.needs_approval:
+            logger.info("Publish requires approval: %s", result.summary())
+            await _update_post_status(post_id, tenant_id, "queued")
+            return {
+                "status": "pending_approval",
+                "post_id": post_id,
+                "published": False,
+                "policy_decision": policy_decision,
+                "reasons": result.approval_reasons,
+            }
 
     # ── Dry run ───────────────────────────────────────────────────
     if dry_run:
-        logger.info("Dry run for post %s on %s", post_id, ctx.platform)
+        logger.info("Dry run for post %s on %s", post_id, platform)
         return {
             "status": "dry_run",
             "post_id": post_id,
             "published": False,
-            "policy_decision": result.final_decision.value,
+            "policy_decision": policy_decision,
             "preview": {
-                "platform": ctx.platform,
-                "content": ctx.content,
-                "media_urls": ctx.media_urls,
-                "destination_url": ctx.destination_url,
+                "platform": platform,
+                "content": payload.get("content", ""),
+                "media_urls": payload.get("media_urls", []),
+                "destination_url": payload.get("destination_url", ""),
             },
         }
 
     # ── Publish via adapter ───────────────────────────────────────
-    logger.info("Policy check passed for %s publish (post %s)", ctx.platform, post_id)
+    logger.info("Publishing %s post %s (skip_policy=%s)", platform, post_id, skip_policy)
 
     try:
         adapter_result = await _call_adapter(payload)
@@ -156,7 +162,7 @@ async def publish_post(payload: dict) -> dict:
             "status": "ok",
             "post_id": post_id,
             "published": True,
-            "policy_decision": result.final_decision.value,
+            "policy_decision": policy_decision,
             "platform_post_id": adapter_result.get("platform_post_id"),
             "permalink": adapter_result.get("permalink"),
             "published_at": published_at.isoformat(),
