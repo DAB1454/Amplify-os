@@ -336,8 +336,13 @@ async def schedule_post(
     audit: AuditService = Depends(get_audit_service),
 ):
     """Schedule a post for future publication."""
+    # Strip timezone info — DB stores naive UTC datetimes
+    scheduled_at = body.scheduled_at
+    if scheduled_at.tzinfo is not None:
+        from datetime import timezone
+        scheduled_at = scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
     try:
-        result = await svc.schedule_post(post_id, body.scheduled_at)
+        result = await svc.schedule_post(post_id, scheduled_at)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except InvalidTransition as exc:
@@ -349,7 +354,7 @@ async def schedule_post(
             entity_type="post",
             entity_id=post_id,
             user_id=user_id,
-            changes={"scheduled_at": body.scheduled_at.isoformat()},
+            changes={"scheduled_at": scheduled_at.isoformat()},
         )
     except Exception as exc:
         logger.warning("Audit log failed (non-fatal): %s", exc)
