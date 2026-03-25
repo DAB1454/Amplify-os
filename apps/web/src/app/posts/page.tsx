@@ -66,6 +66,7 @@ export default function PostsPage() {
   const [previewPostId, setPreviewPostId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -122,6 +123,35 @@ export default function PostsPage() {
       setFetchError(err instanceof Error ? err.message : "Failed to schedule post");
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleAiCaption = async (target: "create" | "edit", platform: string) => {
+    setAiLoading(true);
+    try {
+      const result = await apiPost<{ variants: { body: string; hashtags: string[] }[] }>(
+        "/api/v1/ai/generate-caption",
+        {
+          platform,
+          artist_name: "Drew Baird",
+          release_title: "For Love of Country",
+          key_message: target === "create" ? newPost.content_text || "New music" : editContent || "New music",
+          tone: "authentic",
+        }
+      );
+      const best = result.variants?.[0];
+      if (best) {
+        const caption = best.body + (best.hashtags?.length ? "\n\n" + best.hashtags.join(" ") : "");
+        if (target === "create") {
+          setNewPost((prev) => ({ ...prev, content_text: caption }));
+        } else {
+          setEditContent(caption);
+        }
+      }
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "AI caption generation failed");
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -298,11 +328,19 @@ export default function PostsPage() {
             <textarea
               value={newPost.content_text}
               onChange={(e) => setNewPost({ ...newPost, content_text: e.target.value })}
-              placeholder="Write your post content..."
+              placeholder="Write your post content or click AI Caption..."
               required
               rows={4}
               className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
             />
+            <button
+              type="button"
+              onClick={() => handleAiCaption("create", newPost.platform || "instagram")}
+              disabled={aiLoading}
+              className="mt-1 rounded-lg bg-indigo-600/10 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-600/20 disabled:opacity-50"
+            >
+              {aiLoading ? <ButtonSpinner label="Generating..." /> : "AI Caption"}
+            </button>
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Media Files</label>
@@ -622,6 +660,13 @@ export default function PostsPage() {
                           className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                         >
                           {editSaving ? <ButtonSpinner label="Saving..." /> : "Save"}
+                        </button>
+                        <button
+                          onClick={() => handleAiCaption("edit", post.platform || "instagram")}
+                          disabled={aiLoading}
+                          className="rounded-lg bg-indigo-600/10 px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-600/20 disabled:opacity-50"
+                        >
+                          {aiLoading ? <ButtonSpinner label="Generating..." /> : "AI Caption"}
                         </button>
                         <button
                           onClick={() => setEditingPostId(null)}

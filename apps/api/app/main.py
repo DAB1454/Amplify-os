@@ -43,6 +43,7 @@ from app.routes.cohorts import router as cohorts_router
 from app.routes.global_priors import router as global_priors_router
 from app.routes.intelligence import router as intelligence_router
 from app.routes.media import router as media_router
+from app.routes.ai import router as ai_router
 
 
 @asynccontextmanager
@@ -160,6 +161,7 @@ def create_app() -> FastAPI:
     application.include_router(global_priors_router, prefix=prefix)
     application.include_router(intelligence_router, prefix=prefix)
     application.include_router(media_router, prefix=prefix)
+    application.include_router(ai_router, prefix=prefix)
     application.include_router(oauth_router, prefix=prefix)
     application.include_router(redirect_public_router)
     application.include_router(oauth_callback_router)

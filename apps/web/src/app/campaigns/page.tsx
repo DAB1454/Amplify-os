@@ -48,6 +48,8 @@ export default function CampaignsPage() {
     start_date: "",
     end_date: "",
   });
+  const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
+  const [planResult, setPlanResult] = useState<{ campaign_id: string; daily_actions: number; calendar_items_created: number; draft_posts_created: number; notes: string } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -119,6 +121,33 @@ export default function CampaignsPage() {
     setShowForm(true);
   };
 
+  const handleGeneratePlan = async (campaignId: string) => {
+    setGeneratingPlanId(campaignId);
+    setPlanResult(null);
+    setError(null);
+    try {
+      const result = await apiPost<{
+        campaign_name: string;
+        daily_actions: { day: string; platform: string; action_type: string; content_brief: string }[];
+        calendar_items_created: number;
+        draft_posts_created: number;
+        notes: string;
+      }>("/api/v1/ai/generate-plan", { campaign_id: campaignId });
+      setPlanResult({
+        campaign_id: campaignId,
+        daily_actions: result.daily_actions?.length || 0,
+        calendar_items_created: result.calendar_items_created,
+        draft_posts_created: result.draft_posts_created,
+        notes: result.notes,
+      });
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Plan generation failed");
+    } finally {
+      setGeneratingPlanId(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await apiDelete(`/api/v1/campaigns/${id}`);
@@ -136,6 +165,16 @@ export default function CampaignsPage() {
         <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 break-words overflow-hidden flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
+
+      {planResult && (
+        <div className="mt-4 rounded-lg border border-green-500/30 bg-green-50 px-4 py-3 text-sm text-green-700 flex items-center justify-between">
+          <span>
+            Plan generated: {planResult.daily_actions} actions, {planResult.calendar_items_created} calendar items, {planResult.draft_posts_created} draft posts created.
+            {planResult.notes && ` — ${planResult.notes.slice(0, 120)}`}
+          </span>
+          <button onClick={() => setPlanResult(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
         </div>
       )}
 
@@ -287,6 +326,13 @@ export default function CampaignsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => handleGeneratePlan(c.id)}
+                    disabled={generatingPlanId === c.id}
+                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {generatingPlanId === c.id ? <ButtonSpinner label="Generating..." /> : "AI Plan"}
+                  </button>
                   {c.status === "draft" && (
                     <button
                       onClick={() => handleAction(c.id, "launch")}
