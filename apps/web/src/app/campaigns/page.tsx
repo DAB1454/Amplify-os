@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ interface Campaign {
   release_id: string | null;
   name: string;
   status: string;
+  mode: string;
   phase: string;
   start_date: string | null;
   end_date: string | null;
@@ -50,6 +52,7 @@ export default function CampaignsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const router = useRouter();
   const [formData, setFormData] = useState({
     artist_id: "",
     release_id: "",
@@ -57,6 +60,7 @@ export default function CampaignsPage() {
     phase: "pre_release",
     start_date: "",
     end_date: "",
+    mode: "ai_plan",
   });
   const [creating, setCreating] = useState(false);
   const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
@@ -111,6 +115,7 @@ export default function CampaignsPage() {
       if (formData.release_id) payload.release_id = formData.release_id;
       if (formData.start_date) payload.start_date = formData.start_date;
       if (formData.end_date) payload.end_date = formData.end_date;
+      payload.mode = formData.mode;
 
       let campaignId = editingId;
 
@@ -123,12 +128,18 @@ export default function CampaignsPage() {
 
       setShowForm(false);
       setEditingId(null);
-      setFormData({ artist_id: "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "" });
+      setFormData({ artist_id: "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "", mode: "ai_plan" });
       await fetchData();
 
       // If user clicked "Create + AI Plan", generate immediately
       if (generatePlan && campaignId) {
         await handleGeneratePlan(campaignId);
+      }
+
+      // Navigate to detail page for AI modes
+      if (formData.mode !== "manual" && campaignId) {
+        router.push(`/campaigns/${campaignId}`);
+        return;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -155,6 +166,7 @@ export default function CampaignsPage() {
       phase: c.phase,
       start_date: c.start_date || "",
       end_date: c.end_date || "",
+      mode: c.mode || "ai_plan",
     });
     setShowForm(true);
   };
@@ -272,7 +284,7 @@ export default function CampaignsPage() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ artist_id: artists[0]?.id || "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "" });
+            setFormData({ artist_id: artists[0]?.id || "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "", mode: "ai_plan" });
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
@@ -367,6 +379,34 @@ export default function CampaignsPage() {
                   />
                 </div>
               </div>
+              {/* Mode Selector */}
+              {!editingId && (
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Campaign Mode</label>
+                  <div className="mt-2 grid grid-cols-3 gap-3">
+                    {([
+                      { value: "manual", label: "Manual", desc: "You create all content" },
+                      { value: "ai_plan", label: "AI Plan", desc: "AI creates, you approve" },
+                      { value: "autopilot", label: "Autopilot", desc: "AI creates & publishes" },
+                    ] as const).map((m) => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, mode: m.value })}
+                        className={cn(
+                          "rounded-lg border p-3 text-left transition-all",
+                          formData.mode === m.value
+                            ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500"
+                            : "border-[var(--border-color)] bg-[var(--bg-primary)] hover:border-[var(--text-secondary)]"
+                        )}
+                      >
+                        <div className="text-sm font-medium text-[var(--text-primary)]">{m.label}</div>
+                        <div className="text-xs text-[var(--text-secondary)] mt-0.5">{m.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => { setShowForm(false); setEditingId(null); }}
@@ -374,13 +414,13 @@ export default function CampaignsPage() {
                 >
                   Cancel
                 </button>
-                {!editingId && (
+                {!editingId && formData.mode !== "manual" && (
                   <button
                     onClick={() => handleSubmit(true)}
                     disabled={creating || !formData.name.trim() || !formData.artist_id}
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {creating ? <ButtonSpinner label="Creating..." /> : "Create + AI Plan"}
+                    {creating ? <ButtonSpinner label="Creating..." /> : `Create + ${formData.mode === "autopilot" ? "Autopilot" : "AI Plan"}`}
                   </button>
                 )}
                 <button
@@ -428,10 +468,20 @@ export default function CampaignsPage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--text-primary)]">{c.name}</span>
+                    <button onClick={() => router.push(`/campaigns/${c.id}`)} className="text-sm font-medium text-[var(--text-primary)] hover:text-indigo-600 transition-colors text-left">
+                      {c.name}
+                    </button>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[c.status] || "bg-gray-100 text-gray-500"}`}>
                       {c.status}
                     </span>
+                    {c.mode && c.mode !== "manual" && (
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                        c.mode === "ai_plan" ? "bg-indigo-100 text-indigo-600" : "bg-purple-100 text-purple-600"
+                      )}>
+                        {c.mode === "ai_plan" ? "AI Plan" : "Autopilot"}
+                      </span>
+                    )}
                     <span className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
                       {c.phase.replace("_", " ")}
                     </span>

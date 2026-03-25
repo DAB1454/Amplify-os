@@ -199,6 +199,7 @@ class CampaignCreateRequest(BaseModel):
     artist_id: uuid.UUID
     release_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=255)
+    mode: str = "manual"
     phase: str = "pre_release"
     start_date: date | None = None
     end_date: date | None = None
@@ -209,6 +210,7 @@ class CampaignCreateRequest(BaseModel):
 class CampaignUpdateRequest(BaseModel):
     name: str | None = None
     status: str | None = None
+    mode: str | None = None
     phase: str | None = None
     start_date: date | None = None
     end_date: date | None = None
@@ -223,6 +225,7 @@ class CampaignResponse(BaseModel):
     release_id: uuid.UUID | None
     name: str
     status: str
+    mode: str
     phase: str
     start_date: date | None
     end_date: date | None
@@ -233,6 +236,18 @@ class CampaignResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CampaignPlanDayResponse(BaseModel):
+    day: str
+    day_number: int
+    calendar_items: list[CalendarItemResponse] = []
+    posts: list[PostResponse] = []
+
+class CampaignPlanResponse(BaseModel):
+    campaign: CampaignResponse
+    days: list[CampaignPlanDayResponse] = []
+    stats: dict = {}
 
 
 # ── Calendar Item ─────────────────────────────────────────────────
@@ -288,6 +303,7 @@ class PostUpdateRequest(BaseModel):
     destination_url: str | None = None
     last_error: str | None = None
     published_at: datetime | None = None
+    approval_status: str | None = None
 
 class PostResponse(BaseModel):
     id: uuid.UUID
@@ -308,6 +324,9 @@ class PostResponse(BaseModel):
     max_retries: int
     last_error: str | None
     policy_decision: str | None
+    approval_status: str | None
+    day_number: int | None
+    action_type_label: str | None
     created_at: datetime
     updated_at: datetime
 

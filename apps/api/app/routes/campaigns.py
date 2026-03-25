@@ -17,6 +17,10 @@ from app.schemas import (
     CampaignUpdateRequest,
     CampaignResponse,
     CampaignDestinationReport,
+    CampaignPlanResponse,
+    CampaignPlanDayResponse,
+    CalendarItemResponse,
+    PostResponse,
 )
 from app.services.audit_service import AuditService
 from amplify.db.models.campaign import CampaignModel
@@ -115,6 +119,115 @@ async def update_campaign(
         logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
+
+
+@router.get("/{campaign_id}/plan", response_model=CampaignPlanResponse)
+async def get_campaign_plan(
+    campaign_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Get the full plan for a campaign — posts and calendar items grouped by day."""
+    from sqlalchemy import select
+    from amplify.db.models.post import PostModel
+    from amplify.db.models.calendar_item import CalendarItemModel
+    from collections import defaultdict
+
+    repo = BaseRepository(db, CampaignModel, tenant_id)
+    campaign = await repo.get(campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Load posts for this campaign
+    posts_result = await db.execute(
+        select(PostModel).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+        ).order_by(PostModel.created_at)
+    )
+    posts = posts_result.scalars().all()
+
+    # Load calendar items for this campaign
+    cal_result = await db.execute(
+        select(CalendarItemModel).where(
+            CalendarItemModel.campaign_id == campaign_id,
+            CalendarItemModel.tenant_id == tenant_id,
+        ).order_by(CalendarItemModel.scheduled_date)
+    )
+    cal_items = cal_result.scalars().all()
+
+    # Group by date
+    days_map: dict[str, dict] = defaultdict(lambda: {"calendar_items": [], "posts": []})
+
+    for item in cal_items:
+        day_key = str(item.scheduled_date)
+        days_map[day_key]["calendar_items"].append(item)
+
+    for post in posts:
+        if post.scheduled_at:
+            day_key = str(post.scheduled_at.date())
+        elif post.created_at:
+            day_key = str(post.created_at.date())
+        else:
+            day_key = "unscheduled"
+        days_map[day_key]["posts"].append(post)
+
+    # Build response
+    sorted_days = sorted(days_map.keys())
+    days = []
+    for i, day_key in enumerate(sorted_days):
+        data = days_map[day_key]
+        days.append(CampaignPlanDayResponse(
+            day=day_key,
+            day_number=i + 1,
+            calendar_items=[CalendarItemResponse.model_validate(c) for c in data["calendar_items"]],
+            posts=[PostResponse.model_validate(p) for p in data["posts"]],
+        ))
+
+    # Stats
+    total = len(posts)
+    pending = sum(1 for p in posts if p.approval_status == "pending_review")
+    approved = sum(1 for p in posts if p.approval_status == "approved")
+    rejected = sum(1 for p in posts if p.approval_status == "rejected")
+    published = sum(1 for p in posts if p.status == "published")
+
+    return CampaignPlanResponse(
+        campaign=CampaignResponse.model_validate(campaign),
+        days=days,
+        stats={
+            "total_posts": total,
+            "pending_review": pending,
+            "approved": approved,
+            "rejected": rejected,
+            "published": published,
+        },
+    )
+
+
+@router.post("/{campaign_id}/approve-all")
+async def approve_all_posts(
+    campaign_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Bulk-approve all pending_review posts in a campaign."""
+    from sqlalchemy import select, update
+    from amplify.db.models.post import PostModel
+
+    result = await db.execute(
+        update(PostModel)
+        .where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+            PostModel.approval_status == "pending_review",
+        )
+        .values(approval_status="approved")
+        .returning(PostModel.id)
+    )
+    approved_ids = [str(row[0]) for row in result.all()]
+    await db.flush()
+
+    return {"approved_count": len(approved_ids), "approved_ids": approved_ids}
 
 
 @router.delete(

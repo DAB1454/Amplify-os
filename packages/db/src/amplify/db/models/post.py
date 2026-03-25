@@ -43,6 +43,9 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     max_retries: Mapped[int] = mapped_column(Integer, default=3)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     policy_decision: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    approval_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    day_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    action_type_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     campaign: Mapped[CampaignModel | None] = relationship(back_populates="posts")

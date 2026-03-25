@@ -249,6 +249,66 @@ async def delete_post(
     }
 
 
+@router.post("/{post_id}/review-approve", response_model=PostResponse)
+async def review_approve_post(
+    post_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Approve a pending_review post (AI plan review workflow)."""
+    repo = BaseRepository(db, PostModel, tenant_id)
+    post = await repo.get(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.approval_status not in ("pending_review", None):
+        raise HTTPException(status_code=409, detail=f"Post approval_status is '{post.approval_status}', expected 'pending_review'")
+
+    entity = await repo.update(post_id, approval_status="approved")
+
+    try:
+        await audit.log(
+            action="post.review_approved",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
+
+    return entity
+
+
+@router.post("/{post_id}/review-reject", response_model=PostResponse)
+async def review_reject_post(
+    post_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Reject a pending_review post (AI plan review workflow)."""
+    repo = BaseRepository(db, PostModel, tenant_id)
+    post = await repo.get(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    entity = await repo.update(post_id, approval_status="rejected")
+
+    try:
+        await audit.log(
+            action="post.review_rejected",
+            entity_type="post",
+            entity_id=post_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.warning("Audit log failed (non-fatal): %s", exc)
+
+    return entity
+
+
 # ── Publishing Workflow ────────────────────────────────────────────
 
 

@@ -33,6 +33,7 @@ export interface Campaign {
   artistId: string;
   releaseId?: string;
   status: "draft" | "active" | "paused" | "completed";
+  mode: "manual" | "ai_plan" | "autopilot";
   startDate: string;
   endDate?: string;
   createdAt: string;
@@ -46,6 +47,9 @@ export interface Post {
   content: string;
   scheduledAt: string;
   status: "draft" | "scheduled" | "published" | "failed";
+  approvalStatus?: "pending_review" | "approved" | "rejected" | null;
+  dayNumber?: number | null;
+  actionTypeLabel?: string | null;
   destinationUrl?: string;
   createdAt: string;
   updatedAt: string;

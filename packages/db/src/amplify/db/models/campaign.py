@@ -33,6 +33,7 @@ class CampaignModel(Base, TimestampMixin, TenantMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft")
+    mode: Mapped[str] = mapped_column(String(20), default="manual")
     phase: Mapped[str] = mapped_column(String(30), default="pre_release")
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)

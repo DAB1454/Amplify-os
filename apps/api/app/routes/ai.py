@@ -184,6 +184,8 @@ async def generate_plan(
     if campaign is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
+    campaign_mode = campaign.mode if hasattr(campaign, 'mode') else "manual"
+
     # Load artist name
     from amplify.db.models.artist import ArtistModel
     artist_result = await db.execute(
@@ -255,7 +257,7 @@ async def generate_plan(
     draft_posts_created = 0
 
     if plan and hasattr(plan, "daily_actions"):
-        for action in plan.daily_actions:
+        for day_idx, action in enumerate(plan.daily_actions, 1):
             daily_actions.append(DailyActionResponse(
                 day=action.day,
                 platform=action.platform,
@@ -299,15 +301,29 @@ async def generate_plan(
                     )
                     channel = ch_result.scalar_one_or_none()
                     if channel:
+                        # Determine approval status based on campaign mode
+                        if campaign_mode == "autopilot":
+                            post_approval = "approved"
+                            post_status = "draft"  # will be scheduled later
+                        elif campaign_mode == "ai_plan":
+                            post_approval = "pending_review"
+                            post_status = "draft"
+                        else:
+                            post_approval = None
+                            post_status = "draft"
+
                         post = PostModel(
                             tenant_id=tenant_id,
                             campaign_id=campaign.id,
                             channel_id=channel.id,
                             platform=action.platform,
-                            status="draft",
+                            status=post_status,
                             content_text=action.content_brief,
                             media_urls=[],
                             destination_url=action.cta_destination or "",
+                            approval_status=post_approval,
+                            day_number=day_idx,
+                            action_type_label=action.action_type,
                         )
                         db.add(post)
                         draft_posts_created += 1
