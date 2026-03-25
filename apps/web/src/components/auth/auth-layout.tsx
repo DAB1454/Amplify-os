@@ -18,7 +18,7 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
     if (!isLoading && !isAuthenticated && !isPublic) {
       router.push("/login");
     }
-    if (!isLoading && isAuthenticated && isPublic) {
+    if (!isLoading && isAuthenticated && pathname === "/login") {
       router.push("/");
     }
   }, [isLoading, isAuthenticated, isPublic, router]);
