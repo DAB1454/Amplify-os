@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
 interface Artist {
   id: string;
   name: string;
+}
+
+interface Release {
+  id: string;
+  artist_id: string;
+  title: string;
+  release_type: string;
+  release_date: string | null;
 }
 
 interface Campaign {
@@ -37,31 +45,44 @@ export default function CampaignsPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("All");
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
+  const [releases, setReleases] = useState<Release[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     artist_id: "",
+    release_id: "",
     name: "",
     phase: "pre_release",
     start_date: "",
     end_date: "",
   });
+  const [creating, setCreating] = useState(false);
   const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
-  const [planResult, setPlanResult] = useState<{ campaign_id: string; daily_actions: number; calendar_items_created: number; draft_posts_created: number; notes: string } | null>(null);
+  const [planResult, setPlanResult] = useState<{
+    campaign_id: string;
+    daily_actions: number;
+    calendar_items_created: number;
+    draft_posts_created: number;
+    notes: string;
+  } | null>(null);
+  const [importingCampaignId, setImportingCampaignId] = useState<string | null>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const statusParam = activeTab === "All" ? "" : `?status=${activeTab.toLowerCase()}`;
-      const [camps, arts] = await Promise.all([
+      const [camps, arts, rels] = await Promise.all([
         apiGet<Campaign[]>(`/api/v1/campaigns/${statusParam}`),
         apiGet<Artist[]>("/api/v1/artists/"),
+        apiGet<Release[]>("/api/v1/releases/"),
       ]);
       setCampaigns(camps);
       setArtists(arts);
+      setReleases(rels);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load campaigns");
     } finally {
@@ -74,29 +95,45 @@ export default function CampaignsPage() {
   }, [fetchData]);
 
   const artistMap = Object.fromEntries(artists.map((a) => [a.id, a.name]));
+  const releaseMap = Object.fromEntries(releases.map((r) => [r.id, r.title]));
+  const artistReleases = releases.filter((r) => r.artist_id === formData.artist_id);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (generatePlan = false) => {
     if (!formData.name.trim() || !formData.artist_id) return;
+    setCreating(true);
+    setError(null);
     try {
       const payload: Record<string, unknown> = {
         artist_id: formData.artist_id,
         name: formData.name,
         phase: formData.phase,
       };
+      if (formData.release_id) payload.release_id = formData.release_id;
       if (formData.start_date) payload.start_date = formData.start_date;
       if (formData.end_date) payload.end_date = formData.end_date;
+
+      let campaignId = editingId;
 
       if (editingId) {
         await apiPut(`/api/v1/campaigns/${editingId}`, payload);
       } else {
-        await apiPost("/api/v1/campaigns/", payload);
+        const created = await apiPost<Campaign>("/api/v1/campaigns/", payload);
+        campaignId = created.id;
       }
+
       setShowForm(false);
       setEditingId(null);
-      setFormData({ artist_id: "", name: "", phase: "pre_release", start_date: "", end_date: "" });
-      fetchData();
+      setFormData({ artist_id: "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "" });
+      await fetchData();
+
+      // If user clicked "Create + AI Plan", generate immediately
+      if (generatePlan && campaignId) {
+        await handleGeneratePlan(campaignId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -113,6 +150,7 @@ export default function CampaignsPage() {
     setEditingId(c.id);
     setFormData({
       artist_id: c.artist_id,
+      release_id: c.release_id || "",
       name: c.name,
       phase: c.phase,
       start_date: c.start_date || "",
@@ -148,6 +186,40 @@ export default function CampaignsPage() {
     }
   };
 
+  const handleImportCSV = async (campaignId: string, file: File) => {
+    setImportingCampaignId(campaignId);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("campaign_id", campaignId);
+      const token = getAccessToken();
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/v1/calendar/import`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({ detail: "CSV import failed" }));
+        throw new Error(detail.detail || `HTTP ${res.status}`);
+      }
+      const result = await res.json() as { imported: number; skipped: number; errors: string[] };
+      setPlanResult({
+        campaign_id: campaignId,
+        daily_actions: 0,
+        calendar_items_created: result.imported || 0,
+        draft_posts_created: 0,
+        notes: result.skipped ? `${result.skipped} rows skipped` : "CSV imported successfully",
+      });
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "CSV import failed");
+    } finally {
+      setImportingCampaignId(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await apiDelete(`/api/v1/campaigns/${id}`);
@@ -171,7 +243,9 @@ export default function CampaignsPage() {
       {planResult && (
         <div className="mt-4 rounded-lg border border-green-500/30 bg-green-50 px-4 py-3 text-sm text-green-700 flex items-center justify-between">
           <span>
-            Plan generated: {planResult.daily_actions} actions, {planResult.calendar_items_created} calendar items, {planResult.draft_posts_created} draft posts created.
+            {planResult.daily_actions > 0
+              ? `AI plan generated: ${planResult.daily_actions} actions, ${planResult.calendar_items_created} calendar items, ${planResult.draft_posts_created} draft posts created.`
+              : `Imported ${planResult.calendar_items_created} calendar items.`}
             {planResult.notes && ` — ${planResult.notes.slice(0, 120)}`}
           </span>
           <button onClick={() => setPlanResult(null)} className="text-xs opacity-60 hover:opacity-100">Dismiss</button>
@@ -198,7 +272,7 @@ export default function CampaignsPage() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ artist_id: artists[0]?.id || "", name: "", phase: "pre_release", start_date: "", end_date: "" });
+            setFormData({ artist_id: artists[0]?.id || "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "" });
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
@@ -219,17 +293,33 @@ export default function CampaignsPage() {
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label className="text-xs text-[var(--text-secondary)]">Artist *</label>
                   <select
                     value={formData.artist_id}
-                    onChange={(e) => setFormData({ ...formData, artist_id: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, artist_id: e.target.value, release_id: "" })}
                     className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
                   >
                     <option value="">Select artist</option>
                     {artists.map((a) => (
                       <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Release</label>
+                  <select
+                    value={formData.release_id}
+                    onChange={(e) => setFormData({ ...formData, release_id: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                    disabled={!formData.artist_id}
+                  >
+                    <option value="">No release (general campaign)</option>
+                    {artistReleases.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.title} ({r.release_type}{r.release_date ? ` · ${r.release_date}` : ""})
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -243,6 +333,8 @@ export default function CampaignsPage() {
                     placeholder="Campaign name"
                   />
                 </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
                 <div>
                   <label className="text-xs text-[var(--text-secondary)]">Phase</label>
                   <select
@@ -282,17 +374,42 @@ export default function CampaignsPage() {
                 >
                   Cancel
                 </button>
+                {!editingId && (
+                  <button
+                    onClick={() => handleSubmit(true)}
+                    disabled={creating || !formData.name.trim() || !formData.artist_id}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {creating ? <ButtonSpinner label="Creating..." /> : "Create + AI Plan"}
+                  </button>
+                )}
                 <button
-                  onClick={handleSubmit}
+                  onClick={() => handleSubmit(false)}
+                  disabled={creating || !formData.name.trim() || !formData.artist_id}
                   className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 >
-                  {editingId ? "Save Changes" : "Create Campaign"}
+                  {creating ? <ButtonSpinner label="Saving..." /> : editingId ? "Save Changes" : "Create Campaign"}
                 </button>
               </div>
             </>
           )}
         </div>
       )}
+
+      {/* Hidden CSV input */}
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && importingCampaignId) {
+            handleImportCSV(importingCampaignId, file);
+          }
+          if (csvInputRef.current) csvInputRef.current.value = "";
+        }}
+      />
 
       {/* List */}
       <div className="mt-6">
@@ -321,8 +438,9 @@ export default function CampaignsPage() {
                   </div>
                   <p className="text-xs text-[var(--text-secondary)]">
                     {artistMap[c.artist_id] || "Unknown artist"}
-                    {c.start_date && ` \u00b7 ${c.start_date}`}
-                    {c.end_date && ` \u2013 ${c.end_date}`}
+                    {c.release_id && releaseMap[c.release_id] && ` · ${releaseMap[c.release_id]}`}
+                    {c.start_date && ` · ${c.start_date}`}
+                    {c.end_date && ` – ${c.end_date}`}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">
@@ -332,6 +450,16 @@ export default function CampaignsPage() {
                     className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
                     {generatingPlanId === c.id ? <ButtonSpinner label="Generating..." /> : "AI Plan"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setImportingCampaignId(c.id);
+                      csvInputRef.current?.click();
+                    }}
+                    disabled={importingCampaignId === c.id}
+                    className="rounded-lg bg-blue-600/10 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-600/20 disabled:opacity-50"
+                  >
+                    {importingCampaignId === c.id ? <ButtonSpinner label="Importing..." /> : "Import CSV"}
                   </button>
                   {c.status === "draft" && (
                     <button
