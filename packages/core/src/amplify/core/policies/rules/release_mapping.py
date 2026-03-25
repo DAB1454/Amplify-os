@@ -22,8 +22,8 @@ class ReleaseMappingRule:
         if not ctx.artist_id:
             return PolicyVerdict(
                 rule_name=self.name,
-                decision=Decision.BLOCK,
-                reason="Post has no artist mapping — cannot publish orphaned content.",
+                decision=Decision.REQUIRE_APPROVAL,
+                reason="Post has no artist mapping — consider linking to an artist.",
             )
 
         if not ctx.release_id and not ctx.campaign_id:
