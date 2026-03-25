@@ -286,6 +286,8 @@ class PostUpdateRequest(BaseModel):
     scheduled_at: datetime | None = None
     status: str | None = None
     destination_url: str | None = None
+    last_error: str | None = None
+    published_at: datetime | None = None
 
 class PostResponse(BaseModel):
     id: uuid.UUID

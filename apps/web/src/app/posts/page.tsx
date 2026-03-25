@@ -181,7 +181,10 @@ export default function PostsPage() {
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
       case "failed":
-        return [{ label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" }];
+        return [
+          { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Mark Published", action: "mark_published", style: "bg-emerald-100 text-emerald-600" },
+        ];
       default:
         return [];
     }
@@ -518,6 +521,30 @@ export default function PostsPage() {
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
                       >
                         Schedule
+                      </button>
+                    ) : btn.action === "mark_published" ? (
+                      <button
+                        key="mark_published"
+                        onClick={async () => {
+                          setActionLoading(`${post.id}-mark_published`);
+                          try {
+                            await apiPut(`/api/v1/posts/${post.id}`, {
+                              status: "published",
+                              last_error: null,
+                              published_at: new Date().toISOString(),
+                            });
+                            setFetchError(null);
+                            fetchPosts();
+                          } catch (err) {
+                            setFetchError(err instanceof Error ? err.message : "Failed to update status");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `${post.id}-mark_published`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {actionLoading === `${post.id}-mark_published` ? <ButtonSpinner label="Updating..." /> : "Mark Published"}
                       </button>
                     ) : btn.action === "edit" ? (
                       <button
