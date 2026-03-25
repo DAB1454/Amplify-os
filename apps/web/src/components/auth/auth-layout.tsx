@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/welcome"];
 
 export function AuthLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
