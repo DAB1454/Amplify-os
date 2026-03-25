@@ -149,10 +149,19 @@ async def update_post(
     audit: AuditService = Depends(get_audit_service),
 ):
     """Update a post by ID."""
+    from datetime import timezone
+
     repo = BaseRepository(db, PostModel, tenant_id)
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Strip timezone info — DB stores naive UTC datetimes
+    for dt_field in ("scheduled_at", "published_at"):
+        if dt_field in updates and updates[dt_field] is not None:
+            dt_val = updates[dt_field]
+            if hasattr(dt_val, "tzinfo") and dt_val.tzinfo is not None:
+                updates[dt_field] = dt_val.astimezone(timezone.utc).replace(tzinfo=None)
 
     entity = await repo.update(post_id, **updates)
     if entity is None:
