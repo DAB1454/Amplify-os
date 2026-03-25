@@ -250,8 +250,46 @@ async def generate_plan(
         logger.exception("Plan generation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"AI plan generation failed: {exc}")
 
-    # Parse the plan output
+    # Parse the plan output — try structured first, then fall back to raw JSON
     plan = result.structured
+
+    if not plan and result.text:
+        logger.warning("Structured parse failed, attempting raw JSON fallback from text (%d chars)", len(result.text))
+        import json as _json
+        from amplify.agents.subagents.planner_agent import PlannerOutput
+        # Try to extract JSON from the raw text
+        raw = result.text
+        for fence_start in ["```json", "```"]:
+            if fence_start in raw:
+                start = raw.index(fence_start) + len(fence_start)
+                end = raw.index("```", start)
+                raw = raw[start:end].strip()
+                break
+        try:
+            parsed = _json.loads(raw)
+            plan = PlannerOutput.model_validate(parsed)
+            logger.info("Raw JSON fallback succeeded: %d daily actions", len(plan.daily_actions))
+        except Exception as fallback_err:
+            logger.warning("Raw JSON fallback also failed: %s", fallback_err)
+            # Last resort: try to find daily_actions array in the raw JSON
+            try:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, dict) and "daily_actions" in parsed:
+                    from pydantic import TypeAdapter
+                    from amplify.agents.subagents.planner_agent import DailyAction
+                    adapter = TypeAdapter(list[DailyAction])
+                    actions = adapter.validate_python(parsed["daily_actions"])
+                    plan = PlannerOutput(
+                        campaign_name=parsed.get("campaign_name", ""),
+                        plan_start=parsed.get("plan_start", ""),
+                        plan_end=parsed.get("plan_end", ""),
+                        daily_actions=actions,
+                        notes=parsed.get("notes", ""),
+                    )
+                    logger.info("Partial JSON fallback succeeded: %d daily actions", len(plan.daily_actions))
+            except Exception as partial_err:
+                logger.warning("Partial JSON fallback failed: %s — raw text: %s", partial_err, result.text[:500])
+
     daily_actions = []
     calendar_items_created = 0
     draft_posts_created = 0
