@@ -58,6 +58,8 @@ export default function PostsPage() {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [schedulingPostId, setSchedulingPostId] = useState<string | null>(null);
+  const [scheduleDateTime, setScheduleDateTime] = useState("");
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -97,10 +99,33 @@ export default function PostsPage() {
     }
   };
 
+  const handleSchedule = async (postId: string) => {
+    if (!scheduleDateTime) return;
+    setActionLoading(`${postId}-schedule`);
+    try {
+      // Convert local datetime to ISO string with timezone
+      const localDate = new Date(scheduleDateTime);
+      await apiPost(`/api/v1/posts/${postId}/schedule`, {
+        scheduled_at: localDate.toISOString(),
+      });
+      setSchedulingPostId(null);
+      setScheduleDateTime("");
+      setFetchError(null);
+      fetchPosts();
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "Failed to schedule post");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {
     switch (status) {
       case "draft":
-        return [{ label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" }];
+        return [
+          { label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
+        ];
       case "queued":
         return [
           { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
@@ -108,11 +133,13 @@ export default function PostsPage() {
         ];
       case "approved":
         return [
-          { label: "Publish", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
       case "scheduled":
         return [
+          { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
       case "failed":
@@ -430,17 +457,67 @@ export default function PostsPage() {
                   </div>
                 </div>
 
-                <div className="flex gap-2 ml-4 shrink-0">
-                  {actionsForStatus(post.status).map((btn) => (
-                    <button
-                      key={btn.action}
-                      onClick={() => handleAction(post.id, btn.action)}
-                      disabled={actionLoading === `${post.id}-${btn.action}`}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
-                    >
-                      {actionLoading === `${post.id}-${btn.action}` ? <ButtonSpinner label={`${btn.label}...`} /> : btn.label}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-2 ml-4 shrink-0 items-end">
+                  <div className="flex gap-2">
+                  {actionsForStatus(post.status).map((btn) =>
+                    btn.action === "schedule" ? (
+                      <button
+                        key="schedule"
+                        onClick={() => {
+                          if (schedulingPostId === post.id) {
+                            setSchedulingPostId(null);
+                          } else {
+                            setSchedulingPostId(post.id);
+                            // Default to tomorrow at 10am local
+                            const tomorrow = new Date();
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            tomorrow.setHours(10, 0, 0, 0);
+                            const pad = (n: number) => n.toString().padStart(2, "0");
+                            setScheduleDateTime(
+                              `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T${pad(tomorrow.getHours())}:${pad(tomorrow.getMinutes())}`
+                            );
+                          }
+                        }}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
+                      >
+                        Schedule
+                      </button>
+                    ) : (
+                      <button
+                        key={btn.action}
+                        onClick={() => handleAction(post.id, btn.action)}
+                        disabled={actionLoading === `${post.id}-${btn.action}`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {actionLoading === `${post.id}-${btn.action}` ? <ButtonSpinner label={`${btn.label}...`} /> : btn.label}
+                      </button>
+                    )
+                  )}
+                  </div>
+                  {/* Schedule datetime picker */}
+                  {schedulingPostId === post.id && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="datetime-local"
+                        value={scheduleDateTime}
+                        onChange={(e) => setScheduleDateTime(e.target.value)}
+                        className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-xs text-[var(--text-primary)]"
+                      />
+                      <button
+                        onClick={() => handleSchedule(post.id)}
+                        disabled={!scheduleDateTime || actionLoading === `${post.id}-schedule`}
+                        className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        {actionLoading === `${post.id}-schedule` ? <ButtonSpinner label="Scheduling..." /> : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => setSchedulingPostId(null)}
+                        className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                   <button
                     onClick={async () => {
                       if (!confirm("Delete this post?")) return;
