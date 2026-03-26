@@ -277,6 +277,8 @@ async def generate_plan(
             budget=body.budget or campaign.budget,
             available_assets=available_assets if available_assets else None,
             content_notes=body.content_notes,
+            campaign_start=str(campaign.start_date) if campaign.start_date else "",
+            campaign_end=str(campaign.end_date) if campaign.end_date else "",
         )
     except Exception as exc:
         logger.exception("Plan generation failed: %s", exc)

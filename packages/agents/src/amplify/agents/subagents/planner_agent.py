@@ -1,6 +1,6 @@
 """Campaign planner agent.
 
-Generates 14-day rolling campaign plans from release metadata, existing
+Generates campaign plans from release metadata, existing
 calendar items, and prior performance metrics.  Outputs publish
 recommendations, experiments, and content gaps.
 
@@ -77,7 +77,7 @@ class KPI(BaseModel):
 
 
 class PlannerOutput(BaseModel):
-    """Full output of the planner agent — a 14-day campaign plan."""
+    """Full output of the planner agent — a campaign plan."""
 
     campaign_name: str = ""
     artist_id: str = ""
@@ -105,8 +105,8 @@ def _load_system_prompt() -> str:
     except Exception:
         return (
             "You are a music marketing campaign planner. Given an artist, release, "
-            "genre, channels, and optional budget, produce a detailed 14-day campaign "
-            "plan as valid JSON."
+            "genre, channels, date range, and optional budget, produce a detailed campaign "
+            "plan covering every day in the specified date range as valid JSON."
         )
 
 
@@ -116,8 +116,12 @@ def _load_plan_template() -> str:
         return PLAN_CAMPAIGN_TEMPLATE
     except Exception:
         return (
-            "Create a 14-day campaign plan for {artist_name} releasing "
-            "{release_title} on {release_date}. Respond with valid JSON."
+            "Create a campaign plan for {artist_name} releasing "
+            "{release_title} on {release_date}.\n\n"
+            "Campaign date range: {campaign_start} to {campaign_end}\n"
+            "Plan MUST cover every day from {campaign_start} through {campaign_end}.\n"
+            "Do NOT default to 14 days — use the exact date range provided.\n\n"
+            "Respond with valid JSON."
         )
 
 
@@ -156,7 +160,7 @@ RUNTIME_INSTRUCTIONS = """
 
 
 class PlannerAgent:
-    """Plans 14-day rolling campaign windows around music releases.
+    """Plans campaign windows around music releases.
 
     Returns a structured PlannerOutput via the AgentRunner framework.
     All data access goes through tools registered in the ToolRegistry.
@@ -192,8 +196,10 @@ class PlannerAgent:
         learning_context: LearningContext | None = None,
         available_assets: list[dict[str, str]] | None = None,
         content_notes: str = "",
+        campaign_start: str | date = "",
+        campaign_end: str | date = "",
     ) -> AgentResult:
-        """Generate a structured 14-day campaign plan.
+        """Generate a structured campaign plan for the given date range.
 
         Parameters
         ----------
@@ -204,6 +210,20 @@ class PlannerAgent:
         """
         template = _load_plan_template()
         budget_str = f"${budget:,.2f}" if budget is not None else "No budget — organic only"
+
+        # Compute campaign date range — fall back to 14 days from today
+        # only if no dates were provided
+        cs = str(campaign_start) if campaign_start else ""
+        ce = str(campaign_end) if campaign_end else ""
+        if not cs:
+            cs = str(date.today())
+        if not ce:
+            from datetime import timedelta
+            try:
+                start_dt = date.fromisoformat(cs)
+            except (ValueError, TypeError):
+                start_dt = date.today()
+            ce = str(start_dt + timedelta(days=13))
 
         user_message = template.format(
             artist_name=artist_name,
@@ -218,6 +238,8 @@ class PlannerAgent:
             prior_metrics=json.dumps(prior_metrics or {}, indent=2),
             budget=budget_str,
             today=str(date.today()),
+            campaign_start=cs,
+            campaign_end=ce,
         )
 
         # Inject available assets into the prompt
