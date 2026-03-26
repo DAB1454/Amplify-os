@@ -71,6 +71,7 @@ export default function AssetsPage() {
   const [editTags, setEditTags] = useState("");
   const [editType, setEditType] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   // Upload form state
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -280,12 +281,12 @@ export default function AssetsPage() {
         <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5 space-y-4">
           <h3 className="text-sm font-semibold text-[var(--text-primary)]">Upload to Asset Library</h3>
 
-          {/* File picker */}
+          {/* File picker with drag & drop */}
           <div>
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*,audio/*,image/*"
+              accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.bmp,.mp4,.mov,.avi,.webm,.mkv,.mp3,.wav,.ogg,.flac,.aac,.m4a,image/*,video/*,audio/*"
               multiple
               className="hidden"
               onChange={(e) => {
@@ -294,22 +295,44 @@ export default function AssetsPage() {
                 if (fileInputRef.current) fileInputRef.current.value = "";
               }}
             />
-            <div className="flex flex-wrap gap-2 mb-2">
-              {uploadFiles.map((f, i) => (
-                <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] px-2 py-1 text-xs">
-                  <span className="truncate max-w-[200px]">{f.name}</span>
-                  <span className="text-[var(--text-secondary)]">({formatBytes(f.size)})</span>
-                  <button type="button" onClick={() => setUploadFiles((prev) => prev.filter((_, j) => j !== i))} className="ml-1 text-red-500 hover:text-red-700">&times;</button>
-                </span>
-              ))}
-            </div>
-            <button
-              type="button"
+            {uploadFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {uploadFiles.map((f, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] px-2 py-1 text-xs">
+                    <span className="truncate max-w-[200px]">{f.name}</span>
+                    <span className="text-[var(--text-secondary)]">({formatBytes(f.size)})</span>
+                    <button type="button" onClick={() => setUploadFiles((prev) => prev.filter((_, j) => j !== i))} className="ml-1 text-red-500 hover:text-red-700">&times;</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-6 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors w-full text-center"
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragging(false);
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0) {
+                  setUploadFiles((prev) => [...prev, ...files]);
+                }
+              }}
+              className={`rounded-lg border-2 border-dashed px-4 py-8 text-center cursor-pointer transition-colors ${
+                dragging
+                  ? "border-[var(--brand-gold)] bg-[var(--brand-gold)]/5 text-[var(--brand-gold)]"
+                  : "border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)]"
+              }`}
             >
-              Click to select files (images, videos, audio)
-            </button>
+              <div className="text-2xl mb-2">{dragging ? "\u{1F4E5}" : "\u{1F4C1}"}</div>
+              <p className="text-sm font-medium">
+                {dragging ? "Drop files here" : "Drag & drop files here"}
+              </p>
+              <p className="text-xs mt-1 opacity-70">or click to browse</p>
+              <p className="text-[10px] mt-2 opacity-50">Images, videos, audio — JPG, PNG, MP4, MOV, MP3, WAV, and more</p>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
