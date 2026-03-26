@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
+import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
 import { formatLocal } from "@/lib/utils";
 
 interface Post {
@@ -519,6 +520,16 @@ export default function PostsPage() {
                     </a>
                   )}
 
+                  {/* Media Preview + Download */}
+                  {post.media_urls && post.media_urls.length > 0 && (
+                    <div className="mt-2">
+                      <MediaPreview urls={post.media_urls} compact />
+                      <div className="mt-1">
+                        <DownloadAllButton urls={post.media_urls} />
+                      </div>
+                    </div>
+                  )}
+
                   {post.last_error && (
                     <p className="mt-1 text-xs text-red-600 break-words whitespace-pre-wrap">
                       Error: {post.last_error}
@@ -740,12 +751,9 @@ export default function PostsPage() {
                   {mediaUrls.length > 0 && (
                     <div>
                       <span className="text-xs font-medium text-[var(--text-secondary)]">Media</span>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {mediaUrls.map((url, i) => (
-                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--brand-gold)] hover:underline truncate max-w-[200px]">
-                            {url.split("/").pop()}
-                          </a>
-                        ))}
+                      <MediaPreview urls={mediaUrls} />
+                      <div className="mt-1">
+                        <DownloadAllButton urls={mediaUrls} />
                       </div>
                     </div>
                   )}

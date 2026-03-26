@@ -6,6 +6,7 @@ import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
+import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
 
 // Interfaces matching the API response (snake_case from Python)
 interface CampaignDetail {
@@ -425,6 +426,16 @@ export default function CampaignDetailPage() {
                           </div>
                         ) : (
                           <p className="text-sm text-[var(--text-secondary)] whitespace-pre-line">{post.content_text}</p>
+                        )}
+
+                        {/* Media Preview + Download */}
+                        {post.media_urls && post.media_urls.length > 0 && (
+                          <div className="mt-2">
+                            <MediaPreview urls={post.media_urls} compact />
+                            <div className="mt-1">
+                              <DownloadAllButton urls={post.media_urls} />
+                            </div>
+                          </div>
                         )}
 
                         {post.destination_url && (
