@@ -256,22 +256,30 @@ async def generate_plan(
     if not plan and result.text:
         logger.warning("Structured parse failed, attempting raw JSON fallback from text (%d chars)", len(result.text))
         import json as _json
+        import re as _re
         from amplify.agents.subagents.planner_agent import PlannerOutput
+
         # Try to extract JSON from the raw text
         raw = result.text
-        for fence_start in ["```json", "```"]:
-            if fence_start in raw:
-                start = raw.index(fence_start) + len(fence_start)
-                end = raw.index("```", start)
-                raw = raw[start:end].strip()
-                break
+
+        # Safely extract from markdown fences if present
+        fence_match = _re.search(r"```(?:json)?\s*\n?(.*?)```", raw, _re.DOTALL)
+        if fence_match:
+            raw = fence_match.group(1).strip()
+
+        # Also try finding the outermost { ... }
+        brace_start = raw.find("{")
+        brace_end = raw.rfind("}")
+        if brace_start != -1 and brace_end > brace_start:
+            raw = raw[brace_start:brace_end + 1]
+
         try:
             parsed = _json.loads(raw)
             plan = PlannerOutput.model_validate(parsed)
             logger.info("Raw JSON fallback succeeded: %d daily actions", len(plan.daily_actions))
         except Exception as fallback_err:
             logger.warning("Raw JSON fallback also failed: %s", fallback_err)
-            # Last resort: try to find daily_actions array in the raw JSON
+            # Last resort: try to extract just daily_actions
             try:
                 parsed = _json.loads(raw)
                 if isinstance(parsed, dict) and "daily_actions" in parsed:
