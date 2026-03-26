@@ -280,6 +280,10 @@ async def generate_plan(
             campaign_start=str(campaign.start_date) if campaign.start_date else "",
             campaign_end=str(campaign.end_date) if campaign.end_date else "",
         )
+        logger.info(
+            "Plan generated for campaign %s: start=%s end=%s",
+            campaign.id, campaign.start_date, campaign.end_date,
+        )
     except Exception as exc:
         logger.exception("Plan generation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"AI plan generation failed: {exc}")
