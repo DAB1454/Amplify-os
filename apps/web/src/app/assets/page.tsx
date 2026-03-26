@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiDelete, apiPut, apiUpload } from "@/lib/api";
+import { apiGet, apiPost, apiDelete, apiPut, apiUpload } from "@/lib/api";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview } from "@/components/ui/media-preview";
 
@@ -81,6 +81,16 @@ export default function AssetsPage() {
   const [uploadArtist, setUploadArtist] = useState("");
   const [uploadRelease, setUploadRelease] = useState("");
 
+  // Import form state
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importUrls, setImportUrls] = useState("");
+  const [importS3Prefix, setImportS3Prefix] = useState("");
+  const [importType, setImportType] = useState("image");
+  const [importTags, setImportTags] = useState("");
+  const [importArtist, setImportArtist] = useState("");
+  const [importRelease, setImportRelease] = useState("");
+
   const fetchAssets = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -101,13 +111,13 @@ export default function AssetsPage() {
     fetchAssets();
   }, [fetchAssets]);
 
-  // Load artists and releases for the upload form
+  // Load artists and releases for upload/import forms
   useEffect(() => {
-    if (showUpload) {
+    if (showUpload || showImport) {
       apiGet<Artist[]>("/api/v1/artists").then(setArtists).catch(() => {});
       apiGet<Release[]>("/api/v1/releases").then(setReleases).catch(() => {});
     }
-  }, [showUpload]);
+  }, [showUpload, showImport]);
 
   const handleUpload = async () => {
     if (uploadFiles.length === 0) return;
@@ -138,6 +148,38 @@ export default function AssetsPage() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    const urls = importUrls.split("\n").map((u) => u.trim()).filter(Boolean);
+    if (urls.length === 0 && !importS3Prefix) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await apiPost<Asset[]>("/api/v1/assets/import", {
+        urls,
+        s3_prefix: importS3Prefix,
+        asset_type: importType,
+        artist_id: importArtist || null,
+        release_id: importRelease || null,
+        tags: importTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      setShowImport(false);
+      setImportUrls("");
+      setImportS3Prefix("");
+      setImportTags("");
+      setImportType("image");
+      setImportArtist("");
+      setImportRelease("");
+      fetchAssets();
+      if (result.length > 0) {
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -217,12 +259,20 @@ export default function AssetsPage() {
           ))}
         </div>
 
-        <button
-          onClick={() => setShowUpload(!showUpload)}
-          className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
-        >
-          {showUpload ? "Cancel" : "+ Upload Assets"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowImport(!showImport); if (showUpload) setShowUpload(false); }}
+            className="rounded-lg bg-indigo-600/10 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-600/20 transition-colors"
+          >
+            {showImport ? "Cancel" : "Import from URLs"}
+          </button>
+          <button
+            onClick={() => { setShowUpload(!showUpload); if (showImport) setShowImport(false); }}
+            className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
+          >
+            {showUpload ? "Cancel" : "+ Upload Assets"}
+          </button>
+        </div>
       </div>
 
       {/* Upload Form */}
@@ -343,6 +393,111 @@ export default function AssetsPage() {
             className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {uploading ? <ButtonSpinner label="Uploading..." /> : `Upload ${uploadFiles.length} file${uploadFiles.length !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      )}
+
+      {/* Import Form */}
+      {showImport && (
+        <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Import from External Sources</h3>
+          <p className="text-xs text-[var(--text-secondary)]">
+            Point to existing files instead of re-uploading. Paste URLs directly or scan an S3 bucket.
+          </p>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              File URLs (one per line)
+            </label>
+            <textarea
+              value={importUrls}
+              onChange={(e) => setImportUrls(e.target.value)}
+              placeholder={"https://your-bucket.s3.amazonaws.com/photos/promo1.jpg\nhttps://cdn.example.com/video-clip.mp4\nhttps://drive.google.com/file/d/.../view"}
+              rows={4}
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] font-mono text-xs"
+            />
+          </div>
+
+          <div className="relative flex items-center gap-3">
+            <div className="flex-grow border-t border-[var(--border-color)]" />
+            <span className="text-xs text-[var(--text-secondary)]">or</span>
+            <div className="flex-grow border-t border-[var(--border-color)]" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              S3 Bucket Prefix (scans all files)
+            </label>
+            <input
+              value={importS3Prefix}
+              onChange={(e) => setImportS3Prefix(e.target.value)}
+              placeholder="s3://my-bucket/artist-photos/ or https://bucket.s3.us-east-1.amazonaws.com/path/"
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] font-mono text-xs"
+            />
+            <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+              This will scan the S3 path and register all files found. Files stay where they are — no re-upload needed.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Type</label>
+              <select
+                value={importType}
+                onChange={(e) => setImportType(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+                <option value="audio">Audio</option>
+                <option value="album_art">Album Art</option>
+                <option value="promo_photo">Promo Photo</option>
+                <option value="logo">Logo</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Tags</label>
+              <input
+                value={importTags}
+                onChange={(e) => setImportTags(e.target.value)}
+                placeholder="promo, live"
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Artist</label>
+              <select
+                value={importArtist}
+                onChange={(e) => setImportArtist(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="">None</option>
+                {artists.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Release</label>
+              <select
+                value={importRelease}
+                onChange={(e) => setImportRelease(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="">None</option>
+                {releases.map((r) => (
+                  <option key={r.id} value={r.id}>{r.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={handleImport}
+            disabled={importing || (!importUrls.trim() && !importS3Prefix.trim())}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {importing ? <ButtonSpinner label="Importing..." /> : "Import Assets"}
           </button>
         </div>
       )}

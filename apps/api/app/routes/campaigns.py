@@ -209,8 +209,9 @@ async def approve_all_posts(
     campaign_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
 ):
-    """Bulk-approve all pending_review posts in a campaign."""
+    """Bulk-approve all pending_review posts and trigger content generation."""
     from sqlalchemy import select, update
     from amplify.db.models.post import PostModel
 
@@ -224,10 +225,26 @@ async def approve_all_posts(
         .values(approval_status="approved")
         .returning(PostModel.id)
     )
-    approved_ids = [str(row[0]) for row in result.all()]
+    approved_ids = [row[0] for row in result.all()]
     await db.flush()
 
-    return {"approved_count": len(approved_ids), "approved_ids": approved_ids}
+    # Trigger content generation for all approved posts
+    content_results = {}
+    if approved_ids:
+        try:
+            from app.services.content_pipeline import generate_content_for_posts
+            content_results = await generate_content_for_posts(
+                db, approved_ids, tenant_id, user_id
+            )
+            logger.info("Bulk content pipeline: %d posts processed", len(approved_ids))
+        except Exception as exc:
+            logger.warning("Bulk content pipeline failed (non-fatal): %s", exc)
+
+    return {
+        "approved_count": len(approved_ids),
+        "approved_ids": [str(pid) for pid in approved_ids],
+        "content_generated": content_results,
+    }
 
 
 @router.delete(

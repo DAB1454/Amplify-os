@@ -257,7 +257,7 @@ async def review_approve_post(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Approve a pending_review post (AI plan review workflow)."""
+    """Approve a pending_review post and trigger content generation."""
     repo = BaseRepository(db, PostModel, tenant_id)
     post = await repo.get(post_id)
     if post is None:
@@ -266,6 +266,16 @@ async def review_approve_post(
         raise HTTPException(status_code=409, detail=f"Post approval_status is '{post.approval_status}', expected 'pending_review'")
 
     entity = await repo.update(post_id, approval_status="approved")
+
+    # Trigger content generation pipeline (caption + asset matching)
+    try:
+        from app.services.content_pipeline import generate_content_for_post
+        pipeline_result = await generate_content_for_post(db, post_id, tenant_id, user_id)
+        logger.info("Content pipeline for post %s: %s", post_id, pipeline_result)
+        # Re-fetch the post to include generated content
+        entity = await repo.get(post_id)
+    except Exception as exc:
+        logger.warning("Content pipeline failed (non-fatal): %s", exc)
 
     try:
         await audit.log(

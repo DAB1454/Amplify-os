@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.deps import get_db, get_settings, get_tenant_id
+from pydantic import BaseModel, Field as PydanticField
+
 from app.schemas import AssetCreateRequest, AssetResponse, AssetUpdateRequest
 from app.services.media_service import ALLOWED_TYPES, MAX_FILE_SIZE, MediaService
 
@@ -234,3 +236,162 @@ async def delete_asset(
 
     await db.delete(asset)
     return None
+
+
+# ── Bulk Import ──────────────────────────────────────────────────
+
+
+class BulkImportRequest(BaseModel):
+    """Import assets from external URLs or an S3 prefix."""
+    urls: list[str] = PydanticField(default_factory=list, description="Direct URLs to import")
+    s3_prefix: str = PydanticField(default="", description="S3 prefix to scan (e.g. s3://bucket/artist-photos/)")
+    asset_type: str = "image"
+    artist_id: uuid.UUID | None = None
+    release_id: uuid.UUID | None = None
+    tags: list[str] = PydanticField(default_factory=list)
+
+
+@router.post("/import", response_model=list[AssetResponse])
+async def bulk_import_assets(
+    body: BulkImportRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    svc: MediaService = Depends(_get_media_service),
+):
+    """Bulk import assets from URLs or S3 prefix.
+
+    - **urls**: List of direct file URLs (S3, CDN, any public URL)
+    - **s3_prefix**: Scan an S3 bucket prefix and import all files found
+
+    Files are not re-uploaded — we store the original URL as a reference.
+    For S3 prefixes, the service lists objects and creates asset records.
+    """
+    from amplify.db.models.asset import AssetModel
+    import mimetypes
+
+    created = []
+
+    # Import from direct URLs
+    for url in body.urls:
+        filename = url.rstrip("/").split("/")[-1].split("?")[0] or "imported-file"
+        mime, _ = mimetypes.guess_type(filename)
+
+        asset = AssetModel(
+            tenant_id=tenant_id,
+            artist_id=body.artist_id,
+            release_id=body.release_id,
+            asset_type=body.asset_type,
+            name=filename,
+            file_url=url,
+            mime_type=mime,
+            tags=body.tags,
+            source="imported",
+        )
+        db.add(asset)
+        created.append(asset)
+
+    # Import from S3 prefix
+    if body.s3_prefix:
+        try:
+            s3_assets = await _scan_s3_prefix(
+                svc=svc,
+                prefix=body.s3_prefix,
+                tenant_id=tenant_id,
+                artist_id=body.artist_id,
+                release_id=body.release_id,
+                asset_type=body.asset_type,
+                tags=body.tags,
+            )
+            for asset in s3_assets:
+                db.add(asset)
+                created.append(asset)
+        except Exception as exc:
+            logger.error("S3 prefix scan failed: %s", exc, exc_info=True)
+            raise HTTPException(status_code=400, detail=f"S3 scan failed: {exc}")
+
+    if created:
+        await db.flush()
+        for asset in created:
+            await db.refresh(asset)
+
+    return created
+
+
+async def _scan_s3_prefix(
+    *,
+    svc: MediaService,
+    prefix: str,
+    tenant_id: uuid.UUID,
+    artist_id: uuid.UUID | None,
+    release_id: uuid.UUID | None,
+    asset_type: str,
+    tags: list[str],
+) -> list:
+    """List objects under an S3 prefix and create asset records."""
+    import asyncio
+    import mimetypes
+    from amplify.db.models.asset import AssetModel
+
+    # Parse s3://bucket/prefix or just a prefix
+    bucket = svc.s3_bucket
+    key_prefix = prefix
+
+    if prefix.startswith("s3://"):
+        parts = prefix[5:].split("/", 1)
+        bucket = parts[0]
+        key_prefix = parts[1] if len(parts) > 1 else ""
+    elif prefix.startswith("https://") and ".s3." in prefix:
+        # https://bucket.s3.region.amazonaws.com/prefix/
+        from urllib.parse import urlparse
+        parsed = urlparse(prefix)
+        bucket = parsed.hostname.split(".")[0] if parsed.hostname else svc.s3_bucket
+        key_prefix = parsed.path.lstrip("/")
+
+    if not bucket:
+        raise ValueError("No S3 bucket configured. Set s3_prefix as s3://bucket/path/ or configure S3_BUCKET.")
+
+    client = svc._get_s3_client()
+
+    def _list():
+        paginator = client.get_paginator("list_objects_v2")
+        objects = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=key_prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                size = obj.get("Size", 0)
+                # Skip directories and tiny files
+                if key.endswith("/") or size < 100:
+                    continue
+                objects.append({"key": key, "size": size})
+        return objects
+
+    objects = await asyncio.get_event_loop().run_in_executor(None, _list)
+
+    assets = []
+    region = svc.s3_region or "us-east-1"
+    for obj in objects:
+        key = obj["key"]
+        filename = key.split("/")[-1]
+        mime, _ = mimetypes.guess_type(filename)
+
+        # Build public URL
+        if svc._media_base_url:
+            url = f"{svc._media_base_url.rstrip('/')}/{key}"
+        else:
+            url = f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
+
+        asset = AssetModel(
+            tenant_id=tenant_id,
+            artist_id=artist_id,
+            release_id=release_id,
+            asset_type=asset_type,
+            name=filename,
+            file_url=url,
+            file_size_bytes=obj["size"],
+            mime_type=mime,
+            tags=tags,
+            source="imported",
+        )
+        assets.append(asset)
+
+    return assets

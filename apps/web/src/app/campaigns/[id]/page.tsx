@@ -321,7 +321,7 @@ export default function CampaignDetailPage() {
             disabled={approvingAll}
             className="ml-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            {approvingAll ? <ButtonSpinner label="Approving..." /> : "Approve All"}
+            {approvingAll ? <ButtonSpinner label="Approving & generating content..." /> : "Approve All & Generate Content"}
           </button>
         </div>
       )}
@@ -450,9 +450,9 @@ export default function CampaignDetailPage() {
                             onClick={() => handlePostAction(post.id, "review-approve")}
                             disabled={isActioning}
                             className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                            title="Approve"
+                            title="Approve and generate content"
                           >
-                            {isActioning ? "..." : "\u2713 Approve"}
+                            {isActioning ? "Generating content..." : "\u2713 Approve & Generate"}
                           </button>
                           <button
                             onClick={() => {
