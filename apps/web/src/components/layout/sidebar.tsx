@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   LogOut,
+  FolderOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/artists", label: "Artists", icon: Users },
   { href: "/releases", label: "Releases", icon: Disc3 },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { href: "/assets", label: "Asset Library", icon: FolderOpen },
   { href: "/channels", label: "Channels", icon: Plug },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/posts", label: "Posts", icon: Send },

@@ -479,6 +479,47 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+# ── Assets ────────────────────────────────────────────────────────
+
+class AssetCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    asset_type: str = Field(min_length=1, max_length=20)  # image, video, audio, album_art, promo_photo, logo
+    description: str = ""
+    artist_id: uuid.UUID | None = None
+    release_id: uuid.UUID | None = None
+    campaign_id: uuid.UUID | None = None
+    tags: list[str] = Field(default_factory=list)
+    source: str = "uploaded"  # uploaded, ai_generated, imported
+
+class AssetUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    asset_type: str | None = None
+    artist_id: uuid.UUID | None = None
+    release_id: uuid.UUID | None = None
+    campaign_id: uuid.UUID | None = None
+    tags: list[str] | None = None
+
+class AssetResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    artist_id: uuid.UUID | None
+    release_id: uuid.UUID | None
+    campaign_id: uuid.UUID | None
+    asset_type: str
+    name: str
+    description: str
+    file_url: str
+    file_size_bytes: int | None
+    mime_type: str | None
+    tags: list[str]
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Redirect / Smart Links ──────────────────────────────────────
 
 class RedirectCreateRequest(BaseModel):
