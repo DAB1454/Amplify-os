@@ -51,6 +51,7 @@ class GeneratePlanRequest(BaseModel):
     track_listing: list[str] = Field(default_factory=list)
     destination_urls: dict[str, str] = Field(default_factory=dict)
     budget: float | None = None
+    content_notes: str = ""  # e.g. "AI-generated music, no video footage, no personal photos"
 
 
 class DailyActionResponse(BaseModel):
@@ -229,6 +230,35 @@ async def generate_plan(
     if not channels:
         channels = ["instagram"]
 
+    # Query available assets for this artist/release to inform the planner
+    available_assets: list[dict[str, str]] = []
+    try:
+        from amplify.db.models.asset import AssetModel
+        asset_q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
+        # Prefer assets linked to this artist or release
+        if campaign.artist_id:
+            from sqlalchemy import or_
+            asset_q = asset_q.where(
+                or_(
+                    AssetModel.artist_id == campaign.artist_id,
+                    AssetModel.release_id == campaign.release_id,
+                    AssetModel.campaign_id == campaign.id,
+                    AssetModel.artist_id.is_(None),  # unlinked tenant assets
+                )
+            )
+        asset_q = asset_q.order_by(AssetModel.created_at.desc()).limit(50)
+        asset_result = await db.execute(asset_q)
+        for a in asset_result.scalars().all():
+            available_assets.append({
+                "name": a.name,
+                "asset_type": a.asset_type,
+                "tags": ", ".join(a.tags) if a.tags else "",
+                "mime_type": a.mime_type or "",
+            })
+        logger.info("Planner context: %d available assets", len(available_assets))
+    except Exception as exc:
+        logger.warning("Failed to load assets for planner context: %s", exc)
+
     try:
         runner = _build_runner()
         agent = PlannerAgent(runner)
@@ -245,6 +275,8 @@ async def generate_plan(
             track_listing=track_listing,
             destination_urls=body.destination_urls,
             budget=body.budget or campaign.budget,
+            available_assets=available_assets if available_assets else None,
+            content_notes=body.content_notes,
         )
     except Exception as exc:
         logger.exception("Plan generation failed: %s", exc)

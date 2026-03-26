@@ -143,6 +143,12 @@ RUNTIME_INSTRUCTIONS = """
 - Always include at least one experiment proposal.
 - Flag content gaps where a platform has no content for 2+ consecutive days.
 - Reference specific tracks by name when proposing content.
+- ONLY propose content the artist can actually create with their available assets.
+- If the artist has no video footage, do NOT suggest behind-the-scenes or live videos.
+- If the artist has no alternate versions, do NOT suggest acoustic or remix content.
+- Read the "Available Assets" and "Artist Content Constraints" sections carefully.
+- For AI-generated music artists: focus on album art, lyric graphics, audio snippets,
+  track teasers, playlist placements, and text-based engagement — NOT personal photos or video.
 """
 
 
@@ -184,6 +190,8 @@ class PlannerAgent:
         prior_metrics: dict[str, Any] | None = None,
         budget: float | None = None,
         learning_context: LearningContext | None = None,
+        available_assets: list[dict[str, str]] | None = None,
+        content_notes: str = "",
     ) -> AgentResult:
         """Generate a structured 14-day campaign plan.
 
@@ -211,6 +219,25 @@ class PlannerAgent:
             budget=budget_str,
             today=str(date.today()),
         )
+
+        # Inject available assets into the prompt
+        if available_assets:
+            asset_block = "\n## Available Assets in Library\n"
+            asset_block += "ONLY propose content that can be created with these assets:\n"
+            for a in available_assets:
+                asset_block += f"- {a.get('name', 'unnamed')} ({a.get('asset_type', 'unknown')})"
+                if a.get('tags'):
+                    asset_block += f" [tags: {a['tags']}]"
+                asset_block += "\n"
+            user_message += "\n\n" + asset_block
+
+        # Inject content constraints/notes
+        if content_notes:
+            user_message += (
+                "\n\n## Artist Content Constraints\n"
+                "IMPORTANT — respect these constraints when planning:\n"
+                + content_notes + "\n"
+            )
 
         # Inject learning context into the prompt
         lc = learning_context or LearningContext()

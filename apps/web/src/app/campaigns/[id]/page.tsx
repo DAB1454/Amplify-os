@@ -103,6 +103,8 @@ export default function CampaignDetailPage() {
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [generatingPlan, setGeneratingPlan] = useState(false);
+  const [showPlanOptions, setShowPlanOptions] = useState(false);
+  const [contentNotes, setContentNotes] = useState("");
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -160,9 +162,13 @@ export default function CampaignDetailPage() {
 
   const handleGeneratePlan = async () => {
     setGeneratingPlan(true);
+    setShowPlanOptions(false);
     setError(null);
     try {
-      await apiPost("/api/v1/ai/generate-plan", { campaign_id: campaignId });
+      await apiPost("/api/v1/ai/generate-plan", {
+        campaign_id: campaignId,
+        content_notes: contentNotes,
+      });
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Plan generation failed");
@@ -257,7 +263,7 @@ export default function CampaignDetailPage() {
           <div className="flex gap-2">
             {campaign.mode !== "manual" && days.length === 0 && (
               <button
-                onClick={handleGeneratePlan}
+                onClick={() => setShowPlanOptions(true)}
                 disabled={generatingPlan}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
@@ -266,7 +272,7 @@ export default function CampaignDetailPage() {
             )}
             {campaign.mode !== "manual" && days.length > 0 && (
               <button
-                onClick={handleGeneratePlan}
+                onClick={() => setShowPlanOptions(true)}
                 disabled={generatingPlan}
                 className="rounded-lg bg-indigo-600/10 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-600/20 disabled:opacity-50"
               >
@@ -289,6 +295,41 @@ export default function CampaignDetailPage() {
             {campaign.end_date && ` \u00B7 Ends ${campaign.end_date}`}
             {campaign.phase && ` \u00B7 ${campaign.phase.replace("_", " ")}`}
           </p>
+        )}
+
+        {/* Plan generation options */}
+        {showPlanOptions && !generatingPlan && (
+          <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                Content constraints (tell the AI what you have and don&apos;t have)
+              </label>
+              <textarea
+                value={contentNotes}
+                onChange={(e) => setContentNotes(e.target.value)}
+                placeholder={"Example: AI-generated music — no live footage, no personal photos, no acoustic versions.\nI have album art, track audio files, and promo images.\nFocus on audio snippets, lyric graphics, playlist promotion, and text-based engagement."}
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+              />
+              <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+                The AI will also check your Asset Library to see what media you have available.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleGeneratePlan}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                Generate Plan
+              </button>
+              <button
+                onClick={() => setShowPlanOptions(false)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
