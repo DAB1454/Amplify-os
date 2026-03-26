@@ -259,11 +259,47 @@ async def delete_campaign(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Delete a campaign by ID. Admin+ only."""
+    """Delete a campaign and all related records."""
+    from sqlalchemy import select, text
+    from amplify.db.models.post import PostModel
+
+    # Verify campaign exists
     repo = BaseRepository(db, CampaignModel, tenant_id)
-    deleted = await repo.delete(campaign_id)
-    if not deleted:
+    campaign = await repo.get(campaign_id)
+    if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Delete child records that reference posts in this campaign
+    post_result = await db.execute(
+        select(PostModel.id).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+        )
+    )
+    post_ids = [row[0] for row in post_result.all()]
+
+    for pid in post_ids:
+        for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
+            try:
+                await db.execute(
+                    text(f"DELETE FROM {child_table} WHERE post_id = :pid"),
+                    {"pid": str(pid)},
+                )
+            except Exception:
+                pass
+
+    # Delete posts, calendar items, and assets linked to this campaign
+    for table in ("posts", "calendar_items", "assets"):
+        try:
+            await db.execute(
+                text(f"DELETE FROM {table} WHERE campaign_id = :cid AND tenant_id = :tid"),
+                {"cid": str(campaign_id), "tid": str(tenant_id)},
+            )
+        except Exception as exc:
+            logger.warning("Cleanup %s for campaign %s failed: %s", table, campaign_id, exc)
+
+    # Delete the campaign itself
+    await repo.delete(campaign_id)
 
     try:
         await audit.log(
