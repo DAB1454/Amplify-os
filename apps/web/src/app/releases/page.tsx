@@ -374,6 +374,9 @@ function TrackList({
   const [newTrack, setNewTrack] = useState({ title: "", track_number: tracks.length + 1, isrc: "" });
   const [saving, setSaving] = useState(false);
   const [uploadingTrackId, setUploadingTrackId] = useState<string | null>(null);
+  const [lyricsTrackId, setLyricsTrackId] = useState<string | null>(null);
+  const [lyricsText, setLyricsText] = useState("");
+  const [lyricsSaving, setLyricsSaving] = useState(false);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -438,6 +441,21 @@ function TrackList({
       onRefresh();
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to update track");
+    }
+  };
+
+  const handleSaveLyrics = async (trackId: string) => {
+    setLyricsSaving(true);
+    try {
+      await apiPut(`/api/v1/releases/${releaseId}/tracks/${trackId}`, {
+        lyrics: lyricsText,
+      });
+      onRefresh();
+      setLyricsTrackId(null);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to save lyrics");
+    } finally {
+      setLyricsSaving(false);
     }
   };
 
@@ -753,75 +771,132 @@ function TrackList({
       ) : (
         <div className="space-y-1.5">
           {tracks.map((track) => (
-            <div
-              key={track.id}
-              className="flex items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2"
-            >
-              <span className="w-6 text-center text-xs text-[var(--text-secondary)] font-mono">
-                {track.track_number}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-[var(--text-primary)] truncate">{track.title}</p>
-                <div className="flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
-                  {track.isrc && <span>ISRC: {track.isrc}</span>}
-                  {track.duration_seconds && (
-                    <span>{Math.floor(track.duration_seconds / 60)}:{(track.duration_seconds % 60).toString().padStart(2, "0")}</span>
+            <div key={track.id} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]">
+              <div className="flex items-center gap-3 px-3 py-2">
+                <span className="w-6 text-center text-xs text-[var(--text-secondary)] font-mono">
+                  {track.track_number}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-[var(--text-primary)] truncate">{track.title}</p>
+                  <div className="flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
+                    {track.isrc && <span>ISRC: {track.isrc}</span>}
+                    {track.duration_seconds && (
+                      <span>{Math.floor(track.duration_seconds / 60)}:{(track.duration_seconds % 60).toString().padStart(2, "0")}</span>
+                    )}
+                    {track.is_single && (
+                      <span className="rounded bg-blue-100 px-1 py-0.5 text-blue-600">Single</span>
+                    )}
+                    {track.lyrics && (
+                      <span className="rounded bg-purple-100 px-1 py-0.5 text-purple-600">Lyrics</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Lyrics toggle */}
+                  <button
+                    onClick={() => {
+                      if (lyricsTrackId === track.id) {
+                        setLyricsTrackId(null);
+                      } else {
+                        setLyricsTrackId(track.id);
+                        setLyricsText(track.lyrics || "");
+                      }
+                    }}
+                    className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                      track.lyrics
+                        ? "bg-purple-100 text-purple-600 hover:bg-purple-200"
+                        : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-purple-400 hover:text-purple-500"
+                    }`}
+                  >
+                    {lyricsTrackId === track.id ? "Close Lyrics" : track.lyrics ? "Edit Lyrics" : "+ Lyrics"}
+                  </button>
+
+                  {/* Single toggle */}
+                  <button
+                    onClick={() => handleToggleSingle(track)}
+                    className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                      track.is_single
+                        ? "bg-blue-100 text-blue-600 hover:bg-blue-200"
+                        : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-blue-400 hover:text-blue-500"
+                    }`}
+                    title={track.is_single ? "Remove as single" : "Release as single"}
+                  >
+                    {track.is_single ? "Single" : "Mark Single"}
+                  </button>
+
+                  {/* Audio status / upload */}
+                  {track.audio_url ? (
+                    <span className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-0.5 text-[10px] text-green-600">
+                      Audio uploaded
+                    </span>
+                  ) : uploadingTrackId === track.id ? (
+                    <ButtonSpinner label="Uploading..." />
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setPendingTrackId(track.id);
+                        audioInputRef.current?.click();
+                      }}
+                      className="rounded border border-dashed border-[var(--border-color)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
+                    >
+                      + Upload Audio
+                    </button>
                   )}
-                  {track.is_single && (
-                    <span className="rounded bg-blue-100 px-1 py-0.5 text-blue-600">Single</span>
+                  {track.audio_url && (
+                    <button
+                      onClick={() => {
+                        setPendingTrackId(track.id);
+                        audioInputRef.current?.click();
+                      }}
+                      className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--brand-gold)]"
+                    >
+                      Replace
+                    </button>
                   )}
+                  <button
+                    onClick={() => handleDeleteTrack(track.id)}
+                    className="text-[10px] text-red-600/60 hover:text-red-600"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Single toggle */}
-                <button
-                  onClick={() => handleToggleSingle(track)}
-                  className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
-                    track.is_single
-                      ? "bg-blue-100 text-blue-600 hover:bg-blue-200"
-                      : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-blue-400 hover:text-blue-500"
-                  }`}
-                  title={track.is_single ? "Remove as single" : "Release as single"}
-                >
-                  {track.is_single ? "Single" : "Mark Single"}
-                </button>
 
-                {/* Audio status / upload */}
-                {track.audio_url ? (
-                  <span className="inline-flex items-center gap-1 rounded bg-green-50 px-2 py-0.5 text-[10px] text-green-600">
-                    Audio uploaded
-                  </span>
-                ) : uploadingTrackId === track.id ? (
-                  <ButtonSpinner label="Uploading..." />
-                ) : (
-                  <button
-                    onClick={() => {
-                      setPendingTrackId(track.id);
-                      audioInputRef.current?.click();
-                    }}
-                    className="rounded border border-dashed border-[var(--border-color)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
-                  >
-                    + Upload Audio
-                  </button>
-                )}
-                {track.audio_url && (
-                  <button
-                    onClick={() => {
-                      setPendingTrackId(track.id);
-                      audioInputRef.current?.click();
-                    }}
-                    className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--brand-gold)]"
-                  >
-                    Replace
-                  </button>
-                )}
-                <button
-                  onClick={() => handleDeleteTrack(track.id)}
-                  className="text-[10px] text-red-600/60 hover:text-red-600"
-                >
-                  Delete
-                </button>
-              </div>
+              {/* Lyrics editor (expanded) */}
+              {lyricsTrackId === track.id && (
+                <div className="border-t border-[var(--border-color)] px-3 py-3 bg-[var(--bg-surface)]">
+                  <label className="block text-[10px] font-medium text-[var(--text-secondary)] mb-1">
+                    Lyrics for &ldquo;{track.title}&rdquo;
+                  </label>
+                  <textarea
+                    value={lyricsText}
+                    onChange={(e) => setLyricsText(e.target.value)}
+                    placeholder="Paste or type lyrics here..."
+                    rows={10}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] font-mono leading-relaxed resize-y"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-[10px] text-[var(--text-secondary)]">
+                      {lyricsText.length > 0 ? `${lyricsText.split("\n").length} lines` : "No lyrics yet"}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setLyricsTrackId(null)}
+                        className="rounded px-3 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleSaveLyrics(track.id)}
+                        disabled={lyricsSaving}
+                        className="rounded bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        {lyricsSaving ? "Saving..." : "Save Lyrics"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
 
