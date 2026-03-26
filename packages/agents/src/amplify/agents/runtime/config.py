@@ -19,7 +19,7 @@ class AgentConfig(BaseModel):
 
     api_key: str = Field(default="")
     model: str = Field(default="claude-sonnet-4-20250514")
-    max_tokens: int = Field(default=4096)
+    max_tokens: int = Field(default=16384)
     max_tool_iterations: int = Field(default=10)
     max_memory_messages: int = Field(default=50)
     temperature: float = Field(default=0.0)

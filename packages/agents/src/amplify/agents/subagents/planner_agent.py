@@ -27,14 +27,16 @@ from amplify.agents.learning_context import AgentDecisionRecord, LearningContext
 class DailyAction(BaseModel):
     """A single action to take on a specific day and platform."""
 
-    day: str = ""  # ISO date
+    day: str = Field(default="", alias="date")  # ISO date — accepts "date" or "day"
     platform: str = ""
     action_type: str = ""  # post, story, reel, short, live, engagement, email
     content_brief: str = ""
     cta_destination: str = ""
-    assets_required: list[str] = Field(default_factory=list)
+    assets_required: list[str] = Field(default_factory=list, alias="asset_requirements")
     priority: str = "medium"  # critical, high, medium, low
     track_reference: str = ""  # which track this action features, if any
+
+    model_config = {"populate_by_name": True}  # accept both field name and alias
 
 
 class ExperimentProposal(BaseModel):
