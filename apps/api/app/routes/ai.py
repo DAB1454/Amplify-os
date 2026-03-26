@@ -390,6 +390,17 @@ async def generate_plan(
                             post_approval = None
                             post_status = "draft"
 
+                        # Set scheduled_at from the action's day so posts
+                        # appear on the correct date in the campaign timeline
+                        scheduled_at = None
+                        try:
+                            from datetime import datetime as dt_type
+                            action_date = date_type.fromisoformat(action.day) if action.day else None
+                            if action_date:
+                                scheduled_at = dt_type.combine(action_date, time_type(10, 0))
+                        except (ValueError, TypeError):
+                            pass
+
                         post = PostModel(
                             tenant_id=tenant_id,
                             campaign_id=campaign.id,
@@ -402,6 +413,7 @@ async def generate_plan(
                             approval_status=post_approval,
                             day_number=day_idx,
                             action_type_label=action.action_type,
+                            scheduled_at=scheduled_at,
                         )
                         db.add(post)
                         draft_posts_created += 1

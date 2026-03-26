@@ -163,9 +163,41 @@ async def _generate_caption(
                 caption += "\n\n" + " ".join(best.hashtags)
             return caption
 
-    # Fallback to raw text
+    # Fallback: try to parse raw text as JSON and extract caption
     if result.text:
-        return result.text
+        import json as _json
+        import re as _re
+
+        raw = result.text.strip()
+
+        # Strip markdown code fences
+        fence_match = _re.search(r"```(?:json)?\s*\n?(.*?)```", raw, _re.DOTALL)
+        if fence_match:
+            raw = fence_match.group(1).strip()
+
+        # Try to extract structured caption from JSON
+        try:
+            parsed = _json.loads(raw)
+            if isinstance(parsed, dict):
+                variants = parsed.get("variants", [])
+                if variants and isinstance(variants, list):
+                    v = variants[0]
+                    # Try common field names for the caption text
+                    body = v.get("copy") or v.get("body") or v.get("text") or v.get("caption") or ""
+                    if body:
+                        hashtags = v.get("hashtags", "")
+                        if isinstance(hashtags, list):
+                            hashtags = " ".join(hashtags)
+                        # Don't append if hashtags are already in the body
+                        if hashtags and hashtags not in body:
+                            body += "\n\n" + hashtags
+                        return body
+        except (ValueError, KeyError, TypeError):
+            pass
+
+        # If it doesn't look like JSON, return as-is (it's a real caption)
+        if not raw.startswith("{") and not raw.startswith("["):
+            return raw
 
     return None
 
