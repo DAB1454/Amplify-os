@@ -108,6 +108,8 @@ async def generate_content_for_post(
                 campaign_id=post.campaign_id,
                 platform=post.platform,
                 action_type=post.action_type_label,
+                content_hint=brief,
+                day_number=post.day_number,
             )
             if media_urls:
                 post.media_urls = media_urls
@@ -177,53 +179,89 @@ async def _find_matching_assets(
     campaign_id: uuid.UUID | None,
     platform: str | None,
     action_type: str | None,
+    content_hint: str = "",
+    day_number: int | None = None,
 ) -> list[str]:
-    """Find the best matching assets from the library.
+    """Find the best matching asset from the library.
 
-    Priority order:
-    1. Assets linked to the same campaign
-    2. Assets linked to the same release
-    3. Assets linked to the same artist
-    4. Any tenant assets
-
-    Returns a list of file URLs.
+    Uses content_hint (the post brief) to match assets by name/tags,
+    and day_number to rotate through assets for variety.
     """
     from amplify.db.models.asset import AssetModel
 
-    # Determine desired asset type from action type
     desired_types = _desired_asset_types(action_type)
 
-    # Try increasingly broad queries
+    # Load all candidate assets (broadening scope as needed)
+    candidates: list = []
     for filters in [
-        # Most specific: same campaign + matching type
         {"campaign_id": campaign_id} if campaign_id else None,
-        # Same release
         {"release_id": release_id} if release_id else None,
-        # Same artist
         {"artist_id": artist_id} if artist_id else None,
-        # Any asset in the tenant
         {},
     ]:
         if filters is None:
             continue
 
         q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
-
         for col, val in filters.items():
             q = q.where(getattr(AssetModel, col) == val)
-
-        # Filter by desired types if we have them
         if desired_types:
             q = q.where(AssetModel.asset_type.in_(desired_types))
+        q = q.order_by(AssetModel.created_at.desc()).limit(20)
 
-        q = q.order_by(AssetModel.created_at.desc()).limit(3)
         result = await db.execute(q)
-        assets = result.scalars().all()
+        candidates = list(result.scalars().all())
+        if candidates:
+            break
 
-        if assets:
-            return [a.file_url for a in assets[:1]]  # Attach top 1 match
+    if not candidates:
+        return []
 
-    return []
+    # Score candidates based on content hint matching
+    hint_lower = content_hint.lower()
+    hint_words = set(hint_lower.split())
+
+    scored = []
+    for asset in candidates:
+        score = 0
+        name_lower = (asset.name or "").lower()
+        desc_lower = (asset.description or "").lower()
+        tag_text = " ".join(asset.tags or []).lower()
+
+        # Name match (strongest signal)
+        for word in hint_words:
+            if len(word) > 3:  # skip short words
+                if word in name_lower:
+                    score += 10
+                if word in desc_lower:
+                    score += 5
+                if word in tag_text:
+                    score += 5
+
+        # Prefer images for posts, videos for reels/stories
+        if action_type and action_type.lower() in ("reel", "short", "story"):
+            if asset.asset_type == "video":
+                score += 3
+        else:
+            if asset.asset_type in ("image", "album_art", "promo_photo"):
+                score += 3
+
+        scored.append((score, asset))
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Use day_number to rotate through top candidates for variety
+    if len(scored) > 1 and day_number:
+        idx = (day_number - 1) % min(len(scored), 5)
+        # If top scores are tied, pick by rotation
+        top_score = scored[0][0]
+        top_tier = [s for s in scored if s[0] >= top_score - 2]
+        if len(top_tier) > 1:
+            idx = (day_number - 1) % len(top_tier)
+            return [top_tier[idx][1].file_url]
+
+    return [scored[0][1].file_url]
 
 
 def _desired_asset_types(action_type: str | None) -> list[str]:
