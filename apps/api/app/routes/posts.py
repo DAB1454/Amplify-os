@@ -381,13 +381,17 @@ async def generate_media_for_post(
 
     video_generated = False
 
-    # Step 2: For video platforms (tiktok, youtube), try to generate video
-    # but fall back gracefully to image if FFmpeg isn't available or fails
-    video_platforms = {"tiktok", "youtube"}
+    # Step 2: Generate video for video-native platforms/formats
+    # TikTok and YouTube always get video; Instagram Reels get video too
+    action_lower = (post.action_type_label or "").lower()
+    is_video_post = (
+        post.platform in {"tiktok", "youtube"}
+        or (post.platform == "instagram" and action_lower in ("reel", "reels", "short", "story"))
+    )
     should_generate_video = (
         body.generate_video
         and image_urls
-        and post.platform in video_platforms
+        and is_video_post
     )
 
     if should_generate_video:

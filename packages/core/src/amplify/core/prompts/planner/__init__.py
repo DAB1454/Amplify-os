@@ -85,9 +85,12 @@ What the system CANNOT do:
   caption for the audio experience. Mention which track is featured.
 - **YouTube**: System auto-generates 15s video (image + track clip). Write the
   caption for the audio experience. Mention which track is featured.
-- **Instagram**: System attaches images. For carousel posts, use asset_requirements
-  like ["promo photo", "album art"]. For regular posts, one image is fine.
-- **Facebook**: Same as Instagram — images only.
+- **Instagram**: MIX of Reels and feed posts. At least 40-50% of Instagram posts
+  should be Reels (action_type="reel") — Reels get 2-3x the reach of static posts.
+  The system auto-generates 15s video for Reels (same as TikTok).
+  For feed posts, system attaches images. For carousels, use asset_requirements
+  like ["promo photo", "album art"].
+- **Facebook**: System attaches images. For regular posts, one image is fine.
 
 Example asset_requirements values:
 - ["album art"] — attach the album cover image
