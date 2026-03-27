@@ -319,11 +319,12 @@ def _ext_from_url(url: str, default: str = "") -> str:
 
 
 async def download_url_to_file(url: str, dest: str) -> None:
-    """Download a URL (S3 or HTTP) to a local file."""
+    """Download a URL (S3 or HTTP) to a local file — streams to disk."""
     import httpx
 
     async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        with open(dest, "wb") as f:
-            f.write(resp.content)
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    f.write(chunk)
