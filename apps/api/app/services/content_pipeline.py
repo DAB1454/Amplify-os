@@ -288,10 +288,21 @@ async def _find_matching_assets(
     scored = []
     for asset in pool:
         score = 0
-        name_lower = (asset.name or "").lower()
+        # Use asset name, falling back to original filename from URL if name is a UUID
+        raw_name = asset.name or ""
+        # If name looks like a UUID (e.g. "23efe365-7328-4635-96c3-b36fb1ac0956.wav"),
+        # try to extract original filename from description or tags instead
+        import re as _re
+        if _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", raw_name):
+            # Name is a UUID — use description or tags as searchable text
+            raw_name = asset.description or ""
+        name_lower = raw_name.lower()
         desc_lower = (asset.description or "").lower()
         tag_text = " ".join(asset.tags or []).lower()
         asset_text = f"{name_lower} {desc_lower} {tag_text}"
+
+        logger.debug("Matching asset %s (name=%s, type=%s) against hint: %s",
+                      asset.id, asset.name, asset.asset_type, hint_lower[:60])
 
         # ── Strong match: asset name appears in the caption (or vice versa) ──
         # This catches "Whis(key) to My Heart" in caption matching an asset

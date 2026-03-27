@@ -130,7 +130,8 @@ export default function AssetsPage() {
     try {
       for (const file of uploadFiles) {
         const params = new URLSearchParams();
-        params.set("name", uploadName || file.name);
+        // Use custom name only for single file uploads; for multi-file, use original filename
+        params.set("name", (uploadFiles.length === 1 && uploadName) ? uploadName : file.name);
         params.set("asset_type", uploadType);
         if (uploadDesc) params.set("description", uploadDesc);
         if (uploadTags) params.set("tags", uploadTags);
