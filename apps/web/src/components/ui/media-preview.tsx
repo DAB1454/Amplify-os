@@ -9,14 +9,17 @@ interface MediaPreviewProps {
 }
 
 function getMediaType(url: string): "video" | "image" | "audio" | "unknown" {
-  const lower = url.toLowerCase();
-  if (/\.(mp4|mov|webm|avi|mkv)/.test(lower)) return "video";
-  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)/.test(lower)) return "image";
-  if (/\.(mp3|wav|ogg|aac|flac|m4a)/.test(lower)) return "audio";
-  // S3 URLs with content type hints
-  if (lower.includes("video")) return "video";
-  if (lower.includes("image")) return "image";
-  if (lower.includes("audio")) return "audio";
+  // Strip query params before checking extension
+  const lower = url.split("?")[0].toLowerCase();
+  if (/\.(mp4|mov|webm|avi|mkv)(\?|$)/.test(lower)) return "video";
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/.test(lower)) return "image";
+  if (/\.(mp3|wav|ogg|aac|flac|m4a)(\?|$)/.test(lower)) return "audio";
+  // S3 URLs with content type hints in path
+  if (lower.includes("/video/") || lower.includes("video")) return "video";
+  if (lower.includes("/image/") || lower.includes("image")) return "image";
+  if (lower.includes("/audio/") || lower.includes("audio")) return "audio";
+  // Default to image for S3 media URLs (most common case)
+  if (lower.includes(".s3.") || lower.includes("amazonaws.com")) return "image";
   return "unknown";
 }
 
@@ -84,14 +87,16 @@ function MediaItem({ url, compact }: { url: string; compact?: boolean }) {
             src={url}
             controls
             preload="metadata"
+            crossOrigin="anonymous"
             className="w-full"
             style={expanded ? {} : { maxHeight: compact ? "128px" : "256px" }}
           />
         </div>
       )}
       {type === "audio" && (
-        <div className="p-2">
-          <audio src={url} controls preload="metadata" className="w-full" />
+        <div className="p-3 flex items-center gap-3">
+          <span className="text-2xl">{"🎵"}</span>
+          <audio src={url} controls preload="metadata" crossOrigin="anonymous" className="w-full" />
         </div>
       )}
       {type === "unknown" && (

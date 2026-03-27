@@ -265,7 +265,12 @@ async def review_approve_post(
     if post.approval_status not in ("pending_review", None):
         raise HTTPException(status_code=409, detail=f"Post approval_status is '{post.approval_status}', expected 'pending_review'")
 
-    entity = await repo.update(post_id, approval_status="approved")
+    # Auto-schedule if the post already has a scheduled_at date
+    updates = {"approval_status": "approved"}
+    if post.scheduled_at:
+        updates["status"] = "scheduled"
+
+    entity = await repo.update(post_id, **updates)
 
     # Trigger content generation pipeline (caption + asset matching)
     try:

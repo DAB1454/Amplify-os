@@ -215,6 +215,7 @@ async def approve_all_posts(
     from sqlalchemy import select, update
     from amplify.db.models.post import PostModel
 
+    # Approve all pending posts
     result = await db.execute(
         update(PostModel)
         .where(
@@ -226,6 +227,18 @@ async def approve_all_posts(
         .returning(PostModel.id)
     )
     approved_ids = [row[0] for row in result.all()]
+
+    # Auto-schedule posts that already have a scheduled_at date
+    if approved_ids:
+        await db.execute(
+            update(PostModel)
+            .where(
+                PostModel.id.in_(approved_ids),
+                PostModel.scheduled_at.isnot(None),
+            )
+            .values(status="scheduled")
+        )
+
     await db.flush()
 
     # Trigger content generation for all approved posts

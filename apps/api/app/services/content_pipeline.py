@@ -224,25 +224,29 @@ async def _find_matching_assets(
     desired_types = _desired_asset_types(action_type)
 
     # Load all candidate assets (broadening scope as needed)
+    # Try with preferred types first, then fall back to any type
     candidates: list = []
-    for filters in [
-        {"campaign_id": campaign_id} if campaign_id else None,
-        {"release_id": release_id} if release_id else None,
-        {"artist_id": artist_id} if artist_id else None,
-        {},
-    ]:
-        if filters is None:
-            continue
+    for type_filter in [desired_types, []]:  # [] = any type
+        for filters in [
+            {"campaign_id": campaign_id} if campaign_id else None,
+            {"release_id": release_id} if release_id else None,
+            {"artist_id": artist_id} if artist_id else None,
+            {},
+        ]:
+            if filters is None:
+                continue
 
-        q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
-        for col, val in filters.items():
-            q = q.where(getattr(AssetModel, col) == val)
-        if desired_types:
-            q = q.where(AssetModel.asset_type.in_(desired_types))
-        q = q.order_by(AssetModel.created_at.desc()).limit(20)
+            q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
+            for col, val in filters.items():
+                q = q.where(getattr(AssetModel, col) == val)
+            if type_filter:
+                q = q.where(AssetModel.asset_type.in_(type_filter))
+            q = q.order_by(AssetModel.created_at.desc()).limit(20)
 
-        result = await db.execute(q)
-        candidates = list(result.scalars().all())
+            result = await db.execute(q)
+            candidates = list(result.scalars().all())
+            if candidates:
+                break
         if candidates:
             break
 
