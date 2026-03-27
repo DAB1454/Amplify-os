@@ -68,6 +68,10 @@ export default function PostsPage() {
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
+  const [libraryAssets, setLibraryAssets] = useState<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>([]);
+  const [selectedAssetUrls, setSelectedAssetUrls] = useState<string[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -281,19 +285,21 @@ export default function PostsPage() {
                 setMerging(false);
               }
 
-              // Also include any manually entered URLs
+              // Also include any manually entered URLs and selected library assets
               const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
 
               await apiPost("/api/v1/posts", {
                 channel_id: newPost.channel_id,
                 platform: newPost.platform,
                 content_text: newPost.content_text,
-                media_urls: [...uploadedUrls, ...manualUrls],
+                media_urls: [...uploadedUrls, ...selectedAssetUrls, ...manualUrls],
               });
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
               setMediaFiles([]);
               setAudioFile(null);
+              setSelectedAssetUrls([]);
+              setShowAssetPicker(false);
               fetchPosts();
             } catch (err) {
               setMerging(false);
@@ -380,13 +386,111 @@ export default function PostsPage() {
                 </span>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
-            >
-              + Add Video or Image
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
+              >
+                + Upload File
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (showAssetPicker) {
+                    setShowAssetPicker(false);
+                    return;
+                  }
+                  setAssetsLoading(true);
+                  try {
+                    const assets = await apiGet<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>("/api/v1/assets");
+                    setLibraryAssets(assets);
+                  } catch (_err) {
+                    setLibraryAssets([]);
+                  } finally {
+                    setAssetsLoading(false);
+                    setShowAssetPicker(true);
+                  }
+                }}
+                className="rounded-lg border border-dashed border-indigo-300 px-4 py-2 text-sm text-indigo-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
+              >
+                {assetsLoading ? <Spinner className="w-4 h-4" /> : showAssetPicker ? "Hide Library" : "Choose from Library"}
+              </button>
+            </div>
+
+            {/* Asset Library Picker */}
+            {showAssetPicker && (
+              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/30 p-3">
+                <p className="text-xs font-medium text-indigo-700 mb-2">
+                  Asset Library {libraryAssets.length > 0 && <span className="font-normal text-indigo-500">({libraryAssets.length} assets)</span>}
+                </p>
+                {libraryAssets.length === 0 ? (
+                  <p className="text-xs text-[var(--text-secondary)]">No assets in library. Upload some first.</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                    {libraryAssets.map((asset) => {
+                      const isSelected = selectedAssetUrls.includes(asset.file_url);
+                      const isImage = ["image", "album_art", "promo_photo", "logo"].includes(asset.asset_type);
+                      const isVideo = ["video", "lyric_video", "ai_video"].includes(asset.asset_type);
+                      const isAudio = asset.asset_type === "audio";
+                      return (
+                        <button
+                          key={asset.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedAssetUrls((prev) => prev.filter((u) => u !== asset.file_url));
+                            } else {
+                              setSelectedAssetUrls((prev) => [...prev, asset.file_url]);
+                            }
+                          }}
+                          className={`relative rounded-lg border-2 p-1 text-left transition-all ${
+                            isSelected
+                              ? "border-indigo-500 bg-indigo-100"
+                              : "border-transparent hover:border-indigo-300 bg-white"
+                          }`}
+                        >
+                          {isImage && (
+                            <img
+                              src={asset.file_url}
+                              alt={asset.name}
+                              className="w-full h-16 object-cover rounded"
+                              loading="lazy"
+                            />
+                          )}
+                          {isVideo && (
+                            <div className="w-full h-16 rounded bg-purple-100 flex items-center justify-center">
+                              <span className="text-lg">🎬</span>
+                            </div>
+                          )}
+                          {isAudio && (
+                            <div className="w-full h-16 rounded bg-blue-100 flex items-center justify-center">
+                              <span className="text-lg">🎵</span>
+                            </div>
+                          )}
+                          {!isImage && !isVideo && !isAudio && (
+                            <div className="w-full h-16 rounded bg-gray-100 flex items-center justify-center">
+                              <span className="text-lg">📎</span>
+                            </div>
+                          )}
+                          <p className="mt-1 text-[9px] text-[var(--text-secondary)] truncate">{asset.name}</p>
+                          {isSelected && (
+                            <div className="absolute top-0 right-0 bg-indigo-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold -mt-1 -mr-1">
+                              ✓
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {selectedAssetUrls.length > 0 && (
+                  <p className="mt-2 text-[10px] text-indigo-600 font-medium">
+                    {selectedAssetUrls.length} asset{selectedAssetUrls.length !== 1 ? "s" : ""} selected
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
