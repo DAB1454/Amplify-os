@@ -21,6 +21,7 @@ services:
     region: oregon
     plan: free
     healthCheckPath: /health
+    preDeployCommand: "alembic upgrade head"
     envVars:
       - key: DEPLOYMENT_MODE
         value: cloud
