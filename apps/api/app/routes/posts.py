@@ -329,7 +329,7 @@ class GenerateMediaResponse(BaseModel):
 @router.post("/{post_id}/generate-media", response_model=GenerateMediaResponse)
 async def generate_media_for_post(
     post_id: uuid.UUID,
-    body: GenerateMediaRequest | None = None,
+    body: GenerateMediaRequest,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     settings_obj: Settings = Depends(get_settings),
@@ -346,8 +346,6 @@ async def generate_media_for_post(
     from amplify.db.models.campaign import CampaignModel
 
     start_time = time.time()
-    if body is None:
-        body = GenerateMediaRequest()
 
     repo = BaseRepository(db, PostModel, tenant_id)
     post = await repo.get(post_id)
@@ -383,7 +381,8 @@ async def generate_media_for_post(
 
     video_generated = False
 
-    # Step 2: For video platforms (tiktok, youtube) or if requested, generate video
+    # Step 2: For video platforms (tiktok, youtube), try to generate video
+    # but fall back gracefully to image if FFmpeg isn't available or fails
     video_platforms = {"tiktok", "youtube"}
     should_generate_video = (
         body.generate_video
@@ -415,10 +414,16 @@ async def generate_media_for_post(
     if not video_generated and image_urls:
         post.media_urls = image_urls
 
+    # If still no media found at all, return empty (don't error — library may be empty)
+    if not post.media_urls:
+        post.media_urls = []
+        logger.info("No assets found for post %s — media_urls stays empty", post_id)
+
     await db.flush()
 
     elapsed = int((time.time() - start_time) * 1000)
-    logger.info("Media generated for post %s in %dms (video=%s)", post_id, elapsed, video_generated)
+    logger.info("Media generated for post %s in %dms (video=%s, urls=%d)",
+                post_id, elapsed, video_generated, len(post.media_urls or []))
 
     return GenerateMediaResponse(
         media_urls=list(post.media_urls or []),
