@@ -562,26 +562,9 @@ async def generate_plan(
                             logger.warning("Asset matching at plan time failed: %s", asset_exc)
                             media_urls = []
 
-                        # For video platforms (TikTok, YouTube), auto-generate
-                        # a video from image + audio if we have both available
-                        is_video_platform = action.platform in ("tiktok", "youtube")
-                        if is_video_platform and media_urls and has_audio:
-                            try:
-                                video_url = await _auto_generate_post_video(
-                                    db=db,
-                                    tenant_id=tenant_id,
-                                    image_url=media_urls[0],
-                                    artist_id=campaign.artist_id,
-                                    release_id=campaign.release_id,
-                                    content_hint=action.content_brief,
-                                    day_number=day_idx,
-                                    settings=settings_obj,
-                                )
-                                if video_url:
-                                    media_urls = [video_url]
-                                    logger.info("Auto-generated video for %s post (day %d)", action.platform, day_idx)
-                            except Exception as vid_exc:
-                                logger.warning("Auto video generation failed (day %d): %s", day_idx, vid_exc)
+                        # Note: video generation (image+audio→mp4) is done on-demand
+                        # via the per-post "Video Clip" button, not at plan creation
+                        # time, to avoid making plan generation too slow.
 
                         post = PostModel(
                             tenant_id=tenant_id,
