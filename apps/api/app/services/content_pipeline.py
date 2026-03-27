@@ -384,10 +384,12 @@ def _desired_media_count(platform: str | None, action_type: str | None) -> int:
     if not platform:
         return 1
     p = platform.lower()
-    a = (action_type or "").lower()
-    # Instagram carousel posts can have up to 10 images
-    if p == "instagram" and a == "post":
-        return 3  # Good carousel size
+    a = (action_type or "").lower().replace("_", " ")
+    # Carousel posts get multiple images
+    if "carousel" in a:
+        return 3
+    if p == "instagram" and a in ("post",):
+        return 2
     return 1
 
 

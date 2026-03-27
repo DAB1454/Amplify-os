@@ -390,26 +390,36 @@ async def generate_plan(
             ))
 
             # Create calendar item for each action
+            # Stagger times throughout the day for variety
+            from datetime import date as date_type, time as time_type
+            _post_times = [
+                time_type(9, 0), time_type(10, 30), time_type(12, 0),
+                time_type(14, 0), time_type(16, 30), time_type(18, 0),
+                time_type(19, 30), time_type(21, 0),
+            ]
+            post_time = _post_times[day_idx % len(_post_times)]
+
             try:
-                from datetime import date as date_type, time as time_type
                 action_date = date_type.fromisoformat(action.day) if action.day else None
                 if action_date:
                     cal_item = CalendarItemModel(
                         tenant_id=tenant_id,
                         campaign_id=campaign.id,
-                        title=f"{action.action_type.title()}: {action.content_brief[:80]}",
+                        title=f"{action.action_type.replace('_', ' ').title()}: {action.content_brief[:80]}",
                         description=action.content_brief,
                         item_type=action.action_type or "post",
                         scheduled_date=action_date,
-                        scheduled_time=time_type(10, 0),
+                        scheduled_time=post_time,
                     )
                     db.add(cal_item)
                     calendar_items_created += 1
             except (ValueError, TypeError) as exc:
                 logger.warning("Skipping calendar item for invalid date %s: %s", action.day, exc)
 
-            # Create draft post for post-type actions
-            if action.action_type in ("post", "reel", "story", "short"):
+            # Create draft post for all content actions (anything except pure engagement/live)
+            _non_post_types = {"live", "engagement", "email"}
+            action_lower = action.action_type.lower().strip()
+            if action_lower not in _non_post_types:
                 try:
                     # Find a matching channel
                     from amplify.db.models.channel import ChannelConnectionModel
@@ -433,14 +443,13 @@ async def generate_plan(
                             post_approval = None
                             post_status = "draft"
 
-                        # Set scheduled_at from the action's day so posts
-                        # appear on the correct date in the campaign timeline
+                        # Set scheduled_at from the action's day with staggered time
                         scheduled_at = None
                         try:
                             from datetime import datetime as dt_type
                             action_date = date_type.fromisoformat(action.day) if action.day else None
                             if action_date:
-                                scheduled_at = dt_type.combine(action_date, time_type(10, 0))
+                                scheduled_at = dt_type.combine(action_date, post_time)
                         except (ValueError, TypeError):
                             pass
 
