@@ -264,32 +264,33 @@ async def _find_matching_assets(
 
     # Determine what we're looking for
     wants_video = action_type and action_type.lower() in ("reel", "short", "story")
-    wants_audio = any(
-        kw in hint_lower
-        for kw in ("audio", "snippet", "listen", "hear", "music", "track", "song")
-    )
     wants_album_art = any(
         kw in hint_lower
         for kw in ("album", "cover", "artwork", "album_art")
     )
-
-    # Check assets_required for type hints
     if assets_required:
         req_text = " ".join(assets_required).lower()
         if "video" in req_text:
             wants_video = True
-        if "audio" in req_text or "snippet" in req_text or "track" in req_text:
-            wants_audio = True
         if "album" in req_text or "cover" in req_text or "artwork" in req_text:
             wants_album_art = True
 
+    # IMPORTANT: Only consider visual assets (image, video, album_art, promo_photo, lyric_video)
+    # Raw audio files should NOT be attached to social media posts —
+    # they're full-length songs, not clips, and platforms don't support image+audio.
+    # Audio is only useful inside generated lyric videos.
+    VISUAL_TYPES = {"image", "album_art", "promo_photo", "video", "lyric_video", "logo"}
+    visual_candidates = [c for c in candidates if c.asset_type in VISUAL_TYPES]
+
+    # Fall back to all candidates only if there are zero visual assets
+    pool = visual_candidates if visual_candidates else candidates
+
     scored = []
-    for asset in candidates:
+    for asset in pool:
         score = 0
         name_lower = (asset.name or "").lower()
         desc_lower = (asset.description or "").lower()
         tag_text = " ".join(asset.tags or []).lower()
-        asset_text = f"{name_lower} {desc_lower} {tag_text}"
 
         # Keyword matching from hint + assets_required
         for word in hint_words:
@@ -303,15 +304,13 @@ async def _find_matching_assets(
         # Type affinity scoring
         if wants_video and asset.asset_type in ("video", "lyric_video"):
             score += 15
-        elif wants_audio and asset.asset_type == "audio":
-            score += 15
         elif wants_album_art and asset.asset_type in ("album_art", "image"):
             score += 12
-        elif not wants_video and not wants_audio:
-            # Generic post — prefer visual assets
+        else:
+            # Generic post — prefer images
             if asset.asset_type in ("image", "album_art", "promo_photo"):
                 score += 5
-            elif asset.asset_type == "video":
+            elif asset.asset_type in ("video", "lyric_video"):
                 score += 3
 
         # Bonus for assets linked to the same release/campaign
@@ -322,59 +321,28 @@ async def _find_matching_assets(
 
         scored.append((score, asset))
 
-    # Sort by score descending
     scored.sort(key=lambda x: x[0], reverse=True)
 
     if not scored:
         return []
-
-    # Sort by score descending
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    # If assets_required asks for multiple types (e.g. ["audio snippet", "album art"]),
-    # try to return one of each type
-    if wants_audio and not wants_video:
-        # Find best audio + best image to pair together
-        best_audio = next((a for _, a in scored if a.asset_type == "audio"), None)
-        best_image = next(
-            (a for _, a in scored if a.asset_type in ("image", "album_art", "promo_photo")),
-            None,
-        )
-        if best_audio and best_image:
-            return [best_image.file_url, best_audio.file_url]
-        if best_audio:
-            # Audio alone — still try to pair with any image
-            if best_image:
-                return [best_image.file_url, best_audio.file_url]
-            return [best_audio.file_url]
 
     # For carousel posts (multiple images), return top N unique visual assets
     if max_results > 1:
         urls = []
         seen = set()
         for _, asset in scored:
-            if asset.file_url not in seen and asset.asset_type in ("image", "album_art", "promo_photo"):
+            if asset.file_url not in seen:
                 urls.append(asset.file_url)
                 seen.add(asset.file_url)
             if len(urls) >= max_results:
                 break
-        # Fall back to any type if not enough images
-        if len(urls) < max_results:
-            for _, asset in scored:
-                if asset.file_url not in seen:
-                    urls.append(asset.file_url)
-                    seen.add(asset.file_url)
-                if len(urls) >= max_results:
-                    break
         return urls
 
-    # Use day_number to rotate through top candidates for variety
+    # Use day_number to rotate through top visual candidates for variety
+    # This ensures each day's posts use different images
     if len(scored) > 1 and day_number:
-        top_score = scored[0][0]
-        top_tier = [s for s in scored if s[0] >= max(top_score - 5, 0)]
-        if len(top_tier) > 1:
-            idx = (day_number - 1) % len(top_tier)
-            return [top_tier[idx][1].file_url]
+        idx = (day_number - 1) % len(scored)
+        return [scored[idx][1].file_url]
 
     return [scored[0][1].file_url]
 

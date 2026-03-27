@@ -67,25 +67,28 @@ to each post based on the `content_brief` text and `asset_requirements` hints.
 
 What the system CAN do:
 - Attach images (album art, promo photos) to posts
-- Attach audio clips (track previews) to posts
 - Attach multiple images as a carousel for Instagram posts
-- Attach existing videos from the library
+- Attach existing videos or lyric videos from the library
+- Rotate through different images across posts for variety
 
 What the system CANNOT do:
 - Create new videos from scratch
-- Add text overlays to images
-- Edit or trim audio clips
-- Create slideshows or montages
-- Generate countdown graphics
+- Add text overlays or graphics to images
+- Trim or clip audio files (raw audio files are full-length songs)
+- Create slideshows, montages, or countdown graphics
+- Attach audio files to social media posts (platforms don't support image+audio)
 
-So do NOT write briefs that describe produced video content unless the artist
-has actual video files in their asset library.  Instead, write engaging captions
-and use `asset_requirements` to hint which existing assets to attach.
+IMPORTANT: Do NOT suggest attaching audio snippets or audio clips to posts.
+The system only has full-length song files, not clips. Audio is only useful
+inside generated lyric videos, which is a separate feature.
+
+Instead, write engaging captions and use `asset_requirements` to hint
+which VISUAL assets to attach.
 
 Example asset_requirements values:
 - ["album art"] — attach the album cover image
 - ["promo photo"] — attach a promotional photo
-- ["audio snippet", "album art"] — attach a track audio + album art
+- ["promo photo", "album art"] — multiple images for carousel
 - ["video"] — attach an existing video if available
 """
 

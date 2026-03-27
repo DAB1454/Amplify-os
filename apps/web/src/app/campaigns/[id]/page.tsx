@@ -541,7 +541,7 @@ export default function CampaignDetailPage() {
                           <div className="mt-3">
                             {post.media_urls.length > 1 && (
                               <div className="text-[10px] font-medium text-indigo-600 mb-1">
-                                Carousel ({post.media_urls.length} items)
+                                {post.media_urls.length} media items
                               </div>
                             )}
                             <MediaPreview urls={post.media_urls} compact />

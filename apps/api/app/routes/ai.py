@@ -281,8 +281,9 @@ async def generate_plan(
         )
     if has_audio:
         auto_notes.append(
-            f"HAS {asset_type_summary.get('audio', 0)} AUDIO FILES. "
-            "You can plan posts with audio snippets — use asset_requirements: [\"audio snippet\", \"album art\"]."
+            f"HAS {asset_type_summary.get('audio', 0)} AUDIO FILES (full-length songs, NOT clips). "
+            "Do NOT attach audio to posts — platforms don't support image+audio. "
+            "Audio is only used inside lyric videos (a separate feature)."
         )
     if has_images:
         img_count = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo"))
