@@ -599,11 +599,42 @@ async def generate_lyric_video(
                     tenant_id, f, f"lyric-video-{uuid.uuid4()}.mp4", "video/mp4"
                 )
 
+        # Resolve artist/release/campaign from the post for asset linking
+        asset_artist_id = None
+        asset_release_id = None
+        asset_campaign_id = None
+        if body.post_id:
+            from amplify.db.models.post import PostModel
+            from amplify.db.models.campaign import CampaignModel
+            post_q = await db.execute(
+                select(PostModel).where(PostModel.id == uuid.UUID(body.post_id))
+            )
+            linked_post = post_q.scalar_one_or_none()
+            if linked_post and linked_post.campaign_id:
+                asset_campaign_id = linked_post.campaign_id
+                camp_q = await db.execute(
+                    select(CampaignModel).where(CampaignModel.id == linked_post.campaign_id)
+                )
+                linked_camp = camp_q.scalar_one_or_none()
+                if linked_camp:
+                    asset_artist_id = linked_camp.artist_id
+                    asset_release_id = linked_camp.release_id
+                    if not artist_name and linked_camp.artist_id:
+                        from amplify.db.models.artist import ArtistModel
+                        art_q = await db.execute(
+                            select(ArtistModel).where(ArtistModel.id == linked_camp.artist_id)
+                        )
+                        art = art_q.scalar_one_or_none()
+                        if art:
+                            artist_name = art.name
+
         # Create asset record
         from amplify.db.models.asset import AssetModel
-        import os
         asset = AssetModel(
             tenant_id=tenant_id,
+            artist_id=asset_artist_id,
+            release_id=asset_release_id,
+            campaign_id=asset_campaign_id,
             asset_type="lyric_video",
             name=f"Lyric Video — {track_title or 'Untitled'}",
             description=f"Generated lyric video for {artist_name} — {track_title}",
