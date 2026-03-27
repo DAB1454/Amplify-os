@@ -191,6 +191,137 @@ def _escape_ass(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
 
+async def generate_static_video(
+    *,
+    image_path: str,
+    audio_path: str,
+    output_path: str,
+    aspect_ratio: str = "9:16",
+    duration_seconds: int = 30,
+    audio_start_seconds: int = 0,
+) -> str:
+    """Generate a simple video: static image (with Ken Burns zoom) + trimmed audio.
+
+    No lyrics overlay — just image + audio combined into a proper video
+    suitable for TikTok, Reels, or Shorts.
+
+    Parameters
+    ----------
+    audio_start_seconds : int
+        Where to start the audio clip from (e.g. 30 = skip first 30s to get to chorus).
+    """
+    width, height = RESOLUTIONS.get(aspect_ratio, (1080, 1920))
+    fps = 30
+    total_frames = duration_seconds * fps
+
+    # Ken Burns: slow zoom from 100% to 110%
+    zoom_filter = (
+        f"zoompan=z='min(zoom+0.0003,1.10)':d={total_frames}"
+        f":s={width}x{height}:fps={fps}"
+    )
+
+    # Audio: trim to duration, fade in/out
+    audio_fade_out_start = max(0, duration_seconds - 2)
+    audio_filter = f"afade=t=in:d=1,afade=t=out:st={audio_fade_out_start}:d=2"
+
+    cmd = [
+        "ffmpeg", "-y",
+        # Input 1: image (looped)
+        "-loop", "1", "-i", image_path,
+        # Input 2: audio (start from offset)
+        "-ss", str(audio_start_seconds), "-i", audio_path,
+        # Video filter: zoom
+        "-vf", zoom_filter,
+        # Duration
+        "-t", str(duration_seconds),
+        # Audio filter
+        "-af", audio_filter,
+        # Output settings
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-shortest",
+        output_path,
+    ]
+
+    logger.info("Generating static video: %ds from image+audio", duration_seconds)
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+    if proc.returncode != 0:
+        error_msg = stderr.decode()[-500:] if stderr else "unknown error"
+        logger.error("FFmpeg static video failed (rc=%d): %s", proc.returncode, error_msg)
+        raise RuntimeError(f"FFmpeg failed: {error_msg}")
+
+    logger.info("Static video generated: %s", output_path)
+    return output_path
+
+
+async def create_post_video(
+    *,
+    image_url: str,
+    audio_url: str,
+    tenant_id: uuid.UUID,
+    media_service,  # MediaService instance
+    aspect_ratio: str = "9:16",
+    duration_seconds: int = 15,
+    audio_start_seconds: int = 0,
+) -> str:
+    """End-to-end: download image + audio, generate video, upload to S3.
+
+    Returns the uploaded video URL.
+    """
+    with tempfile.TemporaryDirectory(prefix="amplify-vid-") as tmpdir:
+        # Determine file extensions from URLs
+        img_ext = _ext_from_url(image_url, ".jpg")
+        audio_ext = _ext_from_url(audio_url, ".wav")
+
+        img_path = str(Path(tmpdir) / f"image{img_ext}")
+        audio_path = str(Path(tmpdir) / f"audio{audio_ext}")
+        output_path = str(Path(tmpdir) / f"output-{uuid.uuid4().hex[:8]}.mp4")
+
+        # Download source files
+        await download_url_to_file(image_url, img_path)
+        await download_url_to_file(audio_url, audio_path)
+
+        # Generate the video
+        await generate_static_video(
+            image_path=img_path,
+            audio_path=audio_path,
+            output_path=output_path,
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration_seconds,
+            audio_start_seconds=audio_start_seconds,
+        )
+
+        # Upload to S3
+        with open(output_path, "rb") as f:
+            url = await media_service.upload(
+                tenant_id,
+                f,
+                f"post-video-{uuid.uuid4().hex[:8]}.mp4",
+                "video/mp4",
+            )
+
+        logger.info("Post video uploaded: %s", url)
+        return url
+
+
+def _ext_from_url(url: str, default: str = "") -> str:
+    """Extract file extension from URL."""
+    clean = url.split("?")[0].split("#")[0]
+    name = clean.rstrip("/").rsplit("/", 1)[-1]
+    if "." in name:
+        return "." + name.rsplit(".", 1)[-1].lower()
+    return default
+
+
 async def download_url_to_file(url: str, dest: str) -> None:
     """Download a URL (S3 or HTTP) to a local file."""
     import httpx

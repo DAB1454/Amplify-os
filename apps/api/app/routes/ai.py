@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_db, get_tenant_id, get_user_id, get_audit_service
+from app.config import Settings
+from app.deps import get_db, get_settings, get_tenant_id, get_user_id, get_audit_service
 from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,87 @@ class GeneratePlanResponse(BaseModel):
 
 
 # ── Helpers ──────────────────────────────────────────────────────
+
+
+async def _auto_generate_post_video(
+    *,
+    db: "AsyncSession",
+    tenant_id: uuid.UUID,
+    image_url: str,
+    artist_id: uuid.UUID | None,
+    release_id: uuid.UUID | None,
+    content_hint: str,
+    day_number: int,
+    settings: Settings,
+    duration: int = 15,
+) -> str | None:
+    """Find the best audio asset and generate image+audio→video.
+
+    Returns the uploaded video URL, or None if no audio available.
+    """
+    from amplify.db.models.asset import AssetModel
+    from sqlalchemy import select, or_
+    from app.services.media_service import MediaService
+    from app.services.video_generator import create_post_video
+
+    # Find audio assets for this artist/release
+    q = select(AssetModel).where(
+        AssetModel.tenant_id == tenant_id,
+        AssetModel.asset_type == "audio",
+        or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)),
+    )
+    if release_id:
+        q = q.where(AssetModel.release_id == release_id)
+    elif artist_id:
+        q = q.where(AssetModel.artist_id == artist_id)
+    q = q.order_by(AssetModel.created_at.desc()).limit(20)
+    result = await db.execute(q)
+    audio_assets = list(result.scalars().all())
+
+    if not audio_assets:
+        return None
+
+    # Rotate through audio assets so each day uses a different track
+    audio = audio_assets[day_number % len(audio_assets)]
+
+    # Pick a semi-random start point in the song for variety
+    # Skip the first 15-30 seconds to get past intros
+    audio_start = 15 + (day_number * 7) % 30  # varies between 15-44s
+
+    svc = MediaService(
+        s3_bucket=settings.s3_bucket,
+        s3_region=settings.s3_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        media_base_url=settings.media_base_url,
+    )
+
+    video_url = await create_post_video(
+        image_url=image_url,
+        audio_url=audio.file_url,
+        tenant_id=tenant_id,
+        media_service=svc,
+        aspect_ratio="9:16",
+        duration_seconds=duration,
+        audio_start_seconds=audio_start,
+    )
+
+    # Save as an asset in the library for reuse
+    asset = AssetModel(
+        tenant_id=tenant_id,
+        artist_id=artist_id,
+        release_id=release_id,
+        asset_type="video",
+        name=f"Auto clip - {audio.name or 'track'} ({duration}s)",
+        file_url=video_url,
+        mime_type="video/mp4",
+        tags=["auto_generated", "post_video"],
+        source="ai_generated",
+        approval_status="approved",  # Auto-approve since it uses existing approved assets
+    )
+    db.add(asset)
+
+    return video_url
 
 
 def _build_runner():
@@ -170,8 +252,9 @@ async def generate_plan(
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
+    settings_obj: Settings = Depends(get_settings),
 ):
-    """Generate a 14-day campaign plan and create calendar items + draft posts."""
+    """Generate a campaign plan and create calendar items + draft posts."""
     from amplify.agents.subagents.planner_agent import PlannerAgent
     from amplify.db.models.campaign import CampaignModel
     from amplify.db.models.calendar_item import CalendarItemModel
@@ -281,9 +364,10 @@ async def generate_plan(
         )
     if has_audio:
         auto_notes.append(
-            f"HAS {asset_type_summary.get('audio', 0)} AUDIO FILES (full-length songs, NOT clips). "
-            "Do NOT attach audio to posts — platforms don't support image+audio. "
-            "Audio is only used inside lyric videos (a separate feature)."
+            f"HAS {asset_type_summary.get('audio', 0)} AUDIO TRACKS. "
+            "For TikTok and YouTube, the system will auto-generate 15-second videos "
+            "(image + audio clip) from the artist's tracks. Plan TikTok/YouTube posts "
+            "that feature specific tracks — each post will use a different track excerpt."
         )
     if has_images:
         img_count = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo"))
@@ -477,6 +561,27 @@ async def generate_plan(
                         except Exception as asset_exc:
                             logger.warning("Asset matching at plan time failed: %s", asset_exc)
                             media_urls = []
+
+                        # For video platforms (TikTok, YouTube), auto-generate
+                        # a video from image + audio if we have both available
+                        is_video_platform = action.platform in ("tiktok", "youtube")
+                        if is_video_platform and media_urls and has_audio:
+                            try:
+                                video_url = await _auto_generate_post_video(
+                                    db=db,
+                                    tenant_id=tenant_id,
+                                    image_url=media_urls[0],
+                                    artist_id=campaign.artist_id,
+                                    release_id=campaign.release_id,
+                                    content_hint=action.content_brief,
+                                    day_number=day_idx,
+                                    settings=settings_obj,
+                                )
+                                if video_url:
+                                    media_urls = [video_url]
+                                    logger.info("Auto-generated video for %s post (day %d)", action.platform, day_idx)
+                            except Exception as vid_exc:
+                                logger.warning("Auto video generation failed (day %d): %s", day_idx, vid_exc)
 
                         post = PostModel(
                             tenant_id=tenant_id,

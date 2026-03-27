@@ -66,24 +66,27 @@ The system will AUTOMATICALLY attach media from the artist's asset library
 to each post based on the `content_brief` text and `asset_requirements` hints.
 
 What the system CAN do:
-- Attach images (album art, promo photos) to posts
+- Attach images (album art, promo photos) to Instagram/Facebook posts
 - Attach multiple images as a carousel for Instagram posts
+- **Auto-generate short videos for TikTok and YouTube** by combining an image
+  with a 15-second audio clip from the artist's tracks (image stays on screen
+  with subtle zoom while track excerpt plays)
 - Attach existing videos or lyric videos from the library
-- Rotate through different images across posts for variety
+- Rotate through different images AND different tracks across posts for variety
 
 What the system CANNOT do:
-- Create new videos from scratch
 - Add text overlays or graphics to images
-- Trim or clip audio files (raw audio files are full-length songs)
 - Create slideshows, montages, or countdown graphics
-- Attach audio files to social media posts (platforms don't support image+audio)
+- Stitch multiple clips together automatically
 
-IMPORTANT: Do NOT suggest attaching audio snippets or audio clips to posts.
-The system only has full-length song files, not clips. Audio is only useful
-inside generated lyric videos, which is a separate feature.
-
-Instead, write engaging captions and use `asset_requirements` to hint
-which VISUAL assets to attach.
+## Platform guidelines for media
+- **TikTok**: System auto-generates 15s video (image + track clip). Write the
+  caption for the audio experience. Mention which track is featured.
+- **YouTube**: System auto-generates 15s video (image + track clip). Write the
+  caption for the audio experience. Mention which track is featured.
+- **Instagram**: System attaches images. For carousel posts, use asset_requirements
+  like ["promo photo", "album art"]. For regular posts, one image is fine.
+- **Facebook**: Same as Instagram — images only.
 
 Example asset_requirements values:
 - ["album art"] — attach the album cover image
