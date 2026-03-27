@@ -555,12 +555,28 @@ async def generate_plan(
                             post_status = "draft"
 
                         # Set scheduled_at from the action's day with staggered time
+                        # If the time is in the past (today), push to next available slot
                         scheduled_at = None
                         try:
                             from datetime import datetime as dt_type
                             action_date = date_type.fromisoformat(action.day) if action.day else None
                             if action_date:
-                                scheduled_at = dt_type.combine(action_date, post_time)
+                                candidate = dt_type.combine(action_date, post_time)
+                                now = dt_type.utcnow()
+                                if candidate < now:
+                                    # Time already passed — find the next future slot today
+                                    future_times = [
+                                        dt_type.combine(action_date, t)
+                                        for t in _post_times
+                                        if dt_type.combine(action_date, t) > now
+                                    ]
+                                    if future_times:
+                                        candidate = future_times[0]
+                                    else:
+                                        # All today's slots passed — schedule 5 min from now
+                                        from datetime import timedelta
+                                        candidate = now + timedelta(minutes=5)
+                                scheduled_at = candidate
                         except (ValueError, TypeError):
                             pass
 
