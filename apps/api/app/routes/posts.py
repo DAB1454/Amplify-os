@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_settings, get_tenant_id, get_user_id, get_audit_service
 from app.config import Settings
+from pydantic import BaseModel, Field
 from app.schemas import (
     PostCreateRequest,
     PostUpdateRequest,
@@ -265,22 +266,8 @@ async def review_approve_post(
     if post.approval_status not in ("pending_review", None):
         raise HTTPException(status_code=409, detail=f"Post approval_status is '{post.approval_status}', expected 'pending_review'")
 
-    # Auto-schedule if the post already has a scheduled_at date
-    updates = {"approval_status": "approved"}
-    if post.scheduled_at:
-        updates["status"] = "scheduled"
-
-    entity = await repo.update(post_id, **updates)
-
-    # Trigger content generation pipeline (caption + asset matching)
-    try:
-        from app.services.content_pipeline import generate_content_for_post
-        pipeline_result = await generate_content_for_post(db, post_id, tenant_id, user_id)
-        logger.info("Content pipeline for post %s: %s", post_id, pipeline_result)
-        # Re-fetch the post to include generated content
-        entity = await repo.get(post_id)
-    except Exception as exc:
-        logger.warning("Content pipeline failed (non-fatal): %s", exc)
+    # Just approve — media generation is a separate step via POST /posts/{id}/generate-media
+    entity = await repo.update(post_id, approval_status="approved")
 
     try:
         await audit.log(
@@ -322,6 +309,122 @@ async def review_reject_post(
         logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
+
+
+# ── Media Generation ─────────────────────────────────────────────
+
+
+class GenerateMediaRequest(BaseModel):
+    duration_seconds: int = 15
+    aspect_ratio: str = "9:16"
+    generate_video: bool = True  # If True, combine image+audio into video
+
+
+class GenerateMediaResponse(BaseModel):
+    media_urls: list[str] = Field(default_factory=list)
+    video_generated: bool = False
+    elapsed_ms: int = 0
+
+
+@router.post("/{post_id}/generate-media", response_model=GenerateMediaResponse)
+async def generate_media_for_post(
+    post_id: uuid.UUID,
+    body: GenerateMediaRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings_obj: Settings = Depends(get_settings),
+):
+    """Generate media for a single post — find assets + optionally create video.
+
+    This is the per-post generation step in the 3-step workflow:
+    1. Plan creates posts (caption + channel + date, no media)
+    2. Generate media for each post (this endpoint)
+    3. User reviews preview, then schedules/publishes
+    """
+    import time
+    from sqlalchemy import select
+    from amplify.db.models.campaign import CampaignModel
+
+    start_time = time.time()
+    if body is None:
+        body = GenerateMediaRequest()
+
+    repo = BaseRepository(db, PostModel, tenant_id)
+    post = await repo.get(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Resolve artist/release from campaign
+    artist_id = None
+    release_id = None
+    if post.campaign_id:
+        camp_result = await db.execute(
+            select(CampaignModel).where(CampaignModel.id == post.campaign_id)
+        )
+        campaign = camp_result.scalar_one_or_none()
+        if campaign:
+            artist_id = campaign.artist_id
+            release_id = campaign.release_id
+
+    # Step 1: Find matching image assets from library
+    from app.services.content_pipeline import _find_matching_assets
+    image_urls = await _find_matching_assets(
+        db=db,
+        tenant_id=tenant_id,
+        artist_id=artist_id,
+        release_id=release_id,
+        campaign_id=post.campaign_id,
+        platform=post.platform,
+        action_type=post.action_type_label,
+        content_hint=post.content_text or "",
+        day_number=post.day_number,
+        max_results=1,
+    )
+
+    video_generated = False
+
+    # Step 2: For video platforms (tiktok, youtube) or if requested, generate video
+    video_platforms = {"tiktok", "youtube"}
+    should_generate_video = (
+        body.generate_video
+        and image_urls
+        and post.platform in video_platforms
+    )
+
+    if should_generate_video:
+        try:
+            from app.routes.ai import _auto_generate_post_video
+            video_url = await _auto_generate_post_video(
+                db=db,
+                tenant_id=tenant_id,
+                image_url=image_urls[0],
+                artist_id=artist_id,
+                release_id=release_id,
+                content_hint=post.content_text or "",
+                day_number=post.day_number or 1,
+                settings=settings_obj,
+                duration=min(max(body.duration_seconds, 10), 60),
+            )
+            if video_url:
+                post.media_urls = [video_url]
+                video_generated = True
+        except Exception as exc:
+            logger.warning("Video generation failed for post %s (falling back to image): %s", post_id, exc)
+
+    # If no video was generated, attach the image(s) directly
+    if not video_generated and image_urls:
+        post.media_urls = image_urls
+
+    await db.flush()
+
+    elapsed = int((time.time() - start_time) * 1000)
+    logger.info("Media generated for post %s in %dms (video=%s)", post_id, elapsed, video_generated)
+
+    return GenerateMediaResponse(
+        media_urls=list(post.media_urls or []),
+        video_generated=video_generated,
+        elapsed_ms=elapsed,
+    )
 
 
 # ── Publishing Workflow ────────────────────────────────────────────

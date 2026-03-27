@@ -105,12 +105,16 @@ export default function CampaignDetailPage() {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [showPlanOptions, setShowPlanOptions] = useState(false);
   const [contentNotes, setContentNotes] = useState("");
+  // Media generation (new 3-step workflow)
+  const [generatingMedia, setGeneratingMedia] = useState<string | null>(null);
+  const [generatingAllMedia, setGeneratingAllMedia] = useState(false);
+  const [generateAllProgress, setGenerateAllProgress] = useState<{current: number; total: number} | null>(null);
+  // Video tier upgrades
   const [generatingVideo, setGeneratingVideo] = useState<string | null>(null);
   const [showVideoForm, setShowVideoForm] = useState<string | null>(null);
   const [videoLyrics, setVideoLyrics] = useState("");
   const [videoDuration, setVideoDuration] = useState(30);
   const [videoAspect, setVideoAspect] = useState("9:16");
-  // Video generation
   const [generatingClip, setGeneratingClip] = useState<string | null>(null);
   const [showAIVideoForm, setShowAIVideoForm] = useState<string | null>(null);
   const [aiVideoPrompt, setAiVideoPrompt] = useState("");
@@ -145,6 +149,51 @@ export default function CampaignDetailPage() {
     } finally {
       setApprovingAll(false);
     }
+  };
+
+  const handleGenerateMedia = async (postId: string) => {
+    setGeneratingMedia(postId);
+    setError(null);
+    try {
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, {});
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Media generation failed");
+    } finally {
+      setGeneratingMedia(null);
+    }
+  };
+
+  const handleGenerateAllMedia = async () => {
+    if (!plan) return;
+    // Collect all approved posts without media
+    const postsToGenerate: string[] = [];
+    for (const day of plan.days) {
+      for (const post of day.posts) {
+        if (post.approval_status === "approved" && (!post.media_urls || post.media_urls.length === 0)) {
+          postsToGenerate.push(post.id);
+        }
+      }
+    }
+    if (postsToGenerate.length === 0) return;
+
+    setGeneratingAllMedia(true);
+    setError(null);
+    // Generate one at a time to avoid overloading Render
+    for (let i = 0; i < postsToGenerate.length; i++) {
+      setGenerateAllProgress({ current: i + 1, total: postsToGenerate.length });
+      setGeneratingMedia(postsToGenerate[i]);
+      try {
+        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {});
+      } catch (err) {
+        setError(err instanceof Error ? err.message : `Failed generating post ${i + 1}`);
+        // Continue to next post even if one fails
+      }
+    }
+    setGeneratingMedia(null);
+    setGenerateAllProgress(null);
+    setGeneratingAllMedia(false);
+    await fetchPlan();
   };
 
   const handlePostAction = async (postId: string, action: "review-approve" | "review-reject") => {
@@ -306,6 +355,11 @@ export default function CampaignDetailPage() {
   const { campaign, days, stats } = plan;
   const modeInfo = modeLabels[campaign.mode] || modeLabels.manual;
 
+  // Count approved posts that still need media generation
+  const needsMedia = days.reduce((acc, day) =>
+    acc + day.posts.filter(p => p.approval_status === "approved" && (!p.media_urls || p.media_urls.length === 0)).length, 0
+  );
+
   return (
     <>
       <Header title={campaign.name} />
@@ -418,10 +472,11 @@ export default function CampaignDetailPage() {
 
       {/* Stats Bar */}
       {stats.total_posts > 0 && (
-        <div className="mt-4 grid grid-cols-5 gap-3">
+        <div className="mt-4 grid grid-cols-6 gap-3">
           {[
             { label: "Total Posts", value: stats.total_posts, color: "text-[var(--text-primary)]" },
             { label: "Pending Review", value: stats.pending_review, color: "text-amber-600" },
+            { label: "Needs Media", value: needsMedia, color: "text-indigo-600" },
             { label: "Approved", value: stats.approved, color: "text-green-600" },
             { label: "Rejected", value: stats.rejected, color: "text-red-600" },
             { label: "Published", value: stats.published, color: "text-blue-600" },
@@ -435,17 +490,30 @@ export default function CampaignDetailPage() {
       )}
 
       {/* Bulk Actions */}
-      {stats.pending_review > 0 && campaign.mode === "ai_plan" && (
+      {campaign.mode === "ai_plan" && (stats.pending_review > 0 || stats.approved > 0) && (
         <div className="mt-4 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <span className="text-sm text-amber-700">
-            {stats.pending_review} post{stats.pending_review !== 1 ? "s" : ""} awaiting your review
-          </span>
+          {stats.pending_review > 0 && (
+            <>
+              <span className="text-sm text-amber-700">
+                {stats.pending_review} post{stats.pending_review !== 1 ? "s" : ""} awaiting review
+              </span>
+              <button
+                onClick={handleApproveAll}
+                disabled={approvingAll || generatingAllMedia}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {approvingAll ? <ButtonSpinner label="Approving..." /> : "Approve All"}
+              </button>
+            </>
+          )}
           <button
-            onClick={handleApproveAll}
-            disabled={approvingAll}
-            className="ml-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            onClick={handleGenerateAllMedia}
+            disabled={generatingAllMedia || approvingAll}
+            className="ml-auto rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            {approvingAll ? <ButtonSpinner label="Approving & generating content..." /> : "Approve All & Generate Content"}
+            {generatingAllMedia && generateAllProgress
+              ? <ButtonSpinner label={`Generating ${generateAllProgress.current}/${generateAllProgress.total}...`} />
+              : "Generate All Media"}
           </button>
         </div>
       )}
@@ -571,7 +639,9 @@ export default function CampaignDetailPage() {
                         {/* No media indicator */}
                         {(!post.media_urls || post.media_urls.length === 0) && post.action_type_label !== "live" && (
                           <div className="mt-2 text-[10px] text-[var(--text-secondary)] italic">
-                            No media attached — upload assets to your library for automatic matching
+                            {post.approval_status === "approved"
+                              ? "No media yet — click \"Generate Media\" to find assets and create preview"
+                              : "No media — approve this post first, then generate media"}
                           </div>
                         )}
 
@@ -583,14 +653,14 @@ export default function CampaignDetailPage() {
                       {/* Actions */}
                       {!isEditing && (
                         <div className="flex flex-col gap-1.5 shrink-0 items-end">
-                          {/* Approval actions */}
+                          {/* Step 1: Approval actions */}
                           {post.approval_status === "pending_review" && (
                             <div className="flex gap-1.5">
                               <button
                                 onClick={() => handlePostAction(post.id, "review-approve")}
                                 disabled={isActioning}
                                 className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                                title="Approve and generate content"
+                                title="Approve post"
                               >
                                 {isActioning ? "..." : "\u2713 Approve"}
                               </button>
@@ -612,15 +682,53 @@ export default function CampaignDetailPage() {
                               </button>
                             </div>
                           )}
-                          {post.approval_status === "approved" && (
-                            <span className="text-green-500 text-xs font-medium">{"\u2713"} Approved</span>
+
+                          {/* Step 2: Generate media (approved posts without media) */}
+                          {post.approval_status === "approved" && (!post.media_urls || post.media_urls.length === 0) && (
+                            <button
+                              onClick={() => handleGenerateMedia(post.id)}
+                              disabled={generatingMedia === post.id || generatingAllMedia}
+                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                              title="Generate media from asset library"
+                            >
+                              {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Generate Media"}
+                            </button>
+                          )}
+
+                          {/* Step 3: Schedule (approved posts WITH media, not yet scheduled/published) */}
+                          {post.approval_status === "approved" && post.media_urls && post.media_urls.length > 0 && !["scheduled", "publishing", "published"].includes(post.status) && (
+                            <button
+                              onClick={async () => {
+                                setActioningPost(post.id);
+                                try {
+                                  const scheduleAt = post.scheduled_at || new Date().toISOString();
+                                  await apiPost(`/api/v1/posts/${post.id}/schedule`, { scheduled_at: scheduleAt });
+                                  await fetchPlan();
+                                } catch (err) {
+                                  setError(err instanceof Error ? err.message : "Schedule failed");
+                                } finally {
+                                  setActioningPost(null);
+                                }
+                              }}
+                              disabled={isActioning}
+                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                            >
+                              {isActioning ? "..." : post.scheduled_at ? `Schedule (${new Date(post.scheduled_at).toLocaleDateString()})` : "Schedule Now"}
+                            </button>
+                          )}
+
+                          {post.status === "scheduled" && (
+                            <span className="text-blue-500 text-xs font-medium">Scheduled</span>
+                          )}
+                          {post.status === "published" && (
+                            <span className="text-green-500 text-xs font-medium">Published</span>
                           )}
                           {post.approval_status === "rejected" && (
                             <span className="text-red-400 text-xs">{"\u2715"} Rejected</span>
                           )}
 
-                          {/* Video generation buttons — available on pending and approved posts */}
-                          {post.approval_status !== "rejected" && (
+                          {/* Video upgrade buttons — available on approved posts with media */}
+                          {post.approval_status === "approved" && post.media_urls && post.media_urls.length > 0 && (
                             <div className="flex gap-1 flex-wrap justify-end">
                               <button
                                 onClick={() => {
@@ -629,7 +737,7 @@ export default function CampaignDetailPage() {
                                 }}
                                 disabled={generatingClip === post.id}
                                 className="rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-600 hover:bg-indigo-100 disabled:opacity-50"
-                                title="Generate video clip (image + audio)"
+                                title="Replace with video clip (image + audio)"
                               >
                                 {generatingClip === post.id ? <ButtonSpinner label="..." /> : "\u{1F3AC} Video Clip"}
                               </button>
@@ -641,7 +749,7 @@ export default function CampaignDetailPage() {
                                 }}
                                 disabled={generatingVideo === post.id}
                                 className="rounded-lg bg-purple-50 px-2 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
-                                title="Generate lyric video"
+                                title="Replace with lyric video"
                               >
                                 {generatingVideo === post.id ? <ButtonSpinner label="..." /> : "\u{1F3B6} Lyric Video"}
                               </button>
@@ -653,7 +761,7 @@ export default function CampaignDetailPage() {
                                 }}
                                 disabled={generatingAIVideo === post.id}
                                 className="rounded-lg bg-pink-50 px-2 py-1 text-[10px] font-medium text-pink-600 hover:bg-pink-100 disabled:opacity-50"
-                                title="Generate AI video (paid)"
+                                title="Replace with AI video (paid)"
                               >
                                 {generatingAIVideo === post.id ? <ButtonSpinner label="..." /> : "\u2728 AI Video"}
                               </button>
