@@ -800,6 +800,30 @@ async def generate_lyric_video(
         if asset:
             image_url = asset.file_url
 
+    # Fall back: find audio from asset library matched to post content
+    if not audio_url:
+        from amplify.db.models.asset import AssetModel as _AssetModel
+        from sqlalchemy import or_ as _or
+        audio_q = select(_AssetModel).where(
+            _AssetModel.tenant_id == tenant_id,
+            _AssetModel.asset_type == "audio",
+            _or(_AssetModel.approval_status != "rejected", _AssetModel.approval_status.is_(None)),
+        ).order_by(_AssetModel.created_at.desc()).limit(20)
+        audio_result = await db.execute(audio_q)
+        audio_assets = list(audio_result.scalars().all())
+        if audio_assets:
+            # Content-match: pick the track mentioned in the post/lyrics
+            from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+            hint = (lyrics or track_title or "").lower()
+            best, best_score = audio_assets[0], 0
+            for a in audio_assets:
+                n = _normalize_for_match((a.name or "").lower())
+                h = _normalize_for_match(hint)
+                s = 50 if (n and len(n) > 3 and n in h) else (40 if _any_phrase_match(hint, (a.name or "").lower()) else 0)
+                if s > best_score:
+                    best, best_score = a, s
+            audio_url = best.file_url
+
     # Validate inputs
     if not image_url:
         raise HTTPException(status_code=400, detail="No image available. Upload album art or provide an image URL.")
@@ -1066,6 +1090,29 @@ async def generate_ai_video(
         asset_img = asset_result.scalar_one_or_none()
         if asset_img:
             image_url = asset_img.file_url
+
+    # Fall back: find audio from asset library matched to post content
+    if not audio_url:
+        from amplify.db.models.asset import AssetModel as _AssetModel2
+        from sqlalchemy import or_ as _or2
+        audio_q2 = select(_AssetModel2).where(
+            _AssetModel2.tenant_id == tenant_id,
+            _AssetModel2.asset_type == "audio",
+            _or2(_AssetModel2.approval_status != "rejected", _AssetModel2.approval_status.is_(None)),
+        ).order_by(_AssetModel2.created_at.desc()).limit(20)
+        audio_result2 = await db.execute(audio_q2)
+        audio_assets2 = list(audio_result2.scalars().all())
+        if audio_assets2:
+            from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+            hint2 = (lyrics or body.prompt or track_title or "").lower()
+            best2, best_score2 = audio_assets2[0], 0
+            for a2 in audio_assets2:
+                n2 = _normalize_for_match((a2.name or "").lower())
+                h2 = _normalize_for_match(hint2)
+                s2 = 50 if (n2 and len(n2) > 3 and n2 in h2) else (40 if _any_phrase_match(hint2, (a2.name or "").lower()) else 0)
+                if s2 > best_score2:
+                    best2, best_score2 = a2, s2
+            audio_url = best2.file_url
 
     if not audio_url:
         raise HTTPException(status_code=400, detail="No audio available. Upload a track or provide an audio URL.")
