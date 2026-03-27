@@ -47,6 +47,7 @@ export class ApiError extends Error {
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
+  timeoutMs: number = 90000,
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> || {}),
@@ -57,10 +58,25 @@ async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(408, "Request timed out — the server may still be processing. Try refreshing.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   // Handle 401 — try refresh once
   if (res.status === 401 && token) {
@@ -126,12 +142,12 @@ export async function apiGet<T>(path: string): Promise<T> {
   return apiFetch<T>(path);
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
   return apiFetch<T>(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, timeoutMs);
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {

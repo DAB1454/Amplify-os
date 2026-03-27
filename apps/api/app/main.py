@@ -119,12 +119,19 @@ def create_app() -> FastAPI:
         logger.exception("Unhandled error: %s", exc)
         origin = request.headers.get("origin", "")
         headers = {}
-        if origin in settings.cors_origins:
-            headers["access-control-allow-origin"] = origin
-            headers["access-control-allow-credentials"] = "true"
+        # Always echo CORS headers for known origins so the browser can read
+        # the error body instead of showing an opaque "Failed to fetch".
+        if origin:
+            allowed = any(
+                origin == o or o == "*"
+                for o in settings.cors_origins
+            )
+            if allowed:
+                headers["access-control-allow-origin"] = origin
+                headers["access-control-allow-credentials"] = "true"
         return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error"},
+            content={"detail": f"Internal server error: {type(exc).__name__}: {exc}"},
             headers=headers,
         )
 

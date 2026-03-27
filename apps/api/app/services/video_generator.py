@@ -38,7 +38,7 @@ async def generate_lyric_video(
 
     Returns the output file path.
     """
-    width, height = RESOLUTIONS.get(aspect_ratio, (1080, 1920))
+    width, height = RESOLUTIONS.get(aspect_ratio, (720, 1280))
 
     # Parse lyrics into lines
     lines = [l.strip() for l in lyrics.strip().split("\n") if l.strip()]
@@ -50,16 +50,12 @@ async def generate_lyric_video(
     _write_ass_subtitles(ass_path, lines, duration_seconds, width, height, artist_name, track_title)
 
     # Build FFmpeg command
-    # 1. Loop the static image with a slow zoom (Ken Burns effect)
-    # 2. Overlay ASS subtitles
-    # 3. Mix in audio trimmed to duration with fade in/out
-    # 4. Output H.264 + AAC MP4 optimized for social media
-    fps = 30
+    fps = 24
     total_frames = duration_seconds * fps
 
-    # Ken Burns: slow zoom from 100% to 110%
+    # Ken Burns: slow zoom from 100% to 108%
     zoom_filter = (
-        f"zoompan=z='min(zoom+0.0003,1.10)':d={total_frames}"
+        f"zoompan=z='min(zoom+0.0003,1.08)':d={total_frames}"
         f":s={width}x{height}:fps={fps}"
     )
 
@@ -82,10 +78,10 @@ async def generate_lyric_video(
         "-t", str(duration_seconds),
         # Audio filter
         "-af", audio_filter,
-        # Output settings
-        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        # Output settings — ultrafast for speed on constrained servers
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "96k",
         "-movflags", "+faststart",
         "-shortest",
         output_path,
@@ -210,13 +206,13 @@ async def generate_static_video(
     audio_start_seconds : int
         Where to start the audio clip from (e.g. 30 = skip first 30s to get to chorus).
     """
-    width, height = RESOLUTIONS.get(aspect_ratio, (1080, 1920))
-    fps = 30
+    width, height = RESOLUTIONS.get(aspect_ratio, (720, 1280))
+    fps = 24  # 24fps is plenty for a static image + zoom
     total_frames = duration_seconds * fps
 
-    # Ken Burns: slow zoom from 100% to 110%
+    # Ken Burns: slow zoom from 100% to 108%
     zoom_filter = (
-        f"zoompan=z='min(zoom+0.0003,1.10)':d={total_frames}"
+        f"zoompan=z='min(zoom+0.0003,1.08)':d={total_frames}"
         f":s={width}x{height}:fps={fps}"
     )
 
@@ -236,10 +232,10 @@ async def generate_static_video(
         "-t", str(duration_seconds),
         # Audio filter
         "-af", audio_filter,
-        # Output settings
-        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        # Output settings — ultrafast preset for speed on constrained servers
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "96k",
         "-movflags", "+faststart",
         "-shortest",
         output_path,

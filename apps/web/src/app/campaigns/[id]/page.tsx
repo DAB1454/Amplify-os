@@ -155,7 +155,7 @@ export default function CampaignDetailPage() {
     setGeneratingMedia(postId);
     setError(null);
     try {
-      await apiPost(`/api/v1/posts/${postId}/generate-media`, {});
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, {}, 120000);
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Media generation failed");
@@ -184,7 +184,7 @@ export default function CampaignDetailPage() {
       setGenerateAllProgress({ current: i + 1, total: postsToGenerate.length });
       setGeneratingMedia(postsToGenerate[i]);
       try {
-        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {});
+        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {}, 120000);
       } catch (err) {
         setError(err instanceof Error ? err.message : `Failed generating post ${i + 1}`);
         // Continue to next post even if one fails
