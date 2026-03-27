@@ -317,7 +317,7 @@ async def review_reject_post(
 class GenerateMediaRequest(BaseModel):
     duration_seconds: int = 15
     aspect_ratio: str = "9:16"
-    generate_video: bool = False  # Video gen disabled by default (use Video Clip button)
+    generate_video: bool = True  # Auto-generate video for TikTok/YouTube posts
 
 
 class GenerateMediaResponse(BaseModel):

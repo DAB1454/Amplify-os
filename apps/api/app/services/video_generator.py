@@ -15,11 +15,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Resolution presets for different aspect ratios
+# Resolution presets — 720p to stay within Render Starter memory limits
 RESOLUTIONS: dict[str, tuple[int, int]] = {
-    "9:16": (1080, 1920),  # Reels, Shorts, TikTok
-    "1:1": (1080, 1080),   # Feed posts
-    "16:9": (1920, 1080),  # YouTube landscape
+    "9:16": (720, 1280),   # Reels, Shorts, TikTok
+    "1:1": (720, 720),     # Feed posts
+    "16:9": (1280, 720),   # YouTube landscape
 }
 
 
