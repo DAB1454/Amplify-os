@@ -822,7 +822,7 @@ async def generate_lyric_video(
         await db.flush()
         await db.refresh(asset)
 
-        # Auto-attach to post if provided
+        # Auto-attach to post — replaces existing media (upgrade from static image/video)
         if body.post_id:
             from amplify.db.models.post import PostModel
             post_result = await db.execute(
@@ -833,11 +833,9 @@ async def generate_lyric_video(
             )
             post = post_result.scalar_one_or_none()
             if post:
-                existing = list(post.media_urls or [])
-                existing.insert(0, video_url)  # Put video first
-                post.media_urls = existing
+                post.media_urls = [video_url]
                 await db.flush()
-                logger.info("Attached lyric video to post %s", body.post_id)
+                logger.info("Replaced media on post %s with lyric video", body.post_id)
 
         elapsed = int((time.time() - start_time) * 1000)
 
@@ -1084,6 +1082,21 @@ async def generate_ai_video(
         db.add(asset)
         await db.flush()
         await db.refresh(asset)
+
+        # Auto-attach to post — replaces existing media (upgrade)
+        if body.post_id:
+            from amplify.db.models.post import PostModel
+            post_result = await db.execute(
+                select(PostModel).where(
+                    PostModel.id == uuid.UUID(body.post_id),
+                    PostModel.tenant_id == tenant_id,
+                )
+            )
+            post = post_result.scalar_one_or_none()
+            if post:
+                post.media_urls = [video_url]
+                await db.flush()
+                logger.info("Replaced media on post %s with AI video", body.post_id)
 
         # Record usage for billing
         try:
