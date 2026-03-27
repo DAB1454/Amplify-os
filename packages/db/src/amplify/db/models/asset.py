@@ -43,6 +43,10 @@ class AssetModel(Base, TimestampMixin, TenantMixin):
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, server_default="{}")
     source: Mapped[str] = mapped_column(String(30), default="uploaded", server_default="uploaded")
     # source: uploaded, ai_generated, imported
+    approval_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # approval_status: NULL (auto-approved), pending_review, approved, rejected
+    generation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
 
     # Relationships

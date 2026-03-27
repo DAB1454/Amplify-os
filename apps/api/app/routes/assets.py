@@ -42,9 +42,12 @@ async def list_assets(
     campaign_id: uuid.UUID | None = Query(None),
     tag: str | None = Query(None, description="Filter by tag"),
     source: str | None = Query(None, description="Filter by source: uploaded, ai_generated"),
+    approval: str | None = Query(None, description="Filter by approval_status: pending_review, approved, rejected"),
+    include_rejected: bool = Query(False, description="Include rejected assets"),
 ):
     """List assets in the tenant's library with optional filters."""
     from amplify.db.models.asset import AssetModel
+    from sqlalchemy import or_
 
     q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
 
@@ -60,6 +63,11 @@ async def list_assets(
         q = q.where(AssetModel.tags.any(tag))
     if source:
         q = q.where(AssetModel.source == source)
+    if approval:
+        q = q.where(AssetModel.approval_status == approval)
+    elif not include_rejected:
+        # By default, exclude rejected assets
+        q = q.where(or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)))
 
     q = q.order_by(AssetModel.created_at.desc())
     result = await db.execute(q)
@@ -236,6 +244,59 @@ async def delete_asset(
 
     await db.delete(asset)
     return None
+
+
+@router.post("/{asset_id}/approve", response_model=AssetResponse)
+async def approve_asset(
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Approve an AI-generated asset to add it to the active library."""
+    from amplify.db.models.asset import AssetModel
+
+    result = await db.execute(
+        select(AssetModel).where(
+            AssetModel.id == asset_id,
+            AssetModel.tenant_id == tenant_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset.approval_status = "approved"
+    # Remove pending_review tag
+    if asset.tags and "pending_review" in asset.tags:
+        asset.tags = [t for t in asset.tags if t != "pending_review"]
+    await db.flush()
+    await db.refresh(asset)
+    return asset
+
+
+@router.post("/{asset_id}/reject", response_model=AssetResponse)
+async def reject_asset(
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Reject an AI-generated asset."""
+    from amplify.db.models.asset import AssetModel
+
+    result = await db.execute(
+        select(AssetModel).where(
+            AssetModel.id == asset_id,
+            AssetModel.tenant_id == tenant_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset.approval_status = "rejected"
+    await db.flush()
+    await db.refresh(asset)
+    return asset
 
 
 # ── Bulk Import ──────────────────────────────────────────────────

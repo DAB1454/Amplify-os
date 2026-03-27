@@ -694,3 +694,258 @@ async def generate_lyric_video(
     except Exception as exc:
         logger.exception("Lyric video generation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Video generation failed: {exc}")
+
+
+# ── AI Video Generation (Replicate) ────────────────────────────
+
+
+class GenerateAIVideoRequest(BaseModel):
+    prompt: str = ""  # Scene description or let AI generate from lyrics
+    lyrics: str = ""  # Auto-generate scene prompts from lyrics
+    image_url: str = ""  # Starting image (album art)
+    audio_url: str = ""  # Audio to sync with
+    aspect_ratio: str = "9:16"
+    duration_seconds: int = 30
+    num_scenes: int = 6  # Number of AI-generated clips
+    artist_name: str = ""
+    track_title: str = ""
+    track_id: str | None = None
+    release_id: str | None = None
+    post_id: str | None = None
+
+
+class GenerateAIVideoResponse(BaseModel):
+    video_url: str = ""
+    asset_id: str | None = None
+    approval_status: str = "pending_review"
+    estimated_cost: float = 0.0
+    clips_generated: int = 0
+    elapsed_ms: int = 0
+
+
+class EstimateAIVideoCostRequest(BaseModel):
+    num_scenes: int = 6
+    duration_seconds: int = 30
+
+
+class EstimateAIVideoCostResponse(BaseModel):
+    estimated_cost: float = 0.0
+    num_clips: int = 0
+    cost_per_clip: float = 0.0
+
+
+@router.post("/estimate-video-cost", response_model=EstimateAIVideoCostResponse)
+async def estimate_video_cost(body: EstimateAIVideoCostRequest):
+    """Estimate the cost of AI video generation before committing."""
+    from app.services.replicate_video import ESTIMATED_COST_PER_CLIP
+    return EstimateAIVideoCostResponse(
+        estimated_cost=body.num_scenes * ESTIMATED_COST_PER_CLIP,
+        num_clips=body.num_scenes,
+        cost_per_clip=ESTIMATED_COST_PER_CLIP,
+    )
+
+
+@router.post("/generate-ai-video", response_model=GenerateAIVideoResponse)
+async def generate_ai_video(
+    body: GenerateAIVideoRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Generate AI video clips from prompts, stitch with audio, save to library.
+
+    Generated assets start with approval_status='pending_review' and must be
+    approved before they enter the active asset library.
+    """
+    import time
+    import tempfile
+    from pathlib import Path
+    from sqlalchemy import select
+    from app.config import Settings
+
+    start_time = time.time()
+    settings = Settings()
+
+    if not settings.replicate_api_token:
+        raise HTTPException(status_code=503, detail="AI video generation not configured. Set REPLICATE_API_TOKEN.")
+
+    # Resolve inputs from track/release if needed
+    image_url = body.image_url
+    audio_url = body.audio_url
+    lyrics = body.lyrics
+    artist_name = body.artist_name
+    track_title = body.track_title
+
+    if body.track_id:
+        from amplify.db.models.track import TrackModel
+        track_result = await db.execute(
+            select(TrackModel).where(TrackModel.id == uuid.UUID(body.track_id))
+        )
+        track = track_result.scalar_one_or_none()
+        if track:
+            if not lyrics and track.lyrics:
+                lyrics = track.lyrics
+            if not audio_url and track.audio_url:
+                audio_url = track.audio_url
+            if not track_title and track.title:
+                track_title = track.title
+
+    if body.release_id and not image_url:
+        from amplify.db.models.release import ReleaseModel
+        release_result = await db.execute(
+            select(ReleaseModel).where(ReleaseModel.id == uuid.UUID(body.release_id))
+        )
+        release = release_result.scalar_one_or_none()
+        if release and release.artwork_url:
+            image_url = release.artwork_url
+
+    # Fall back to asset library image
+    if not image_url:
+        from amplify.db.models.asset import AssetModel
+        asset_result = await db.execute(
+            select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.asset_type.in_(["image", "album_art", "promo_photo"]),
+            ).order_by(AssetModel.created_at.desc()).limit(1)
+        )
+        asset_img = asset_result.scalar_one_or_none()
+        if asset_img:
+            image_url = asset_img.file_url
+
+    if not audio_url:
+        raise HTTPException(status_code=400, detail="No audio available. Upload a track or provide an audio URL.")
+
+    # Generate scene prompts from lyrics if no explicit prompt
+    from app.services.replicate_video import (
+        generate_scene_prompts_from_lyrics,
+        generate_music_video,
+        ESTIMATED_COST_PER_CLIP,
+    )
+
+    if body.prompt:
+        # Single prompt — replicate it for each scene
+        prompts = [body.prompt] * body.num_scenes
+    elif lyrics:
+        prompts = await generate_scene_prompts_from_lyrics(
+            lyrics=lyrics,
+            artist_name=artist_name,
+            track_title=track_title,
+            num_scenes=body.num_scenes,
+        )
+    else:
+        prompts = [
+            f"Cinematic music video scene for {artist_name} - {track_title}. "
+            f"Beautiful cinematography, atmospheric lighting."
+        ] * body.num_scenes
+
+    estimated_cost = len(prompts) * ESTIMATED_COST_PER_CLIP
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="aivid_") as tmp_dir:
+            output_path = await generate_music_video(
+                prompts=prompts,
+                audio_url=audio_url,
+                image_url=image_url,
+                duration_seconds=body.duration_seconds,
+                aspect_ratio=body.aspect_ratio,
+                replicate_api_token=settings.replicate_api_token,
+                output_dir=tmp_dir,
+            )
+
+            # Upload to S3
+            from app.services.media_service import MediaService
+            media_svc = MediaService(
+                s3_bucket=settings.s3_bucket,
+                s3_region=settings.s3_region,
+                aws_access_key_id=settings.aws_access_key_id,
+                aws_secret_access_key=settings.aws_secret_access_key,
+                media_base_url=settings.media_base_url,
+            )
+            with open(output_path, "rb") as f:
+                video_url = await media_svc.upload(
+                    tenant_id, f, f"ai-video-{uuid.uuid4()}.mp4", "video/mp4"
+                )
+
+        # Resolve campaign context for asset linking
+        asset_artist_id = None
+        asset_release_id = None
+        asset_campaign_id = None
+        if body.post_id:
+            from amplify.db.models.post import PostModel
+            from amplify.db.models.campaign import CampaignModel
+            post_q = await db.execute(
+                select(PostModel).where(PostModel.id == uuid.UUID(body.post_id))
+            )
+            linked_post = post_q.scalar_one_or_none()
+            if linked_post and linked_post.campaign_id:
+                asset_campaign_id = linked_post.campaign_id
+                camp_q = await db.execute(
+                    select(CampaignModel).where(CampaignModel.id == linked_post.campaign_id)
+                )
+                linked_camp = camp_q.scalar_one_or_none()
+                if linked_camp:
+                    asset_artist_id = linked_camp.artist_id
+                    asset_release_id = linked_camp.release_id
+
+        # Create asset with pending_review status
+        from amplify.db.models.asset import AssetModel
+        asset = AssetModel(
+            tenant_id=tenant_id,
+            artist_id=asset_artist_id,
+            release_id=asset_release_id,
+            campaign_id=asset_campaign_id,
+            asset_type="ai_video",
+            name=f"AI Video — {track_title or 'Untitled'}",
+            description=f"AI-generated video for {artist_name} — {track_title}",
+            file_url=video_url,
+            mime_type="video/mp4",
+            tags=["ai_video", "generated", "pending_review"],
+            source="ai_generated",
+            approval_status="pending_review",
+            generation_prompt="\n---\n".join(prompts),
+            generation_cost=estimated_cost,
+        )
+        db.add(asset)
+        await db.flush()
+        await db.refresh(asset)
+
+        # Record usage for billing
+        try:
+            from amplify.billing.metering import MeteringService, METRIC_MEDIA_RENDERS
+            metering = MeteringService()
+            await metering.record_usage(str(tenant_id), METRIC_MEDIA_RENDERS, len(prompts))
+        except Exception:
+            pass
+
+        elapsed = int((time.time() - start_time) * 1000)
+
+        try:
+            await audit.log(
+                action="ai.video_generated",
+                entity_type="asset",
+                entity_id=asset.id,
+                user_id=user_id,
+                changes={
+                    "prompts": len(prompts),
+                    "estimated_cost": estimated_cost,
+                    "duration": body.duration_seconds,
+                },
+            )
+        except Exception:
+            pass
+
+        return GenerateAIVideoResponse(
+            video_url=video_url,
+            asset_id=str(asset.id),
+            approval_status="pending_review",
+            estimated_cost=estimated_cost,
+            clips_generated=len(prompts),
+            elapsed_ms=elapsed,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("AI video generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"AI video generation failed: {exc}")

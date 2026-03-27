@@ -16,6 +16,9 @@ interface Asset {
   mime_type: string | null;
   tags: string[];
   source: string;
+  approval_status: string | null;
+  generation_prompt: string | null;
+  generation_cost: number | null;
   artist_id: string | null;
   release_id: string | null;
   campaign_id: string | null;
@@ -638,9 +641,49 @@ export default function AssetsPage() {
                         <span className="capitalize">{asset.asset_type.replace("_", " ")}</span>
                         {asset.file_size_bytes && <span>{formatBytes(asset.file_size_bytes)}</span>}
                         <span>{new Date(asset.created_at).toLocaleDateString()}</span>
+                        {asset.approval_status === "pending_review" && (
+                          <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 font-medium">Pending Review</span>
+                        )}
+                        {asset.approval_status === "approved" && (
+                          <span className="rounded-full bg-green-100 text-green-700 px-2 py-0.5 font-medium">Approved</span>
+                        )}
+                        {asset.generation_cost != null && asset.generation_cost > 0 && (
+                          <span className="text-purple-500">${asset.generation_cost.toFixed(2)}</span>
+                        )}
                       </div>
 
-                      {/* Actions */}
+                      {/* Approve/Reject for AI-generated pending assets */}
+                      {asset.approval_status === "pending_review" && (
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={async () => {
+                              await apiPost(`/api/v1/assets/${asset.id}/approve`, {});
+                              fetchAssets();
+                            }}
+                            className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 transition-colors"
+                          >
+                            {"\u2713"} Approve
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await apiPost(`/api/v1/assets/${asset.id}/reject`, {});
+                              fetchAssets();
+                            }}
+                            className="rounded-lg bg-red-50 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors"
+                          >
+                            {"\u2715"} Reject
+                          </button>
+                          <button
+                            onClick={() => downloadFile(asset.file_url, asset.name)}
+                            className="rounded-lg bg-indigo-600/10 px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-600/20 transition-colors"
+                          >
+                            Preview
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Normal actions for non-pending assets */}
+                      {asset.approval_status !== "pending_review" && (
                       <div className="flex gap-2 pt-1">
                         <button
                           onClick={() => downloadFile(asset.file_url, asset.name)}
@@ -662,6 +705,7 @@ export default function AssetsPage() {
                           {deletingId === asset.id ? "..." : "Delete"}
                         </button>
                       </div>
+                      )}
                     </>
                   )}
                 </div>

@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     media_base_url: str = ""  # Override URL prefix for serving media
 
+    # Replicate (AI video generation)
+    replicate_api_token: str = ""
+
+    # Stripe billing
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+
     # Frontend URL for OAuth callback redirects
     frontend_url: str = "http://localhost:3000"
 

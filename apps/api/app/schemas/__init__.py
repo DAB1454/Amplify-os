@@ -514,6 +514,9 @@ class AssetResponse(BaseModel):
     mime_type: str | None
     tags: list[str]
     source: str
+    approval_status: str | None = None
+    generation_prompt: str | None = None
+    generation_cost: float | None = None
     created_at: datetime
     updated_at: datetime
 

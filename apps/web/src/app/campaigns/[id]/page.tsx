@@ -110,6 +110,12 @@ export default function CampaignDetailPage() {
   const [videoLyrics, setVideoLyrics] = useState("");
   const [videoDuration, setVideoDuration] = useState(30);
   const [videoAspect, setVideoAspect] = useState("9:16");
+  // AI Video generation
+  const [showAIVideoForm, setShowAIVideoForm] = useState<string | null>(null);
+  const [aiVideoPrompt, setAiVideoPrompt] = useState("");
+  const [aiVideoScenes, setAiVideoScenes] = useState(6);
+  const [generatingAIVideo, setGeneratingAIVideo] = useState<string | null>(null);
+  const [confirmGenerate, setConfirmGenerate] = useState<{postId: string; cost: number} | null>(null);
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -201,6 +207,43 @@ export default function CampaignDetailPage() {
       setError(err instanceof Error ? err.message : "Video generation failed");
     } finally {
       setGeneratingVideo(null);
+    }
+  };
+
+  const handleRequestAIVideo = async (postId: string) => {
+    // Get cost estimate first, then show confirmation
+    try {
+      const estimate = await apiPost<{estimated_cost: number; num_clips: number}>("/api/v1/ai/estimate-video-cost", {
+        num_scenes: aiVideoScenes,
+      });
+      setConfirmGenerate({ postId, cost: estimate.estimated_cost });
+    } catch (_err) {
+      setConfirmGenerate({ postId, cost: aiVideoScenes * 0.25 });
+    }
+  };
+
+  const handleConfirmAIVideo = async () => {
+    if (!confirmGenerate) return;
+    const postId = confirmGenerate.postId;
+    setConfirmGenerate(null);
+    setGeneratingAIVideo(postId);
+    setError(null);
+    try {
+      await apiPost("/api/v1/ai/generate-ai-video", {
+        post_id: postId,
+        prompt: aiVideoPrompt,
+        release_id: plan?.campaign?.release_id || undefined,
+        aspect_ratio: videoAspect,
+        duration_seconds: videoDuration,
+        num_scenes: aiVideoScenes,
+      });
+      setShowAIVideoForm(null);
+      setAiVideoPrompt("");
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI video generation failed");
+    } finally {
+      setGeneratingAIVideo(null);
     }
   };
 
@@ -543,21 +586,38 @@ export default function CampaignDetailPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-green-500 text-lg" title="Approved">{"\u2713"}</span>
                           {["reel", "short", "story", "post"].includes(post.action_type_label || "") && (
-                            <button
-                              onClick={() => {
-                                setShowVideoForm(showVideoForm === post.id ? null : post.id);
-                                setVideoLyrics("");
-                                setVideoAspect(
-                                  (post.action_type_label === "short" || post.platform === "youtube")
-                                    ? "16:9" : "9:16"
-                                );
-                              }}
-                              disabled={generatingVideo === post.id}
-                              className="rounded-lg bg-purple-50 px-2.5 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
-                              title="Generate lyric video"
-                            >
-                              {generatingVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u{1F3AC} Lyric Video"}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => {
+                                  setShowVideoForm(showVideoForm === post.id ? null : post.id);
+                                  setVideoLyrics("");
+                                  setVideoAspect(
+                                    (post.action_type_label === "short" || post.platform === "youtube")
+                                      ? "16:9" : "9:16"
+                                  );
+                                }}
+                                disabled={generatingVideo === post.id}
+                                className="rounded-lg bg-purple-50 px-2.5 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
+                                title="Generate lyric video"
+                              >
+                                {generatingVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u{1F3AC} Lyric Video"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setShowAIVideoForm(showAIVideoForm === post.id ? null : post.id);
+                                  setAiVideoPrompt("");
+                                  setVideoAspect(
+                                    (post.action_type_label === "short" || post.platform === "youtube")
+                                      ? "16:9" : "9:16"
+                                  );
+                                }}
+                                disabled={generatingAIVideo === post.id}
+                                className="rounded-lg bg-pink-50 px-2.5 py-1 text-[10px] font-medium text-pink-600 hover:bg-pink-100 disabled:opacity-50"
+                                title="Generate AI video (paid)"
+                              >
+                                {generatingAIVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u2728 AI Video"}
+                              </button>
+                            </>
                           )}
                         </div>
                       )}
@@ -623,6 +683,77 @@ export default function CampaignDetailPage() {
                         </p>
                       </div>
                     )}
+
+                    {/* AI Video Generator Form */}
+                    {showAIVideoForm === post.id && (
+                      <div className="mt-3 rounded-lg border border-pink-200 bg-pink-50/50 p-3 space-y-2">
+                        <p className="text-xs font-medium text-pink-700">Generate AI Video (Paid)</p>
+                        <textarea
+                          value={aiVideoPrompt}
+                          onChange={(e) => setAiVideoPrompt(e.target.value)}
+                          placeholder="Describe the video scene (or leave blank to auto-generate from lyrics)...&#10;Example: Cinematic shots of a country road at sunset, fireflies, old barn, golden light"
+                          rows={3}
+                          className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                        />
+                        <div className="flex gap-3 items-center">
+                          <div>
+                            <label className="text-[10px] text-[var(--text-secondary)]">Scenes</label>
+                            <select
+                              value={aiVideoScenes}
+                              onChange={(e) => setAiVideoScenes(Number(e.target.value))}
+                              className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value={4}>4 (~$1.00)</option>
+                              <option value={6}>6 (~$1.50)</option>
+                              <option value={8}>8 (~$2.00)</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-[var(--text-secondary)]">Duration</label>
+                            <select
+                              value={videoDuration}
+                              onChange={(e) => setVideoDuration(Number(e.target.value))}
+                              className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value={15}>15s</option>
+                              <option value={30}>30s</option>
+                              <option value={60}>60s</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-[var(--text-secondary)]">Aspect</label>
+                            <select
+                              value={videoAspect}
+                              onChange={(e) => setVideoAspect(e.target.value)}
+                              className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value="9:16">9:16 (Reel/TikTok)</option>
+                              <option value="1:1">1:1 (Feed)</option>
+                              <option value="16:9">16:9 (YouTube)</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleRequestAIVideo(post.id)}
+                            disabled={generatingAIVideo === post.id}
+                            className="rounded-lg bg-pink-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            {generatingAIVideo === post.id ? <ButtonSpinner label="Generating..." /> : "Generate AI Video"}
+                          </button>
+                          <button
+                            onClick={() => setShowAIVideoForm(null)}
+                            className="rounded-lg px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-secondary)]">
+                          Uses AI to generate video clips from your description, synced with your audio. Takes 2-5 minutes.
+                          Generated videos require your approval before entering the asset library.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -630,6 +761,37 @@ export default function CampaignDetailPage() {
           </div>
         ))}
       </div>
+
+      {/* Cost Confirmation Modal */}
+      {confirmGenerate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md mx-4 space-y-4">
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Confirm AI Video Generation</h3>
+            <div className="space-y-2 text-sm text-[var(--text-secondary)]">
+              <p>This will generate <strong>{aiVideoScenes} AI video clips</strong> and stitch them with your audio.</p>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                <p className="text-amber-800 font-medium">Estimated cost: <span className="text-lg">{"$" + confirmGenerate.cost.toFixed(2)}</span></p>
+                <p className="text-amber-600 text-xs mt-1">Charged to your Replicate account. This cannot be undone.</p>
+              </div>
+              <p>The generated video will be placed in <strong>Pending Review</strong> in your Asset Library. You must approve it before it can be used in posts.</p>
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <button
+                onClick={() => setConfirmGenerate(null)}
+                className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAIVideo}
+                className="rounded-lg bg-pink-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                {"Yes, Generate Video ($" + confirmGenerate.cost.toFixed(2) + ")"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
