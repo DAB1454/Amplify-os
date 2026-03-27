@@ -118,8 +118,34 @@ async def _auto_generate_post_video(
     if not audio_assets:
         return None
 
-    # Rotate through audio assets so each day uses a different track
-    audio = audio_assets[day_number % len(audio_assets)]
+    # Content-aware audio matching: pick the track mentioned in the caption
+    from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+    hint_lower = content_hint.lower()
+    best_audio = None
+    best_score = -1
+    for asset in audio_assets:
+        score = 0
+        name_lower = (asset.name or "").lower()
+        name_clean = _normalize_for_match(name_lower)
+        hint_clean = _normalize_for_match(hint_lower)
+
+        # Strong match: track name appears in caption
+        if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
+            score += 50
+        elif _any_phrase_match(hint_lower, name_lower):
+            score += 40
+
+        # Word-level matches
+        for word in set(name_clean.split()):
+            if len(word) > 3 and word in hint_clean:
+                score += 5
+
+        if score > best_score:
+            best_score = score
+            best_audio = asset
+
+    # Fall back to rotation only if no content match found
+    audio = best_audio if best_score > 0 else audio_assets[day_number % len(audio_assets)]
 
     # Pick a semi-random start point in the song for variety
     # Skip the first 15-30 seconds to get past intros

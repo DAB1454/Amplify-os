@@ -291,8 +291,22 @@ async def _find_matching_assets(
         name_lower = (asset.name or "").lower()
         desc_lower = (asset.description or "").lower()
         tag_text = " ".join(asset.tags or []).lower()
+        asset_text = f"{name_lower} {desc_lower} {tag_text}"
 
-        # Keyword matching from hint + assets_required
+        # ── Strong match: asset name appears in the caption (or vice versa) ──
+        # This catches "Whis(key) to My Heart" in caption matching an asset
+        # named "Whiskey to My Heart" or "Whis(key) to My Heart.wav"
+        name_clean = _normalize_for_match(name_lower)
+        hint_clean = _normalize_for_match(hint_lower)
+
+        # Check if the asset name (minus extension/type suffixes) appears in caption
+        if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
+            score += 50  # Very strong signal — the post is about this track/asset
+        # Check reverse: caption words forming a track name that appear in asset name
+        elif hint_clean and len(hint_clean) > 3 and _any_phrase_match(hint_lower, name_lower):
+            score += 40
+
+        # ── Keyword matching from hint + assets_required ──
         for word in hint_words:
             if word in name_lower:
                 score += 10
@@ -338,13 +352,49 @@ async def _find_matching_assets(
                 break
         return urls
 
-    # Use day_number to rotate through top visual candidates for variety
-    # This ensures each day's posts use different images
-    if len(scored) > 1 and day_number:
-        idx = (day_number - 1) % len(scored)
-        return [scored[idx][1].file_url]
-
+    # Return the highest-scored asset (content-matched, not rotated)
     return [scored[0][1].file_url]
+
+
+def _normalize_for_match(text: str) -> str:
+    """Strip punctuation, extensions, and common suffixes for fuzzy matching."""
+    import re
+    # Remove file extensions
+    text = re.sub(r"\.(wav|mp3|mp4|jpeg|jpg|png|webp|flac|aac)$", "", text)
+    # Remove common suffixes like "cover art", "promo", etc.
+    text = re.sub(r"\s*(cover art|cover|promo|artwork|art|audio|video|clip)\s*$", "", text)
+    # Normalize parentheses, punctuation
+    text = text.replace("(", "").replace(")", "").replace("'", "").replace("'", "")
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _any_phrase_match(caption: str, asset_name: str) -> bool:
+    """Check if any meaningful phrase from the caption appears in the asset name.
+
+    Catches cases like caption mentioning 'Boat Problems' matching asset 'Boat Problems.wav'
+    """
+    import re
+    # Look for quoted titles or capitalized phrases in the original (pre-lowered) text
+    # Since we receive lowered text, look for multi-word sequences that appear in asset name
+    asset_clean = _normalize_for_match(asset_name)
+    if not asset_clean or len(asset_clean) < 3:
+        return False
+
+    caption_clean = _normalize_for_match(caption)
+    # Check if the full asset name appears in the caption
+    if asset_clean in caption_clean:
+        return True
+
+    # Check 2-3 word sliding windows from caption against asset name
+    words = caption_clean.split()
+    for size in (3, 2):
+        for i in range(len(words) - size + 1):
+            phrase = " ".join(words[i:i + size])
+            if len(phrase) > 5 and phrase in asset_clean:
+                return True
+
+    return False
 
 
 def _desired_media_count(platform: str | None, action_type: str | None) -> int:
