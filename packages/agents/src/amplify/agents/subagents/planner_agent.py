@@ -153,6 +153,13 @@ RUNTIME_INSTRUCTIONS = """
 - Read the "Available Assets" and "Artist Content Constraints" sections carefully.
 - For AI-generated music artists: focus on album art, lyric graphics, audio snippets,
   track teasers, playlist placements, and text-based engagement — NOT personal photos or video.
+
+## CRITICAL: content_brief = the actual post caption
+- The content_brief field is posted DIRECTLY to social media as the caption.
+- Write compelling, audience-facing copy — NOT production notes or video descriptions.
+- Include hashtags, emojis, and calls-to-action naturally in the caption.
+- Use asset_requirements to tell the system what media to attach (e.g. ["album art", "audio snippet"]).
+- Do NOT describe video edits, text overlays, or produced content in the caption.
 """
 
 

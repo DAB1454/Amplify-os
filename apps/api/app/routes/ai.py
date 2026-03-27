@@ -232,12 +232,17 @@ async def generate_plan(
 
     # Query available assets for this artist/release to inform the planner
     available_assets: list[dict[str, str]] = []
+    asset_type_summary: dict[str, int] = {}
     try:
         from amplify.db.models.asset import AssetModel
+        from sqlalchemy import or_
         asset_q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
+        # Exclude rejected assets
+        asset_q = asset_q.where(
+            or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None))
+        )
         # Prefer assets linked to this artist or release
         if campaign.artist_id:
-            from sqlalchemy import or_
             asset_q = asset_q.where(
                 or_(
                     AssetModel.artist_id == campaign.artist_id,
@@ -255,9 +260,40 @@ async def generate_plan(
                 "tags": ", ".join(a.tags) if a.tags else "",
                 "mime_type": a.mime_type or "",
             })
-        logger.info("Planner context: %d available assets", len(available_assets))
+            asset_type_summary[a.asset_type] = asset_type_summary.get(a.asset_type, 0) + 1
+        logger.info(
+            "Planner context: %d available assets — %s",
+            len(available_assets),
+            ", ".join(f"{v} {k}" for k, v in asset_type_summary.items()),
+        )
     except Exception as exc:
         logger.warning("Failed to load assets for planner context: %s", exc)
+
+    # Build content notes with asset summary so planner knows what's possible
+    has_video = asset_type_summary.get("video", 0) + asset_type_summary.get("lyric_video", 0) > 0
+    has_audio = asset_type_summary.get("audio", 0) > 0
+    has_images = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo")) > 0
+    auto_notes = []
+    if not has_video:
+        auto_notes.append(
+            "NO VIDEO FILES in library. Do NOT plan video content (reels, shorts, stories with video). "
+            "Use image posts with audio snippets instead."
+        )
+    if has_audio:
+        auto_notes.append(
+            f"HAS {asset_type_summary.get('audio', 0)} AUDIO FILES. "
+            "You can plan posts with audio snippets — use asset_requirements: [\"audio snippet\", \"album art\"]."
+        )
+    if has_images:
+        img_count = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo"))
+        auto_notes.append(f"HAS {img_count} IMAGES (album art, promo photos). Can do carousel posts on Instagram.")
+    if auto_notes:
+        combined_notes = "\n".join(auto_notes)
+        if body.content_notes:
+            combined_notes = body.content_notes + "\n\n" + combined_notes
+        body_content_notes = combined_notes
+    else:
+        body_content_notes = body.content_notes
 
     try:
         runner = _build_runner()
@@ -276,7 +312,7 @@ async def generate_plan(
             destination_urls=body.destination_urls,
             budget=body.budget or campaign.budget,
             available_assets=available_assets if available_assets else None,
-            content_notes=body.content_notes,
+            content_notes=body_content_notes,
             campaign_start=str(campaign.start_date) if campaign.start_date else "",
             campaign_end=str(campaign.end_date) if campaign.end_date else "",
             campaign_phase=campaign.phase or "",

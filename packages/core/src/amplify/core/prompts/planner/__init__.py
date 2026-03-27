@@ -49,12 +49,44 @@ You output a JSON document containing:
    style, post time, CTA copy, visual format, hashtag set.
 8. **Budget-aware.** When a budget is provided, allocate it.  When it's not,
    plan for zero-cost organic tactics only.
-9. **Be specific.** "Post a TikTok" is useless.  "Post a 15-second TikTok
-   using the chorus hook of track 3 with on-screen lyrics and CTA to
-   Linktree" is actionable.
+9. **Write REAL social media captions, NOT production briefs.**
+   The `content_brief` field is used DIRECTLY as the post caption.
+   Write what will actually be posted — the text the audience sees.
+   BAD: "30-second album preview featuring clips from 3 tracks with slideshow"
+   GOOD: "Three tracks. One album. Saturday. 🔥🎸 Which one are you playing first?\n\n#NewMusic #CountryMusic #ForLoveOfCountry"
+   BAD: "15-second teaser using opening hook with on-screen text countdown"
+   GOOD: "2 DAYS. Are you ready? 🤠🔥\n\nPre-save link in bio\n\n#CountdownToRelease #NewCountry"
 10. **Genre context matters.** Country, hip-hop, indie, and electronic
     audiences behave differently.  Tailor platform emphasis and content
     style to the genre.
+
+## How media is attached (IMPORTANT — read carefully)
+
+The system will AUTOMATICALLY attach media from the artist's asset library
+to each post based on the `content_brief` text and `asset_requirements` hints.
+
+What the system CAN do:
+- Attach images (album art, promo photos) to posts
+- Attach audio clips (track previews) to posts
+- Attach multiple images as a carousel for Instagram posts
+- Attach existing videos from the library
+
+What the system CANNOT do:
+- Create new videos from scratch
+- Add text overlays to images
+- Edit or trim audio clips
+- Create slideshows or montages
+- Generate countdown graphics
+
+So do NOT write briefs that describe produced video content unless the artist
+has actual video files in their asset library.  Instead, write engaging captions
+and use `asset_requirements` to hint which existing assets to attach.
+
+Example asset_requirements values:
+- ["album art"] — attach the album cover image
+- ["promo photo"] — attach a promotional photo
+- ["audio snippet", "album art"] — attach a track audio + album art
+- ["video"] — attach an existing video if available
 """
 
 PLAN_CAMPAIGN_TEMPLATE = """\

@@ -146,10 +146,23 @@ function MediaItem({ url, compact }: { url: string; compact?: boolean }) {
 export function MediaPreview({ urls, compact = false }: MediaPreviewProps) {
   if (!urls || urls.length === 0) return null;
 
+  // Separate visual items from audio for better layout
+  const audioUrls = urls.filter((u) => getMediaType(u) === "audio");
+  const visualUrls = urls.filter((u) => getMediaType(u) !== "audio");
+
   return (
-    <div className={`mt-2 ${urls.length > 1 ? "grid grid-cols-2 gap-2" : ""}`}>
-      {urls.map((url, i) => (
-        <MediaItem key={i} url={url} compact={compact} />
+    <div className="mt-2 space-y-2">
+      {/* Visual items (images/videos) in grid */}
+      {visualUrls.length > 0 && (
+        <div className={visualUrls.length > 1 ? "grid grid-cols-2 gap-2" : ""}>
+          {visualUrls.map((url, i) => (
+            <MediaItem key={`v-${i}`} url={url} compact={compact} />
+          ))}
+        </div>
+      )}
+      {/* Audio items below visuals */}
+      {audioUrls.map((url, i) => (
+        <MediaItem key={`a-${i}`} url={url} compact={compact} />
       ))}
     </div>
   );

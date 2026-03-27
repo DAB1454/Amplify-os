@@ -328,16 +328,44 @@ async def _find_matching_assets(
     if not scored:
         return []
 
-    # For carousel posts (multiple images), return top N unique assets
+    # Sort by score descending
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # If assets_required asks for multiple types (e.g. ["audio snippet", "album art"]),
+    # try to return one of each type
+    if wants_audio and not wants_video:
+        # Find best audio + best image to pair together
+        best_audio = next((a for _, a in scored if a.asset_type == "audio"), None)
+        best_image = next(
+            (a for _, a in scored if a.asset_type in ("image", "album_art", "promo_photo")),
+            None,
+        )
+        if best_audio and best_image:
+            return [best_image.file_url, best_audio.file_url]
+        if best_audio:
+            # Audio alone — still try to pair with any image
+            if best_image:
+                return [best_image.file_url, best_audio.file_url]
+            return [best_audio.file_url]
+
+    # For carousel posts (multiple images), return top N unique visual assets
     if max_results > 1:
         urls = []
         seen = set()
         for _, asset in scored:
-            if asset.file_url not in seen:
+            if asset.file_url not in seen and asset.asset_type in ("image", "album_art", "promo_photo"):
                 urls.append(asset.file_url)
                 seen.add(asset.file_url)
             if len(urls) >= max_results:
                 break
+        # Fall back to any type if not enough images
+        if len(urls) < max_results:
+            for _, asset in scored:
+                if asset.file_url not in seen:
+                    urls.append(asset.file_url)
+                    seen.add(asset.file_url)
+                if len(urls) >= max_results:
+                    break
         return urls
 
     # Use day_number to rotate through top candidates for variety
