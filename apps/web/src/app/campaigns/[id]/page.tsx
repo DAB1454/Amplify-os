@@ -258,7 +258,7 @@ export default function CampaignDetailPage() {
           <div className="flex gap-2">
             {campaign.mode !== "manual" && days.length === 0 && (
               <button
-                onClick={() => setShowPlanOptions(true)}
+                onClick={() => showPlanOptions ? handleGeneratePlan() : setShowPlanOptions(true)}
                 disabled={generatingPlan}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
@@ -267,7 +267,7 @@ export default function CampaignDetailPage() {
             )}
             {campaign.mode !== "manual" && days.length > 0 && (
               <button
-                onClick={() => setShowPlanOptions(true)}
+                onClick={() => showPlanOptions ? handleGeneratePlan() : setShowPlanOptions(true)}
                 disabled={generatingPlan}
                 className="rounded-lg bg-indigo-600/10 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-600/20 disabled:opacity-50"
               >

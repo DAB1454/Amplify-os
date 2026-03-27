@@ -198,6 +198,7 @@ class PlannerAgent:
         content_notes: str = "",
         campaign_start: str | date = "",
         campaign_end: str | date = "",
+        campaign_phase: str = "",
     ) -> AgentResult:
         """Generate a structured campaign plan for the given date range.
 
@@ -241,6 +242,35 @@ class PlannerAgent:
             campaign_start=cs,
             campaign_end=ce,
         )
+
+        # Inject campaign phase so the planner respects pre-release vs release vs sustain
+        if campaign_phase:
+            phase_label = campaign_phase.replace("_", " ").title()
+            phase_guidance = {
+                "pre_release": (
+                    "This is a PRE-RELEASE campaign. The music has NOT been released yet. "
+                    "Do NOT include release day announcements, 'out now' posts, streaming "
+                    "links, or any content that implies the music is already available. "
+                    "Focus on: building anticipation, teasers, countdowns, pre-save links, "
+                    "behind-the-concept content, and audience engagement."
+                ),
+                "release_week": (
+                    "This is a RELEASE WEEK campaign. The music drops during this window. "
+                    "Build to the release day, then maximize reach on release day and sustain "
+                    "momentum for the remaining days."
+                ),
+                "sustain": (
+                    "This is a POST-RELEASE SUSTAIN campaign. The music is already out. "
+                    "Focus on: continued engagement, playlist pitching, fan content, "
+                    "deep cuts, milestone celebrations, and converting listeners to fans."
+                ),
+                "evergreen": (
+                    "This is an EVERGREEN campaign. Focus on ongoing discovery, playlist "
+                    "placement, catalog highlights, and steady audience growth."
+                ),
+            }
+            guidance = phase_guidance.get(campaign_phase, f"Campaign phase: {phase_label}")
+            user_message += f"\n\n## Campaign Phase: {phase_label}\n{guidance}\n"
 
         # Inject available assets into the prompt
         if available_assets:

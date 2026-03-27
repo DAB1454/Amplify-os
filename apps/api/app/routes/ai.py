@@ -279,6 +279,7 @@ async def generate_plan(
             content_notes=body.content_notes,
             campaign_start=str(campaign.start_date) if campaign.start_date else "",
             campaign_end=str(campaign.end_date) if campaign.end_date else "",
+            campaign_phase=campaign.phase or "",
         )
         logger.info(
             "Plan generated for campaign %s: start=%s end=%s",
