@@ -14,7 +14,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from amplify.agents.runtime.agent_runner import AgentContext, AgentResult, AgentRunner
 from amplify.agents.runtime.config import AgentConfig
@@ -93,6 +93,13 @@ class PlannerOutput(BaseModel):
     notes: str = ""
     # IDs of learned recommendations that influenced this plan
     recommendations_applied: list[str] = Field(default_factory=list)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def coerce_notes(cls, v: Any) -> str:
+        if isinstance(v, list):
+            return "\n".join(str(item) for item in v)
+        return str(v) if v else ""
 
 
 # ── System prompt ───────────────────────────────────────────────
