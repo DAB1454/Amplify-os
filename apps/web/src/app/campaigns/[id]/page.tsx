@@ -105,6 +105,11 @@ export default function CampaignDetailPage() {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [showPlanOptions, setShowPlanOptions] = useState(false);
   const [contentNotes, setContentNotes] = useState("");
+  const [generatingVideo, setGeneratingVideo] = useState<string | null>(null);
+  const [showVideoForm, setShowVideoForm] = useState<string | null>(null);
+  const [videoLyrics, setVideoLyrics] = useState("");
+  const [videoDuration, setVideoDuration] = useState(30);
+  const [videoAspect, setVideoAspect] = useState("9:16");
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -174,6 +179,28 @@ export default function CampaignDetailPage() {
       setError(err instanceof Error ? err.message : "Plan generation failed");
     } finally {
       setGeneratingPlan(false);
+    }
+  };
+
+  const handleGenerateVideo = async (postId: string) => {
+    setGeneratingVideo(postId);
+    setError(null);
+    try {
+      await apiPost("/api/v1/ai/generate-lyric-video", {
+        post_id: postId,
+        release_id: plan?.campaign?.release_id || undefined,
+        lyrics: videoLyrics,
+        duration_seconds: videoDuration,
+        aspect_ratio: videoAspect,
+        artist_name: "",  // Will be resolved server-side
+      });
+      setShowVideoForm(null);
+      setVideoLyrics("");
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Video generation failed");
+    } finally {
+      setGeneratingVideo(null);
     }
   };
 
@@ -513,12 +540,89 @@ export default function CampaignDetailPage() {
                         </div>
                       )}
                       {!isEditing && post.approval_status === "approved" && (
-                        <span className="text-green-500 text-lg" title="Approved">{"\u2713"}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-500 text-lg" title="Approved">{"\u2713"}</span>
+                          {["reel", "short", "story", "post"].includes(post.action_type_label || "") && (
+                            <button
+                              onClick={() => {
+                                setShowVideoForm(showVideoForm === post.id ? null : post.id);
+                                setVideoLyrics("");
+                                setVideoAspect(
+                                  (post.action_type_label === "short" || post.platform === "youtube")
+                                    ? "16:9" : "9:16"
+                                );
+                              }}
+                              disabled={generatingVideo === post.id}
+                              className="rounded-lg bg-purple-50 px-2.5 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
+                              title="Generate lyric video"
+                            >
+                              {generatingVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u{1F3AC} Lyric Video"}
+                            </button>
+                          )}
+                        </div>
                       )}
                       {!isEditing && post.approval_status === "rejected" && (
                         <span className="text-red-400 text-lg" title="Rejected">{"\u2715"}</span>
                       )}
                     </div>
+
+                    {/* Lyric Video Generator Form */}
+                    {showVideoForm === post.id && (
+                      <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50/50 p-3 space-y-2">
+                        <p className="text-xs font-medium text-purple-700">Generate Lyric Video</p>
+                        <textarea
+                          value={videoLyrics}
+                          onChange={(e) => setVideoLyrics(e.target.value)}
+                          placeholder="Paste lyrics here (or leave blank to auto-pull from track)..."
+                          rows={4}
+                          className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                        />
+                        <div className="flex gap-3 items-center">
+                          <div>
+                            <label className="text-[10px] text-[var(--text-secondary)]">Duration</label>
+                            <select
+                              value={videoDuration}
+                              onChange={(e) => setVideoDuration(Number(e.target.value))}
+                              className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value={15}>15s</option>
+                              <option value={30}>30s</option>
+                              <option value={60}>60s</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-[var(--text-secondary)]">Aspect</label>
+                            <select
+                              value={videoAspect}
+                              onChange={(e) => setVideoAspect(e.target.value)}
+                              className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs"
+                            >
+                              <option value="9:16">9:16 (Reel/TikTok)</option>
+                              <option value="1:1">1:1 (Feed)</option>
+                              <option value="16:9">16:9 (YouTube)</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleGenerateVideo(post.id)}
+                            disabled={generatingVideo === post.id}
+                            className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            {generatingVideo === post.id ? <ButtonSpinner label="Generating video..." /> : "Generate Video"}
+                          </button>
+                          <button
+                            onClick={() => setShowVideoForm(null)}
+                            className="rounded-lg px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-secondary)]">
+                          Creates a video with your album art, audio snippet, and animated lyrics overlay. Takes 15-30 seconds.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}

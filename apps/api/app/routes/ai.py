@@ -456,3 +456,210 @@ async def generate_plan(
         model=result.model,
         elapsed_ms=result.elapsed_ms,
     )
+
+
+# ── Lyric Video Generation ─────────────────────────────────────
+
+
+class GenerateLyricVideoRequest(BaseModel):
+    post_id: str | None = None  # Auto-attach result to this post
+    image_url: str = ""  # S3 URL of background image
+    audio_url: str = ""  # S3 URL of audio
+    lyrics: str = ""  # Raw lyrics text
+    aspect_ratio: str = "9:16"  # 9:16, 1:1, 16:9
+    duration_seconds: int = 30  # 15, 30, or 60
+    artist_name: str = ""
+    track_title: str = ""
+    # Convenience: auto-resolve from track/release
+    track_id: str | None = None
+    release_id: str | None = None
+
+
+class GenerateLyricVideoResponse(BaseModel):
+    video_url: str = ""
+    duration_seconds: int = 0
+    aspect_ratio: str = ""
+    asset_id: str | None = None
+    elapsed_ms: int = 0
+
+
+@router.post("/generate-lyric-video", response_model=GenerateLyricVideoResponse)
+async def generate_lyric_video(
+    body: GenerateLyricVideoRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Generate a lyric video from image + audio + lyrics using FFmpeg."""
+    import time
+    import tempfile
+    from pathlib import Path
+    from sqlalchemy import select
+    from app.deps import get_media_service
+
+    start_time = time.time()
+
+    image_url = body.image_url
+    audio_url = body.audio_url
+    lyrics = body.lyrics
+    artist_name = body.artist_name
+    track_title = body.track_title
+
+    # Auto-resolve from track if provided
+    if body.track_id:
+        from amplify.db.models.track import TrackModel
+        track_result = await db.execute(
+            select(TrackModel).where(TrackModel.id == uuid.UUID(body.track_id))
+        )
+        track = track_result.scalar_one_or_none()
+        if track:
+            if not lyrics and track.lyrics:
+                lyrics = track.lyrics
+            if not audio_url and track.audio_url:
+                audio_url = track.audio_url
+            if not track_title and track.title:
+                track_title = track.title
+
+    # Auto-resolve image from release artwork
+    if body.release_id and not image_url:
+        from amplify.db.models.release import ReleaseModel
+        release_result = await db.execute(
+            select(ReleaseModel).where(ReleaseModel.id == uuid.UUID(body.release_id))
+        )
+        release = release_result.scalar_one_or_none()
+        if release and release.artwork_url:
+            image_url = release.artwork_url
+
+    # Fall back: find an image asset from the library
+    if not image_url:
+        from amplify.db.models.asset import AssetModel
+        asset_result = await db.execute(
+            select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.asset_type.in_(["image", "album_art", "promo_photo"]),
+            ).order_by(AssetModel.created_at.desc()).limit(1)
+        )
+        asset = asset_result.scalar_one_or_none()
+        if asset:
+            image_url = asset.file_url
+
+    # Validate inputs
+    if not image_url:
+        raise HTTPException(status_code=400, detail="No image available. Upload album art or provide an image URL.")
+    if not audio_url:
+        raise HTTPException(status_code=400, detail="No audio available. Upload a track or provide an audio URL.")
+    if not lyrics:
+        raise HTTPException(status_code=400, detail="No lyrics available. Add lyrics to the track first.")
+
+    # Validate duration
+    duration = min(max(body.duration_seconds, 10), 90)
+
+    try:
+        from app.services.video_generator import generate_lyric_video as gen_video, download_url_to_file
+
+        with tempfile.TemporaryDirectory(prefix="lyricvid_") as tmp_dir:
+            # Determine file extensions from URLs
+            img_ext = Path(image_url.split("?")[0]).suffix or ".jpg"
+            aud_ext = Path(audio_url.split("?")[0]).suffix or ".mp3"
+
+            img_path = str(Path(tmp_dir) / f"input{img_ext}")
+            aud_path = str(Path(tmp_dir) / f"input{aud_ext}")
+            out_path = str(Path(tmp_dir) / "output.mp4")
+
+            # Download inputs
+            await download_url_to_file(image_url, img_path)
+            await download_url_to_file(audio_url, aud_path)
+
+            # Generate video
+            await gen_video(
+                image_path=img_path,
+                audio_path=aud_path,
+                lyrics=lyrics,
+                output_path=out_path,
+                aspect_ratio=body.aspect_ratio,
+                duration_seconds=duration,
+                artist_name=artist_name,
+                track_title=track_title,
+            )
+
+            # Upload to S3
+            from app.services.media_service import MediaService
+            from app.config import Settings
+            settings = Settings()
+            media_svc = MediaService(
+                s3_bucket=settings.s3_bucket,
+                s3_region=settings.s3_region,
+                aws_access_key_id=settings.aws_access_key_id,
+                aws_secret_access_key=settings.aws_secret_access_key,
+                media_base_url=settings.media_base_url,
+            )
+            with open(out_path, "rb") as f:
+                video_url = await media_svc.upload(
+                    tenant_id, f, f"lyric-video-{uuid.uuid4()}.mp4", "video/mp4"
+                )
+
+        # Create asset record
+        from amplify.db.models.asset import AssetModel
+        import os
+        asset = AssetModel(
+            tenant_id=tenant_id,
+            asset_type="lyric_video",
+            name=f"Lyric Video — {track_title or 'Untitled'}",
+            description=f"Generated lyric video for {artist_name} — {track_title}",
+            file_url=video_url,
+            mime_type="video/mp4",
+            tags=["lyric_video", "generated"],
+            source="ai_generated",
+        )
+        db.add(asset)
+        await db.flush()
+        await db.refresh(asset)
+
+        # Auto-attach to post if provided
+        if body.post_id:
+            from amplify.db.models.post import PostModel
+            post_result = await db.execute(
+                select(PostModel).where(
+                    PostModel.id == uuid.UUID(body.post_id),
+                    PostModel.tenant_id == tenant_id,
+                )
+            )
+            post = post_result.scalar_one_or_none()
+            if post:
+                existing = list(post.media_urls or [])
+                existing.insert(0, video_url)  # Put video first
+                post.media_urls = existing
+                await db.flush()
+                logger.info("Attached lyric video to post %s", body.post_id)
+
+        elapsed = int((time.time() - start_time) * 1000)
+
+        try:
+            await audit.log(
+                action="ai.lyric_video_generated",
+                entity_type="asset",
+                entity_id=asset.id,
+                user_id=user_id,
+                changes={
+                    "track_title": track_title,
+                    "duration": duration,
+                    "aspect_ratio": body.aspect_ratio,
+                },
+            )
+        except Exception:
+            pass
+
+        return GenerateLyricVideoResponse(
+            video_url=video_url,
+            duration_seconds=duration,
+            aspect_ratio=body.aspect_ratio,
+            asset_id=str(asset.id),
+            elapsed_ms=elapsed,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Lyric video generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Video generation failed: {exc}")
