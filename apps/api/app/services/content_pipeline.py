@@ -100,6 +100,7 @@ async def generate_content_for_post(
     # Step 2: Find and attach matching assets from the library
     if not post.media_urls or len(post.media_urls) == 0:
         try:
+            max_media = _desired_media_count(post.platform, post.action_type_label)
             media_urls = await _find_matching_assets(
                 db=db,
                 tenant_id=tenant_id,
@@ -110,6 +111,7 @@ async def generate_content_for_post(
                 action_type=post.action_type_label,
                 content_hint=brief,
                 day_number=post.day_number,
+                max_results=max_media,
             )
             if media_urls:
                 post.media_urls = media_urls
@@ -213,49 +215,73 @@ async def _find_matching_assets(
     action_type: str | None,
     content_hint: str = "",
     day_number: int | None = None,
+    assets_required: list[str] | None = None,
+    max_results: int = 1,
 ) -> list[str]:
-    """Find the best matching asset from the library.
+    """Find matching assets from the library.
 
-    Uses content_hint (the post brief) to match assets by name/tags,
-    and day_number to rotate through assets for variety.
+    Improved matching:
+    - Uses assets_required hints from the planner (e.g. "album art", "promo photo")
+    - Scores by content hint keyword overlap with asset name/tags/description
+    - Rotates through top candidates using day_number for variety
+    - Returns multiple URLs for carousel posts
     """
     from amplify.db.models.asset import AssetModel
+    from sqlalchemy import or_
 
-    desired_types = _desired_asset_types(action_type)
-
-    # Load all candidate assets (broadening scope as needed)
-    # Try with preferred types first, then fall back to any type
+    # Load all candidate assets, broadening scope progressively
     candidates: list = []
-    for type_filter in [desired_types, []]:  # [] = any type
-        for filters in [
-            {"campaign_id": campaign_id} if campaign_id else None,
-            {"release_id": release_id} if release_id else None,
-            {"artist_id": artist_id} if artist_id else None,
-            {},
-        ]:
-            if filters is None:
-                continue
+    for filters in [
+        {"campaign_id": campaign_id} if campaign_id else None,
+        {"release_id": release_id} if release_id else None,
+        {"artist_id": artist_id} if artist_id else None,
+        {},
+    ]:
+        if filters is None:
+            continue
 
-            q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
-            for col, val in filters.items():
-                q = q.where(getattr(AssetModel, col) == val)
-            if type_filter:
-                q = q.where(AssetModel.asset_type.in_(type_filter))
-            q = q.order_by(AssetModel.created_at.desc()).limit(20)
+        q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
+        # Exclude rejected assets
+        q = q.where(or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)))
+        for col, val in filters.items():
+            q = q.where(getattr(AssetModel, col) == val)
+        q = q.order_by(AssetModel.created_at.desc()).limit(50)
 
-            result = await db.execute(q)
-            candidates = list(result.scalars().all())
-            if candidates:
-                break
+        result = await db.execute(q)
+        candidates = list(result.scalars().all())
         if candidates:
             break
 
     if not candidates:
         return []
 
-    # Score candidates based on content hint matching
+    # Build combined hint text from content_hint + assets_required
     hint_lower = content_hint.lower()
-    hint_words = set(hint_lower.split())
+    hint_words = set(w for w in hint_lower.split() if len(w) > 3)
+    if assets_required:
+        for req in assets_required:
+            hint_words.update(w.lower() for w in req.split() if len(w) > 3)
+
+    # Determine what we're looking for
+    wants_video = action_type and action_type.lower() in ("reel", "short", "story")
+    wants_audio = any(
+        kw in hint_lower
+        for kw in ("audio", "snippet", "listen", "hear", "music", "track", "song")
+    )
+    wants_album_art = any(
+        kw in hint_lower
+        for kw in ("album", "cover", "artwork", "album_art")
+    )
+
+    # Check assets_required for type hints
+    if assets_required:
+        req_text = " ".join(assets_required).lower()
+        if "video" in req_text:
+            wants_video = True
+        if "audio" in req_text or "snippet" in req_text or "track" in req_text:
+            wants_audio = True
+        if "album" in req_text or "cover" in req_text or "artwork" in req_text:
+            wants_album_art = True
 
     scored = []
     for asset in candidates:
@@ -263,36 +289,61 @@ async def _find_matching_assets(
         name_lower = (asset.name or "").lower()
         desc_lower = (asset.description or "").lower()
         tag_text = " ".join(asset.tags or []).lower()
+        asset_text = f"{name_lower} {desc_lower} {tag_text}"
 
-        # Name match (strongest signal)
+        # Keyword matching from hint + assets_required
         for word in hint_words:
-            if len(word) > 3:  # skip short words
-                if word in name_lower:
-                    score += 10
-                if word in desc_lower:
-                    score += 5
-                if word in tag_text:
-                    score += 5
+            if word in name_lower:
+                score += 10
+            if word in desc_lower:
+                score += 5
+            if word in tag_text:
+                score += 5
 
-        # Prefer images for posts, videos for reels/stories
-        if action_type and action_type.lower() in ("reel", "short", "story"):
-            if asset.asset_type == "video":
-                score += 3
-        else:
+        # Type affinity scoring
+        if wants_video and asset.asset_type in ("video", "lyric_video"):
+            score += 15
+        elif wants_audio and asset.asset_type == "audio":
+            score += 15
+        elif wants_album_art and asset.asset_type in ("album_art", "image"):
+            score += 12
+        elif not wants_video and not wants_audio:
+            # Generic post — prefer visual assets
             if asset.asset_type in ("image", "album_art", "promo_photo"):
+                score += 5
+            elif asset.asset_type == "video":
                 score += 3
+
+        # Bonus for assets linked to the same release/campaign
+        if release_id and asset.release_id == release_id:
+            score += 8
+        if campaign_id and asset.campaign_id == campaign_id:
+            score += 6
 
         scored.append((score, asset))
 
     # Sort by score descending
     scored.sort(key=lambda x: x[0], reverse=True)
 
+    if not scored:
+        return []
+
+    # For carousel posts (multiple images), return top N unique assets
+    if max_results > 1:
+        urls = []
+        seen = set()
+        for _, asset in scored:
+            if asset.file_url not in seen:
+                urls.append(asset.file_url)
+                seen.add(asset.file_url)
+            if len(urls) >= max_results:
+                break
+        return urls
+
     # Use day_number to rotate through top candidates for variety
     if len(scored) > 1 and day_number:
-        idx = (day_number - 1) % min(len(scored), 5)
-        # If top scores are tied, pick by rotation
         top_score = scored[0][0]
-        top_tier = [s for s in scored if s[0] >= top_score - 2]
+        top_tier = [s for s in scored if s[0] >= max(top_score - 5, 0)]
         if len(top_tier) > 1:
             idx = (day_number - 1) % len(top_tier)
             return [top_tier[idx][1].file_url]
@@ -300,19 +351,16 @@ async def _find_matching_assets(
     return [scored[0][1].file_url]
 
 
-def _desired_asset_types(action_type: str | None) -> list[str]:
-    """Map post action types to preferred asset types."""
-    if not action_type:
-        return ["image", "video", "promo_photo", "album_art"]
-
-    action = action_type.lower()
-    if action in ("reel", "short", "story"):
-        return ["video"]
-    if action in ("post", "engagement"):
-        return ["image", "promo_photo", "album_art", "video"]
-    if action == "live":
-        return []  # No pre-made assets for live
-    return ["image", "video", "promo_photo", "album_art"]
+def _desired_media_count(platform: str | None, action_type: str | None) -> int:
+    """How many media items should we attach?"""
+    if not platform:
+        return 1
+    p = platform.lower()
+    a = (action_type or "").lower()
+    # Instagram carousel posts can have up to 10 images
+    if p == "instagram" and a == "post":
+        return 3  # Good carousel size
+    return 1
 
 
 async def generate_content_for_posts(

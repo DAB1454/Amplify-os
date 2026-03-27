@@ -408,6 +408,30 @@ async def generate_plan(
                         except (ValueError, TypeError):
                             pass
 
+                        # Find matching assets immediately so previews show up
+                        from app.services.content_pipeline import (
+                            _find_matching_assets,
+                            _desired_media_count,
+                        )
+                        max_media = _desired_media_count(action.platform, action.action_type)
+                        try:
+                            media_urls = await _find_matching_assets(
+                                db=db,
+                                tenant_id=tenant_id,
+                                artist_id=campaign.artist_id,
+                                release_id=campaign.release_id,
+                                campaign_id=campaign.id,
+                                platform=action.platform,
+                                action_type=action.action_type,
+                                content_hint=action.content_brief,
+                                day_number=day_idx,
+                                assets_required=action.assets_required if hasattr(action, "assets_required") else None,
+                                max_results=max_media,
+                            )
+                        except Exception as asset_exc:
+                            logger.warning("Asset matching at plan time failed: %s", asset_exc)
+                            media_urls = []
+
                         post = PostModel(
                             tenant_id=tenant_id,
                             campaign_id=campaign.id,
@@ -415,7 +439,7 @@ async def generate_plan(
                             platform=action.platform,
                             status=post_status,
                             content_text=action.content_brief,
-                            media_urls=[],
+                            media_urls=media_urls,
                             destination_url=action.cta_destination or "",
                             approval_status=post_approval,
                             day_number=day_idx,

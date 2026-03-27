@@ -10,16 +10,17 @@ interface MediaPreviewProps {
 
 function getMediaType(url: string): "video" | "image" | "audio" | "unknown" {
   // Strip query params before checking extension
-  const lower = url.split("?")[0].toLowerCase();
-  if (/\.(mp4|mov|webm|avi|mkv)(\?|$)/.test(lower)) return "video";
-  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)(\?|$)/.test(lower)) return "image";
-  if (/\.(mp3|wav|ogg|aac|flac|m4a)(\?|$)/.test(lower)) return "audio";
-  // S3 URLs with content type hints in path
-  if (lower.includes("/video/") || lower.includes("video")) return "video";
-  if (lower.includes("/image/") || lower.includes("image")) return "image";
-  if (lower.includes("/audio/") || lower.includes("audio")) return "audio";
+  const clean = url.split("?")[0].toLowerCase();
+  // Check file extensions first (most reliable)
+  if (/\.(mp4|mov|webm|avi|mkv)$/.test(clean)) return "video";
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(clean)) return "image";
+  if (/\.(mp3|wav|ogg|aac|flac|m4a)$/.test(clean)) return "audio";
+  // S3 path segments (only match /type/ directory patterns, not substrings)
+  if (/\/video\//.test(clean)) return "video";
+  if (/\/audio\//.test(clean)) return "audio";
+  if (/\/image\//.test(clean)) return "image";
   // Default to image for S3 media URLs (most common case)
-  if (lower.includes(".s3.") || lower.includes("amazonaws.com")) return "image";
+  if (clean.includes(".s3.") || clean.includes("amazonaws.com")) return "image";
   return "unknown";
 }
 
@@ -94,9 +95,16 @@ function MediaItem({ url, compact }: { url: string; compact?: boolean }) {
         </div>
       )}
       {type === "audio" && (
-        <div className="p-3 flex items-center gap-3">
-          <span className="text-2xl">{"🎵"}</span>
-          <audio src={url} controls preload="metadata" crossOrigin="anonymous" className="w-full" />
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+              </svg>
+            </div>
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate">{filename}</span>
+          </div>
+          <audio src={url} controls preload="metadata" crossOrigin="anonymous" className="w-full" style={{ height: "40px" }} />
         </div>
       )}
       {type === "unknown" && (

@@ -539,10 +539,21 @@ export default function CampaignDetailPage() {
                         {/* Media Preview + Download */}
                         {post.media_urls && post.media_urls.length > 0 && (
                           <div className="mt-3">
-                            <MediaPreview urls={post.media_urls} />
+                            {post.media_urls.length > 1 && (
+                              <div className="text-[10px] font-medium text-indigo-600 mb-1">
+                                Carousel ({post.media_urls.length} items)
+                              </div>
+                            )}
+                            <MediaPreview urls={post.media_urls} compact />
                             <div className="mt-1">
                               <DownloadAllButton urls={post.media_urls} />
                             </div>
+                          </div>
+                        )}
+                        {/* No media indicator */}
+                        {(!post.media_urls || post.media_urls.length === 0) && post.action_type_label !== "live" && (
+                          <div className="mt-2 text-[10px] text-[var(--text-secondary)] italic">
+                            No media attached — upload assets to your library for automatic matching
                           </div>
                         )}
 
