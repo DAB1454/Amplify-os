@@ -110,7 +110,8 @@ export default function CampaignDetailPage() {
   const [videoLyrics, setVideoLyrics] = useState("");
   const [videoDuration, setVideoDuration] = useState(30);
   const [videoAspect, setVideoAspect] = useState("9:16");
-  // AI Video generation
+  // Video generation
+  const [generatingClip, setGeneratingClip] = useState<string | null>(null);
   const [showAIVideoForm, setShowAIVideoForm] = useState<string | null>(null);
   const [aiVideoPrompt, setAiVideoPrompt] = useState("");
   const [aiVideoScenes, setAiVideoScenes] = useState(6);
@@ -219,6 +220,23 @@ export default function CampaignDetailPage() {
       setConfirmGenerate({ postId, cost: estimate.estimated_cost });
     } catch (_err) {
       setConfirmGenerate({ postId, cost: aiVideoScenes * 0.25 });
+    }
+  };
+
+  const handleGenerateClip = async (postId: string) => {
+    setGeneratingClip(postId);
+    setError(null);
+    try {
+      await apiPost("/api/v1/ai/generate-static-video", {
+        post_id: postId,
+        duration_seconds: videoDuration,
+        aspect_ratio: videoAspect,
+      });
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Video clip generation failed");
+    } finally {
+      setGeneratingClip(null);
     }
   };
 
@@ -563,77 +581,85 @@ export default function CampaignDetailPage() {
                       </div>
 
                       {/* Actions */}
-                      {!isEditing && post.approval_status === "pending_review" && (
-                        <div className="flex gap-1.5 shrink-0">
-                          <button
-                            onClick={() => handlePostAction(post.id, "review-approve")}
-                            disabled={isActioning}
-                            className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                            title="Approve and generate content"
-                          >
-                            {isActioning ? "Generating content..." : "\u2713 Approve & Generate"}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingPost(post.id);
-                              setEditText(post.content_text);
-                            }}
-                            className="rounded-lg bg-[var(--bg-primary)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
-                            title="Edit"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handlePostAction(post.id, "review-reject")}
-                            disabled={isActioning}
-                            className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
-                            title="Reject"
-                          >
-                            {"\u2715"}
-                          </button>
-                        </div>
-                      )}
-                      {!isEditing && post.approval_status === "approved" && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-500 text-lg" title="Approved">{"\u2713"}</span>
-                          {["reel", "short", "story", "post"].includes(post.action_type_label || "") && (
-                            <>
+                      {!isEditing && (
+                        <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                          {/* Approval actions */}
+                          {post.approval_status === "pending_review" && (
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => handlePostAction(post.id, "review-approve")}
+                                disabled={isActioning}
+                                className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                title="Approve and generate content"
+                              >
+                                {isActioning ? "..." : "\u2713 Approve"}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingPost(post.id);
+                                  setEditText(post.content_text);
+                                }}
+                                className="rounded-lg bg-[var(--bg-primary)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handlePostAction(post.id, "review-reject")}
+                                disabled={isActioning}
+                                className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+                              >
+                                {"\u2715"}
+                              </button>
+                            </div>
+                          )}
+                          {post.approval_status === "approved" && (
+                            <span className="text-green-500 text-xs font-medium">{"\u2713"} Approved</span>
+                          )}
+                          {post.approval_status === "rejected" && (
+                            <span className="text-red-400 text-xs">{"\u2715"} Rejected</span>
+                          )}
+
+                          {/* Video generation buttons — available on pending and approved posts */}
+                          {post.approval_status !== "rejected" && (
+                            <div className="flex gap-1 flex-wrap justify-end">
+                              <button
+                                onClick={() => {
+                                  setVideoAspect(post.platform === "youtube" ? "16:9" : "9:16");
+                                  handleGenerateClip(post.id);
+                                }}
+                                disabled={generatingClip === post.id}
+                                className="rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-600 hover:bg-indigo-100 disabled:opacity-50"
+                                title="Generate video clip (image + audio)"
+                              >
+                                {generatingClip === post.id ? <ButtonSpinner label="..." /> : "\u{1F3AC} Video Clip"}
+                              </button>
                               <button
                                 onClick={() => {
                                   setShowVideoForm(showVideoForm === post.id ? null : post.id);
                                   setVideoLyrics("");
-                                  setVideoAspect(
-                                    (post.action_type_label === "short" || post.platform === "youtube")
-                                      ? "16:9" : "9:16"
-                                  );
+                                  setVideoAspect(post.platform === "youtube" ? "16:9" : "9:16");
                                 }}
                                 disabled={generatingVideo === post.id}
-                                className="rounded-lg bg-purple-50 px-2.5 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
+                                className="rounded-lg bg-purple-50 px-2 py-1 text-[10px] font-medium text-purple-600 hover:bg-purple-100 disabled:opacity-50"
                                 title="Generate lyric video"
                               >
-                                {generatingVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u{1F3AC} Lyric Video"}
+                                {generatingVideo === post.id ? <ButtonSpinner label="..." /> : "\u{1F3B6} Lyric Video"}
                               </button>
                               <button
                                 onClick={() => {
                                   setShowAIVideoForm(showAIVideoForm === post.id ? null : post.id);
                                   setAiVideoPrompt("");
-                                  setVideoAspect(
-                                    (post.action_type_label === "short" || post.platform === "youtube")
-                                      ? "16:9" : "9:16"
-                                  );
+                                  setVideoAspect(post.platform === "youtube" ? "16:9" : "9:16");
                                 }}
                                 disabled={generatingAIVideo === post.id}
-                                className="rounded-lg bg-pink-50 px-2.5 py-1 text-[10px] font-medium text-pink-600 hover:bg-pink-100 disabled:opacity-50"
+                                className="rounded-lg bg-pink-50 px-2 py-1 text-[10px] font-medium text-pink-600 hover:bg-pink-100 disabled:opacity-50"
                                 title="Generate AI video (paid)"
                               >
-                                {generatingAIVideo === post.id ? <ButtonSpinner label="Generating..." /> : "\u2728 AI Video"}
+                                {generatingAIVideo === post.id ? <ButtonSpinner label="..." /> : "\u2728 AI Video"}
                               </button>
-                            </>
+                            </div>
                           )}
                         </div>
-                      )}
-                      {!isEditing && post.approval_status === "rejected" && (
-                        <span className="text-red-400 text-lg" title="Rejected">{"\u2715"}</span>
                       )}
                     </div>
 

@@ -633,7 +633,105 @@ async def generate_plan(
     )
 
 
-# ── Lyric Video Generation ─────────────────────────────────────
+# ── Static Video (Tier 1) Generation ──────────────────────────
+
+
+class GenerateStaticVideoRequest(BaseModel):
+    post_id: str
+    duration_seconds: int = 15
+    aspect_ratio: str = "9:16"
+
+
+class GenerateStaticVideoResponse(BaseModel):
+    video_url: str = ""
+    asset_id: str | None = None
+    elapsed_ms: int = 0
+
+
+@router.post("/generate-static-video", response_model=GenerateStaticVideoResponse)
+async def generate_static_video_endpoint(
+    body: GenerateStaticVideoRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings_obj: Settings = Depends(get_settings),
+):
+    """Generate a static image+audio video for a post (Tier 1).
+
+    Picks the best image and audio from the asset library,
+    combines into a short video clip via FFmpeg, and attaches to the post.
+    """
+    import time
+    from sqlalchemy import select
+    from amplify.db.models.post import PostModel
+    from amplify.db.models.campaign import CampaignModel
+
+    start_time = time.time()
+
+    # Load the post
+    post_result = await db.execute(
+        select(PostModel).where(PostModel.id == uuid.UUID(body.post_id), PostModel.tenant_id == tenant_id)
+    )
+    post = post_result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Resolve artist/release from campaign
+    artist_id = None
+    release_id = None
+    if post.campaign_id:
+        camp_result = await db.execute(select(CampaignModel).where(CampaignModel.id == post.campaign_id))
+        campaign = camp_result.scalar_one_or_none()
+        if campaign:
+            artist_id = campaign.artist_id
+            release_id = campaign.release_id
+
+    # Find an image — use existing post media or find from library
+    from app.services.content_pipeline import _find_matching_assets
+    image_urls = await _find_matching_assets(
+        db=db,
+        tenant_id=tenant_id,
+        artist_id=artist_id,
+        release_id=release_id,
+        campaign_id=post.campaign_id,
+        platform=post.platform,
+        action_type=post.action_type_label,
+        content_hint=post.content_text or "",
+        day_number=post.day_number,
+        max_results=1,
+    )
+    if not image_urls:
+        raise HTTPException(status_code=400, detail="No images in asset library. Upload album art or promo photos first.")
+
+    # Generate the video
+    video_url = await _auto_generate_post_video(
+        db=db,
+        tenant_id=tenant_id,
+        image_url=image_urls[0],
+        artist_id=artist_id,
+        release_id=release_id,
+        content_hint=post.content_text or "",
+        day_number=post.day_number or 1,
+        settings=settings_obj,
+        duration=min(max(body.duration_seconds, 10), 60),
+    )
+
+    if not video_url:
+        raise HTTPException(status_code=400, detail="No audio tracks in asset library. Upload audio files first.")
+
+    # Replace media on the post
+    post.media_urls = [video_url]
+    await db.flush()
+
+    elapsed = int((time.time() - start_time) * 1000)
+    logger.info("Static video generated for post %s in %dms", body.post_id, elapsed)
+
+    return GenerateStaticVideoResponse(
+        video_url=video_url,
+        elapsed_ms=elapsed,
+    )
+
+
+# ── Lyric Video (Tier 2) Generation ──────────────────────────
 
 
 class GenerateLyricVideoRequest(BaseModel):
