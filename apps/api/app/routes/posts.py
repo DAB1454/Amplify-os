@@ -365,6 +365,20 @@ async def generate_media_for_post(
             release_id = campaign.release_id
 
     # Step 1: Find matching image assets from library
+    # Detect carousel posts — multiple images for Instagram feed posts
+    action_lower = (post.action_type_label or "").lower()
+    content_lower = (post.content_text or "").lower()
+    is_carousel = (
+        "carousel" in action_lower
+        or (post.platform == "instagram"
+            and action_lower not in ("reel", "reels", "short", "story")
+            and any(kw in content_lower for kw in [
+                "artwork", "each song", "each track", "which one", "some of",
+                "sneak peek", "behind the scenes", "swipe", "slide",
+            ]))
+    )
+    max_images = 5 if is_carousel else 1
+
     from app.services.content_pipeline import _find_matching_assets
     image_urls = await _find_matching_assets(
         db=db,
@@ -376,14 +390,13 @@ async def generate_media_for_post(
         action_type=post.action_type_label,
         content_hint=post.content_text or "",
         day_number=post.day_number,
-        max_results=1,
+        max_results=max_images,
     )
 
     video_generated = False
 
     # Step 2: Generate video for video-native platforms/formats
     # TikTok and YouTube always get video; Instagram Reels get video too
-    action_lower = (post.action_type_label or "").lower()
     is_video_post = (
         post.platform in {"tiktok", "youtube"}
         or (post.platform == "instagram" and action_lower in ("reel", "reels", "short", "story"))
