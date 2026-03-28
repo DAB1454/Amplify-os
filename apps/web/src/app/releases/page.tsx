@@ -166,7 +166,7 @@ export default function ReleasesPage() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ artist_id: artists[0]?.id || "", title: "", release_type: "single", release_date: "" });
+            setFormData({ artist_id: artists[0]?.id || "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "" });
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
