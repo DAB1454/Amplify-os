@@ -25,9 +25,9 @@ VALID_TRANSITIONS: dict[PostStatus, set[PostStatus]] = {
     PostStatus.QUEUED: {PostStatus.APPROVED, PostStatus.DRAFT},
     PostStatus.APPROVED: {PostStatus.SCHEDULED, PostStatus.PUBLISHING, PostStatus.DRAFT},
     PostStatus.SCHEDULED: {PostStatus.PUBLISHING, PostStatus.DRAFT},
-    PostStatus.PUBLISHING: {PostStatus.PUBLISHED, PostStatus.FAILED},
+    PostStatus.PUBLISHING: {PostStatus.PUBLISHED, PostStatus.FAILED, PostStatus.SCHEDULED},
     PostStatus.PUBLISHED: set(),
-    PostStatus.FAILED: {PostStatus.QUEUED, PostStatus.DRAFT},
+    PostStatus.FAILED: {PostStatus.QUEUED, PostStatus.DRAFT, PostStatus.SCHEDULED},
 }
 
 

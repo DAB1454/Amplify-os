@@ -439,13 +439,19 @@ async def generate_media_for_post(
 # ── Retry / Reset ─────────────────────────────────────────────────
 
 
+class RetryRequest(BaseModel):
+    republish: bool = False  # If true, reset AND immediately re-publish
+
+
 @router.post("/{post_id}/retry")
 async def retry_stuck_post(
     post_id: uuid.UUID,
+    body: RetryRequest | None = None,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings_obj: Settings = Depends(get_settings),
 ):
-    """Reset a stuck 'publishing' or 'failed' post back to 'scheduled' so it can be retried."""
+    """Reset a stuck 'publishing' or 'failed' post back to 'scheduled', optionally re-publish immediately."""
     repo = BaseRepository(db, PostModel, tenant_id)
     post = await repo.get(post_id)
     if post is None:
@@ -458,6 +464,22 @@ async def retry_stuck_post(
     post.last_error = None
     post.retry_count = 0
     await db.flush()
+
+    should_republish = body.republish if body else False
+
+    if should_republish:
+        # Immediately attempt to publish
+        try:
+            svc = PublishingService(
+                db=db,
+                tenant_id=tenant_id,
+                settings=settings_obj,
+            )
+            result = await svc.publish_post(post_id)
+            return {"post_id": str(post_id), "status": result.get("status", "published"), "message": "Post re-published successfully"}
+        except Exception as exc:
+            logger.warning("Re-publish failed for %s: %s", post_id, exc)
+            return {"post_id": str(post_id), "status": "scheduled", "message": f"Reset to scheduled, but re-publish failed: {exc}"}
 
     return {"post_id": str(post_id), "status": "scheduled", "message": "Post reset — will retry on next scheduler run"}
 

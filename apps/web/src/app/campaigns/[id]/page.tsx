@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
@@ -724,27 +724,64 @@ export default function CampaignDetailPage() {
                             <span className="text-green-500 text-xs font-medium">Published</span>
                           )}
                           {(post.status === "publishing" || post.status === "failed") && (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-end gap-1.5">
                               <span className="text-amber-500 text-xs font-medium">
                                 {post.status === "publishing" ? "Stuck publishing" : "Failed"}
                               </span>
-                              <button
-                                onClick={async () => {
-                                  setActioningPost(post.id);
-                                  try {
-                                    await apiPost(`/api/v1/posts/${post.id}/retry`, {});
-                                    await fetchPlan();
-                                  } catch (err) {
-                                    setError(err instanceof Error ? err.message : "Retry failed");
-                                  } finally {
-                                    setActioningPost(null);
-                                  }
-                                }}
-                                disabled={isActioning}
-                                className="rounded-lg bg-amber-500 px-2 py-1 text-[10px] font-medium text-white hover:opacity-90 disabled:opacity-50"
-                              >
-                                {isActioning ? "..." : "Retry"}
-                              </button>
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={async () => {
+                                    setActioningPost(post.id);
+                                    try {
+                                      await apiPost(`/api/v1/posts/${post.id}/retry`, { republish: true });
+                                      await fetchPlan();
+                                    } catch (err) {
+                                      setError(err instanceof Error ? err.message : "Re-publish failed");
+                                    } finally {
+                                      setActioningPost(null);
+                                    }
+                                  }}
+                                  disabled={isActioning}
+                                  className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                >
+                                  {isActioning ? "..." : "Re-publish Now"}
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    setActioningPost(post.id);
+                                    try {
+                                      await apiPost(`/api/v1/posts/${post.id}/retry`, {});
+                                      await fetchPlan();
+                                    } catch (err) {
+                                      setError(err instanceof Error ? err.message : "Reset failed");
+                                    } finally {
+                                      setActioningPost(null);
+                                    }
+                                  }}
+                                  disabled={isActioning}
+                                  className="rounded-lg bg-amber-500 px-2 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                >
+                                  Reset
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!confirm("Delete this post?")) return;
+                                    setActioningPost(post.id);
+                                    try {
+                                      await apiDelete(`/api/v1/posts/${post.id}`);
+                                      await fetchPlan();
+                                    } catch (err) {
+                                      setError(err instanceof Error ? err.message : "Delete failed");
+                                    } finally {
+                                      setActioningPost(null);
+                                    }
+                                  }}
+                                  disabled={isActioning}
+                                  className="rounded-lg bg-red-50 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </div>
                           )}
                           {post.approval_status === "rejected" && (
