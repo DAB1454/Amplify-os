@@ -23,6 +23,7 @@ from app.jobs.send_alerts import send_alerts
 from app.jobs.scan_scheduled import scan_scheduled
 from app.jobs.weekly_analyst import weekly_analyst
 from app.jobs.backfill_learning import backfill_learning
+from app.jobs.refresh_tokens import refresh_tokens
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -46,6 +47,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "scan_scheduled": scan_scheduled,
     "weekly_analyst": weekly_analyst,
     "backfill_learning": backfill_learning,
+    "refresh_tokens": refresh_tokens,
     # Intelligence pipeline jobs
     "extract_features": extract_features,
     "compute_rewards": compute_rewards,
@@ -148,6 +150,12 @@ class Worker:
             await self._queue.enqueue("scan_scheduled", {})
 
         self._scheduler.register(scheduled_scan_posts, 60)                  # 60s
+
+        # ── Proactive token refresh — every 15 minutes ────────────────
+        async def scheduled_refresh_tokens() -> None:
+            await self._queue.enqueue("refresh_tokens", {})
+
+        self._scheduler.register(scheduled_refresh_tokens, 900)            # 15m
 
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h

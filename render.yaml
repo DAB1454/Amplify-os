@@ -90,3 +90,21 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: AMPLIFY_YOUTUBE_CLIENT_ID
+        sync: false
+      - key: AMPLIFY_YOUTUBE_CLIENT_SECRET
+        sync: false
+      - key: AMPLIFY_YOUTUBE_REDIRECT_URI
+        sync: false
+      - key: AMPLIFY_INSTAGRAM_CLIENT_ID
+        sync: false
+      - key: AMPLIFY_INSTAGRAM_CLIENT_SECRET
+        sync: false
+      - key: AMPLIFY_INSTAGRAM_REDIRECT_URI
+        sync: false
+      - key: AMPLIFY_TIKTOK_CLIENT_KEY
+        sync: false
+      - key: AMPLIFY_TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: AMPLIFY_TIKTOK_REDIRECT_URI
+        sync: false

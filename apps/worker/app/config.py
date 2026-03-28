@@ -15,6 +15,17 @@ class Settings(BaseSettings):
     token_encryption_key: str = ""
     token_encryption_old_keys: list[str] = []
 
+    # OAuth credentials (needed for token refresh during publish)
+    youtube_client_id: str = ""
+    youtube_client_secret: str = ""
+    youtube_redirect_uri: str = ""
+    instagram_client_id: str = ""
+    instagram_client_secret: str = ""
+    instagram_redirect_uri: str = ""
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = ""
+
     # Queue configuration
     max_retries: int = 3
     backoff_base: int = 2  # seconds — exponential backoff base

@@ -267,10 +267,29 @@ async def _call_adapter(payload: dict) -> dict:
                 media_paths=payload.get("media_urls", []),
             )
         except TokenExpiredError:
-            logger.warning("Token expired for channel %s — publish failed, needs refresh", channel_id)
-            raise Exception(
-                f"Token expired for {platform} channel. User needs to reconnect."
-            )
+            # Auto-refresh token and retry once (same as web API)
+            logger.info("Token expired for channel %s — attempting refresh and retry", channel_id)
+            try:
+                refreshed_tokens = await _refresh_channel_token(
+                    channel_id, channel.tenant_id, platform, tokens, encryptor, settings
+                )
+                # Reconnect adapter with fresh tokens
+                adapter = adapter_class(dry_run=settings.is_local)
+                await adapter.connect({
+                    "access_token": refreshed_tokens.access_token,
+                    "refresh_token": refreshed_tokens.refresh_token,
+                    "token_expires_at": refreshed_tokens.expires_at,
+                    "account_id": refreshed_tokens.account_id,
+                })
+                pub_result = await adapter.publish(
+                    content=payload.get("content", ""),
+                    media_paths=payload.get("media_urls", []),
+                )
+            except Exception as refresh_exc:
+                logger.warning("Token refresh failed for channel %s: %s", channel_id, refresh_exc)
+                raise Exception(
+                    f"Token expired for {platform} channel and refresh failed. User needs to reconnect."
+                ) from refresh_exc
         except RateLimitError as exc:
             raise Exception(
                 f"Rate limited by {platform}. Retry after {exc.retry_after or 60}s."
@@ -314,6 +333,85 @@ async def _update_post_status(
             logger.info("Updated post %s status to %s", post_id, status)
     except Exception:
         logger.exception("Failed to update post %s status", post_id)
+
+
+async def _refresh_channel_token(
+    channel_id: str,
+    tenant_id,
+    platform: str,
+    current_tokens,
+    encryptor,
+    settings,
+):
+    """Refresh an expired token and persist to DB. Returns new TokenSet."""
+    from amplify.db.session import get_async_session
+    from amplify.db.models.channel import ChannelConnectionModel
+    from amplify.adapters.token_store import TokenSet, DatabaseTokenStore
+
+    # Get the right auth class for the platform
+    AUTH_MAP = {
+        "youtube": ("amplify.adapters.youtube.auth", "YouTubeAuth"),
+        "instagram": ("amplify.adapters.instagram.auth", "InstagramAuth"),
+        "tiktok": ("amplify.adapters.tiktok.auth", "TikTokAuth"),
+    }
+    if platform not in AUTH_MAP:
+        raise ValueError(f"No auth handler for platform: {platform}")
+
+    mod_path, cls_name = AUTH_MAP[platform]
+    mod = importlib.import_module(mod_path)
+    auth_class = getattr(mod, cls_name)
+
+    # Build auth with platform credentials from settings
+    if platform == "youtube":
+        auth = auth_class(
+            client_id=settings.youtube_client_id,
+            client_secret=settings.youtube_client_secret,
+            redirect_uri=settings.youtube_redirect_uri or "",
+        )
+    elif platform == "instagram":
+        auth = auth_class(
+            client_id=settings.instagram_client_id,
+            client_secret=settings.instagram_client_secret,
+            redirect_uri=settings.instagram_redirect_uri or "",
+        )
+    elif platform == "tiktok":
+        auth = auth_class(
+            client_key=settings.tiktok_client_key,
+            client_secret=settings.tiktok_client_secret,
+            redirect_uri=settings.tiktok_redirect_uri or "",
+        )
+
+    # Refresh
+    if platform == "instagram":
+        new_tokens = await auth.refresh_token(current_tokens.access_token)
+    else:
+        if not current_tokens.refresh_token:
+            raise ValueError(f"No refresh token for {platform} — user needs to reconnect")
+        new_tokens = await auth.refresh_token(current_tokens.refresh_token)
+
+    # Preserve refresh token if not returned
+    if not new_tokens.refresh_token and current_tokens.refresh_token:
+        new_tokens.refresh_token = current_tokens.refresh_token
+
+    # Persist to DB
+    async with get_async_session(settings.database_url) as db:
+        token_store = DatabaseTokenStore(db, encryptor)
+        await token_store.persist_tokens(uuid.UUID(channel_id), new_tokens)
+
+        # Update last_refresh_at
+        from datetime import datetime
+        result = await db.execute(
+            select(ChannelConnectionModel).where(
+                ChannelConnectionModel.id == uuid.UUID(channel_id)
+            )
+        )
+        channel = result.scalar_one_or_none()
+        if channel:
+            channel.last_refresh_at = datetime.utcnow()
+            await db.flush()
+
+    logger.info("Refreshed token for %s channel %s", platform, channel_id)
+    return new_tokens
 
 
 def _backoff_delay(retry_count: int) -> int:
