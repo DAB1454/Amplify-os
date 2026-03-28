@@ -307,6 +307,7 @@ async def generate_plan(
     # Load release info if linked
     release_title = ""
     release_date = ""
+    release = None
     track_listing = body.track_listing
     if campaign.release_id:
         from amplify.db.models.release import ReleaseModel
@@ -323,6 +324,25 @@ async def generate_plan(
                     select(TrackModel).where(TrackModel.release_id == release.id).order_by(TrackModel.track_number)
                 )
                 track_listing = [t.title for t in tracks_result.scalars().all() if t.title]
+
+            # Auto-populate destination_urls from release if not provided
+            if not body.destination_urls:
+                dest = {}
+                if release.linktree_url:
+                    dest["linktree"] = release.linktree_url
+                if release.bandcamp_url:
+                    dest["bandcamp"] = release.bandcamp_url
+                if release.hyperfollow_url:
+                    dest["hyperfollow"] = release.hyperfollow_url
+                if release.youtube_url:
+                    dest["youtube"] = release.youtube_url
+                if release.tiktok_url:
+                    dest["tiktok"] = release.tiktok_url
+                if release.instagram_url:
+                    dest["instagram"] = release.instagram_url
+                if dest:
+                    body.destination_urls = dest
+                    logger.info("Auto-populated destination_urls from release: %s", list(dest.keys()))
 
     # Channels — use provided or default to connected platforms
     channels = body.channels
@@ -590,7 +610,7 @@ async def generate_plan(
                             status=post_status,
                             content_text=action.content_brief,
                             media_urls=[],
-                            destination_url=action.cta_destination or "",
+                            destination_url=action.cta_destination or (release.linktree_url if release and hasattr(release, 'linktree_url') and release.linktree_url else ""),
                             approval_status=post_approval,
                             day_number=day_idx,
                             action_type_label=action.action_type,

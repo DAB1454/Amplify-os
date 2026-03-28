@@ -19,6 +19,8 @@ interface Release {
   release_date: string | null;
   upc: string | null;
   artwork_url: string | null;
+  linktree_url: string | null;
+  bandcamp_url: string | null;
   created_at: string;
 }
 
@@ -55,6 +57,8 @@ export default function ReleasesPage() {
     title: "",
     release_type: "single",
     release_date: "",
+    linktree_url: "",
+    bandcamp_url: "",
   });
 
   const fetchData = useCallback(async () => {
@@ -107,6 +111,8 @@ export default function ReleasesPage() {
         artist_id: formData.artist_id,
       };
       if (formData.release_date) payload.release_date = formData.release_date;
+      if (formData.linktree_url) payload.linktree_url = formData.linktree_url;
+      if (formData.bandcamp_url) payload.bandcamp_url = formData.bandcamp_url;
 
       if (editingId) {
         await apiPut(`/api/v1/releases/${editingId}`, payload);
@@ -115,7 +121,7 @@ export default function ReleasesPage() {
       }
       setShowForm(false);
       setEditingId(null);
-      setFormData({ artist_id: "", title: "", release_type: "single", release_date: "" });
+      setFormData({ artist_id: "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "" });
       fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -129,6 +135,8 @@ export default function ReleasesPage() {
       title: r.title,
       release_type: r.release_type,
       release_date: r.release_date || "",
+      linktree_url: r.linktree_url || "",
+      bandcamp_url: r.bandcamp_url || "",
     });
     setShowForm(true);
   };
@@ -226,6 +234,28 @@ export default function ReleasesPage() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Linktree URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://linktr.ee/yourname"
+                    value={formData.linktree_url}
+                    onChange={(e) => setFormData({ ...formData, linktree_url: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Bandcamp URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://yourname.bandcamp.com"
+                    value={formData.bandcamp_url}
+                    onChange={(e) => setFormData({ ...formData, bandcamp_url: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  />
+                </div>
+              </div>
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => { setShowForm(false); setEditingId(null); }}
@@ -289,6 +319,8 @@ export default function ReleasesPage() {
                     <p className="text-xs text-[var(--text-secondary)]">
                       {artistMap[r.artist_id] || "Unknown artist"}
                       {r.release_date && ` \u00b7 ${r.release_date}`}
+                      {r.linktree_url && ` \u00b7 `}
+                      {r.linktree_url && <a href={r.linktree_url} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">{"\uD83D\uDD17"} Linktree</a>}
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">

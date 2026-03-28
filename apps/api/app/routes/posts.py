@@ -638,28 +638,4 @@ async def get_post_status(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@router.post("/{post_id}/retry", response_model=PostActionResponse)
-async def retry_post(
-    post_id: uuid.UUID,
-    svc: PublishingService = Depends(_get_publishing_service),
-    user_id: uuid.UUID | None = Depends(get_user_id),
-    audit: AuditService = Depends(get_audit_service),
-):
-    """Re-queue a failed post for another publish attempt."""
-    try:
-        result = await svc.retry_post(post_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except InvalidTransition as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
-    try:
-        await audit.log(
-            action="post.retried",
-            entity_type="post",
-            entity_id=post_id,
-            user_id=user_id,
-        )
-    except Exception as exc:
-        logger.warning("Audit log failed (non-fatal): %s", exc)
-    return result
+## Old retry endpoint removed — replaced by retry_stuck_post above (line ~442)
