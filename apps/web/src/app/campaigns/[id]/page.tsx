@@ -9,6 +9,22 @@ import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
 
 // Interfaces matching the API response (snake_case from Python)
+interface CampaignConfig {
+  channels?: string[];
+  posts_per_day?: number;
+  focus?: string;
+  genre?: string;
+  content_notes?: string;
+}
+
+interface Channel {
+  id: string;
+  platform: string;
+  display_name: string | null;
+  is_active: boolean;
+  artist_id: string;
+}
+
 interface CampaignDetail {
   id: string;
   name: string;
@@ -20,6 +36,7 @@ interface CampaignDetail {
   start_date: string | null;
   end_date: string | null;
   budget: number | null;
+  config: CampaignConfig;
   created_at: string;
 }
 
@@ -121,6 +138,11 @@ export default function CampaignDetailPage() {
   const [aiVideoScenes, setAiVideoScenes] = useState(6);
   const [generatingAIVideo, setGeneratingAIVideo] = useState<string | null>(null);
   const [confirmGenerate, setConfirmGenerate] = useState<{postId: string; cost: number} | null>(null);
+  // Campaign strategy editor
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [showStrategyEditor, setShowStrategyEditor] = useState(false);
+  const [strategyConfig, setStrategyConfig] = useState<CampaignConfig>({});
+  const [savingStrategy, setSavingStrategy] = useState(false);
 
   const fetchPlan = useCallback(async () => {
     try {
@@ -135,7 +157,15 @@ export default function CampaignDetailPage() {
 
   useEffect(() => {
     fetchPlan();
+    apiGet<Channel[]>("/api/v1/channels").then(setChannels).catch(() => {});
   }, [fetchPlan]);
+
+  // Sync strategy config when plan loads
+  useEffect(() => {
+    if (plan?.campaign?.config) {
+      setStrategyConfig(plan.campaign.config);
+    }
+  }, [plan]);
 
   // Auto-generate is handled after handleGeneratePlan is defined below
 
@@ -332,6 +362,30 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const handleSaveStrategy = async () => {
+    setSavingStrategy(true);
+    setError(null);
+    try {
+      await apiPut(`/api/v1/campaigns/${campaignId}`, { config: strategyConfig });
+      setShowStrategyEditor(false);
+      await fetchPlan();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save strategy");
+    } finally {
+      setSavingStrategy(false);
+    }
+  };
+
+  const toggleChannel = (channelId: string) => {
+    setStrategyConfig(prev => {
+      const current = prev.channels || [];
+      const next = current.includes(channelId)
+        ? current.filter(id => id !== channelId)
+        : [...current, channelId];
+      return { ...prev, channels: next };
+    });
+  };
+
   if (loading) {
     return (
       <>
@@ -468,6 +522,139 @@ export default function CampaignDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Strategy Settings Summary / Editor */}
+        <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
+              <span className="font-medium text-[var(--text-primary)]">Strategy:</span>
+              {strategyConfig.posts_per_day ? (
+                <span>{strategyConfig.posts_per_day} posts/day</span>
+              ) : (
+                <span className="italic">Not configured</span>
+              )}
+              {strategyConfig.focus && <span>· {strategyConfig.focus}</span>}
+              {strategyConfig.genre && <span>· {strategyConfig.genre}</span>}
+              {strategyConfig.channels && strategyConfig.channels.length > 0 && (
+                <span>· {strategyConfig.channels.length} channel{strategyConfig.channels.length !== 1 ? "s" : ""}</span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowStrategyEditor(!showStrategyEditor)}
+              className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+            >
+              {showStrategyEditor ? "Close" : "Edit Strategy"}
+            </button>
+          </div>
+
+          {showStrategyEditor && (
+            <div className="mt-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-4 space-y-4">
+              {/* Channels */}
+              {channels.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-2">Channels to post on</label>
+                  <div className="flex flex-wrap gap-2">
+                    {channels.filter(ch => ch.is_active).map(ch => {
+                      const selected = (strategyConfig.channels || []).includes(ch.id);
+                      return (
+                        <button
+                          key={ch.id}
+                          onClick={() => toggleChannel(ch.id)}
+                          className={cn(
+                            "rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors",
+                            selected
+                              ? "bg-indigo-600 text-white border-indigo-600"
+                              : "bg-white text-[var(--text-secondary)] border-[var(--border-color)] hover:border-indigo-300"
+                          )}
+                        >
+                          {platformIcons[ch.platform] || ""} {ch.display_name || ch.platform}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Posts per day + Focus */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Posts per day</label>
+                  <select
+                    value={strategyConfig.posts_per_day || 2}
+                    onChange={(e) => setStrategyConfig(prev => ({ ...prev, posts_per_day: Number(e.target.value) }))}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm"
+                  >
+                    <option value={1}>1 post/day</option>
+                    <option value={2}>2 posts/day</option>
+                    <option value={3}>3 posts/day</option>
+                    <option value={4}>4 posts/day</option>
+                    <option value={5}>5 posts/day</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Focus</label>
+                  <select
+                    value={strategyConfig.focus || "engagement"}
+                    onChange={(e) => setStrategyConfig(prev => ({ ...prev, focus: e.target.value }))}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="engagement">Engagement</option>
+                    <option value="awareness">Awareness</option>
+                    <option value="streams">Drive Streams</option>
+                    <option value="presave">Pre-save Push</option>
+                    <option value="balanced">Balanced</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Genre */}
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Genre / style</label>
+                <input
+                  type="text"
+                  value={strategyConfig.genre || ""}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, genre: e.target.value }))}
+                  placeholder="e.g. Country, Indie Rock, Hip-Hop"
+                  className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm placeholder:text-[var(--text-secondary)]"
+                />
+              </div>
+
+              {/* Content notes */}
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Content notes for AI</label>
+                <textarea
+                  value={strategyConfig.content_notes || ""}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, content_notes: e.target.value }))}
+                  placeholder="e.g. No live footage available. Focus on album art, audio snippets, lyric posts."
+                  rows={2}
+                  className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm placeholder:text-[var(--text-secondary)]"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveStrategy}
+                  disabled={savingStrategy}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingStrategy ? <ButtonSpinner label="Saving..." /> : "Save Strategy"}
+                </button>
+                <button
+                  onClick={() => {
+                    setStrategyConfig(plan?.campaign?.config || {});
+                    setShowStrategyEditor(false);
+                  }}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+              </div>
+              <p className="text-[10px] text-[var(--text-secondary)]">
+                These settings guide the AI when generating or regenerating a plan. Save, then click &quot;Regenerate Plan&quot; to apply.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Stats Bar */}
@@ -665,15 +852,6 @@ export default function CampaignDetailPage() {
                                 {isActioning ? "..." : "\u2713 Approve"}
                               </button>
                               <button
-                                onClick={() => {
-                                  setEditingPost(post.id);
-                                  setEditText(post.content_text);
-                                }}
-                                className="rounded-lg bg-[var(--bg-primary)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
-                              >
-                                Edit
-                              </button>
-                              <button
                                 onClick={() => handlePostAction(post.id, "review-reject")}
                                 disabled={isActioning}
                                 className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
@@ -683,15 +861,54 @@ export default function CampaignDetailPage() {
                             </div>
                           )}
 
-                          {/* Step 2: Generate media (approved posts without media) */}
-                          {post.approval_status === "approved" && (!post.media_urls || post.media_urls.length === 0) && (
+                          {/* Edit + Delete — available on all non-published posts */}
+                          {post.status !== "published" && (
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditingPost(post.id);
+                                  setEditText(post.content_text);
+                                }}
+                                className="rounded-lg bg-[var(--bg-primary)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm("Delete this post?")) return;
+                                  setActioningPost(post.id);
+                                  try {
+                                    await apiDelete(`/api/v1/posts/${post.id}`);
+                                    await fetchPlan();
+                                  } catch (err) {
+                                    setError(err instanceof Error ? err.message : "Delete failed");
+                                  } finally {
+                                    setActioningPost(null);
+                                  }
+                                }}
+                                disabled={isActioning}
+                                className="rounded-lg bg-red-50 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Generate / Regenerate media (approved posts) */}
+                          {post.approval_status === "approved" && post.status !== "published" && (
                             <button
                               onClick={() => handleGenerateMedia(post.id)}
                               disabled={generatingMedia === post.id || generatingAllMedia}
-                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-                              title="Generate media from asset library"
+                              className={cn(
+                                "rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50",
+                                post.media_urls && post.media_urls.length > 0
+                                  ? "bg-indigo-100 text-indigo-700 border border-indigo-300"
+                                  : "bg-indigo-600 text-white"
+                              )}
+                              title={post.media_urls && post.media_urls.length > 0 ? "Re-match assets from library" : "Generate media from asset library"}
                             >
-                              {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Generate Media"}
+                              {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> :
+                                post.media_urls && post.media_urls.length > 0 ? "Regenerate Media" : "Generate Media"}
                             </button>
                           )}
 
