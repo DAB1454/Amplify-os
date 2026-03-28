@@ -819,8 +819,6 @@ async def generate_lyric_video(
     import tempfile
     from pathlib import Path
     from sqlalchemy import select
-    from app.deps import get_media_service
-
     start_time = time.time()
 
     image_url = body.image_url
