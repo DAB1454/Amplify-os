@@ -122,32 +122,63 @@ async def _auto_generate_post_video(
 
     # Content-aware audio matching: pick the track mentioned in the caption
     from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+
+    # Load release name to debias title-track matching
+    release_name_clean = ""
+    if release_id:
+        try:
+            from amplify.db.models.release import ReleaseModel
+            rq = select(ReleaseModel).where(
+                ReleaseModel.id == release_id,
+                ReleaseModel.tenant_id == tenant_id,
+            )
+            rr = await db.execute(rq)
+            rel = rr.scalar_one_or_none()
+            if rel and rel.name:
+                release_name_clean = _normalize_for_match(rel.name.lower())
+        except Exception:
+            pass
+
     hint_lower = content_hint.lower()
-    best_audio = None
-    best_score = -1
+    hint_clean = _normalize_for_match(hint_lower)
+    scored_audio = []
     for asset in audio_assets:
         score = 0
         name_lower = (asset.name or "").lower()
         name_clean = _normalize_for_match(name_lower)
-        hint_clean = _normalize_for_match(hint_lower)
+
+        # Debias: if track name ≈ album name, the match is about the album, not the track
+        is_title_track = (
+            release_name_clean
+            and name_clean
+            and (name_clean == release_name_clean
+                 or name_clean in release_name_clean
+                 or release_name_clean in name_clean)
+        )
 
         # Strong match: track name appears in caption
         if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
-            score += 50
+            score += 10 if is_title_track else 50
         elif _any_phrase_match(hint_lower, name_lower):
-            score += 40
+            score += 8 if is_title_track else 40
 
         # Word-level matches
         for word in set(name_clean.split()):
             if len(word) > 3 and word in hint_clean:
                 score += 5
 
-        if score > best_score:
-            best_score = score
-            best_audio = asset
+        scored_audio.append((score, asset))
 
-    # Fall back to rotation only if no content match found
-    audio = best_audio if best_score > 0 else audio_assets[day_number % len(audio_assets)]
+    scored_audio.sort(key=lambda x: x[0], reverse=True)
+
+    # If there's a clear winner, use it. Otherwise rotate for variety.
+    top_score = scored_audio[0][0] if scored_audio else 0
+    if top_score > 0:
+        close = [a for s, a in scored_audio if s >= top_score - 10]
+        audio = close[day_number % len(close)] if len(close) > 1 else close[0]
+    else:
+        # No content match — rotate through all tracks
+        audio = audio_assets[day_number % len(audio_assets)]
 
     # Pick a semi-random start point in the song for variety
     # Skip the first 15-30 seconds to get past intros

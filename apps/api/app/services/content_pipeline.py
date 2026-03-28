@@ -217,6 +217,7 @@ async def _find_matching_assets(
     day_number: int | None = None,
     assets_required: list[str] | None = None,
     max_results: int = 1,
+    release_name: str | None = None,
 ) -> list[str]:
     """Find matching assets from the library.
 
@@ -228,6 +229,26 @@ async def _find_matching_assets(
     """
     from amplify.db.models.asset import AssetModel
     from sqlalchemy import or_
+
+    # ── Load release name so we can debias title-track matching ──
+    # When album name == title track name, every caption referencing the album
+    # would unfairly score the title track's assets highest.
+    release_name_clean = ""
+    if release_id and not release_name:
+        try:
+            from amplify.db.models.release import ReleaseModel
+            rq = select(ReleaseModel).where(
+                ReleaseModel.id == release_id,
+                ReleaseModel.tenant_id == tenant_id,
+            )
+            rr = await db.execute(rq)
+            rel = rr.scalar_one_or_none()
+            if rel:
+                release_name = rel.name
+        except Exception:
+            pass
+    if release_name:
+        release_name_clean = _normalize_for_match(release_name.lower())
 
     # Load all candidate assets, broadening scope progressively
     candidates: list = []
@@ -310,12 +331,32 @@ async def _find_matching_assets(
         name_clean = _normalize_for_match(name_lower)
         hint_clean = _normalize_for_match(hint_lower)
 
+        # Debias: if asset name matches the release/album name, the match
+        # is likely about the album, NOT specifically about that track.
+        # e.g. album "For Love of Country" + track "For Love of Country" —
+        # every caption mentions the album name, inflating the title track.
+        is_title_track_match = (
+            release_name_clean
+            and name_clean
+            and (name_clean == release_name_clean
+                 or name_clean in release_name_clean
+                 or release_name_clean in name_clean)
+        )
+
         # Check if the asset name (minus extension/type suffixes) appears in caption
         if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
-            score += 50  # Very strong signal — the post is about this track/asset
+            if is_title_track_match:
+                # Only give a small bump — might genuinely be about the title track,
+                # but more likely it's just the album name in the caption
+                score += 10
+            else:
+                score += 50  # Strong signal — the post IS about this track/asset
         # Check reverse: caption words forming a track name that appear in asset name
         elif hint_clean and len(hint_clean) > 3 and _any_phrase_match(hint_lower, name_lower):
-            score += 40
+            if is_title_track_match:
+                score += 8
+            else:
+                score += 40
 
         # ── Keyword matching from hint + assets_required ──
         for word in hint_words:
@@ -363,7 +404,13 @@ async def _find_matching_assets(
                 break
         return urls
 
-    # Return the highest-scored asset (content-matched, not rotated)
+    # If there's a clear winner (>10pt gap), use it.
+    # Otherwise, rotate among top candidates using day_number for variety.
+    top_score = scored[0][0]
+    close_candidates = [a for s, a in scored if s >= top_score - 10]
+    if len(close_candidates) > 1 and day_number is not None:
+        pick = close_candidates[day_number % len(close_candidates)]
+        return [pick.file_url]
     return [scored[0][1].file_url]
 
 

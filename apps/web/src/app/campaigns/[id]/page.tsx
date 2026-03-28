@@ -119,6 +119,9 @@ export default function CampaignDetailPage() {
   const [actioningPost, setActioningPost] = useState<string | null>(null);
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [editMediaUrls, setEditMediaUrls] = useState<string[]>([]);
+  const [showAssetPicker, setShowAssetPicker] = useState(false);
+  const [availableAssets, setAvailableAssets] = useState<Array<{id: string; name: string; file_url: string; asset_type: string; mime_type?: string}>>([]);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [showPlanOptions, setShowPlanOptions] = useState(false);
   const [contentNotes, setContentNotes] = useState("");
@@ -241,13 +244,25 @@ export default function CampaignDetailPage() {
   const handleSaveEdit = async (postId: string) => {
     setActioningPost(postId);
     try {
-      await apiPut(`/api/v1/posts/${postId}`, { content_text: editText });
+      const updates: Record<string, unknown> = { content_text: editText };
+      if (editMediaUrls.length > 0) updates.media_urls = editMediaUrls;
+      await apiPut(`/api/v1/posts/${postId}`, updates);
       setEditingPost(null);
+      setShowAssetPicker(false);
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setActioningPost(null);
+    }
+  };
+
+  const loadAssets = async () => {
+    try {
+      const assets = await apiGet<Array<{id: string; name: string; file_url: string; asset_type: string; mime_type?: string}>>("/api/v1/assets");
+      setAvailableAssets(assets);
+    } catch {
+      // ignore
     }
   };
 
@@ -780,13 +795,108 @@ export default function CampaignDetailPage() {
                         </div>
 
                         {isEditing ? (
-                          <div className="space-y-2">
-                            <textarea
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              rows={4}
-                              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-indigo-500 focus:outline-none resize-none"
-                            />
+                          <div className="space-y-3">
+                            {/* Caption editor */}
+                            <div>
+                              <label className="block text-[10px] font-medium text-[var(--text-secondary)] mb-1">Caption</label>
+                              <textarea
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                rows={4}
+                                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-indigo-500 focus:outline-none resize-none"
+                              />
+                            </div>
+
+                            {/* Current media + swap controls */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[10px] font-medium text-[var(--text-secondary)]">
+                                  Media ({editMediaUrls.length} file{editMediaUrls.length !== 1 ? "s" : ""})
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => { if (!showAssetPicker) loadAssets(); setShowAssetPicker(!showAssetPicker); }}
+                                  className="text-[10px] font-medium text-indigo-600 hover:text-indigo-700"
+                                >
+                                  {showAssetPicker ? "Close Library" : "Swap from Library"}
+                                </button>
+                              </div>
+                              {editMediaUrls.length > 0 && (
+                                <div className="flex gap-2 flex-wrap">
+                                  {editMediaUrls.map((url, i) => {
+                                    const isVideo = /\.(mp4|mov|webm)/i.test(url);
+                                    const isAudio = /\.(mp3|wav|aac|flac)/i.test(url);
+                                    return (
+                                      <div key={i} className="relative group">
+                                        {isVideo ? (
+                                          <video src={url} className="w-16 h-16 rounded object-cover" muted />
+                                        ) : isAudio ? (
+                                          <div className="w-16 h-16 rounded bg-gray-100 flex items-center justify-center text-[10px] text-[var(--text-secondary)]">Audio</div>
+                                        ) : (
+                                          <img src={url} alt="" className="w-16 h-16 rounded object-cover" />
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditMediaUrls(prev => prev.filter((_, idx) => idx !== i))}
+                                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                          X
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {/* Asset library picker */}
+                              {showAssetPicker && (
+                                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+                                  {availableAssets.length === 0 ? (
+                                    <p className="text-xs text-[var(--text-secondary)] text-center py-4">No assets found</p>
+                                  ) : (
+                                    <div className="grid grid-cols-6 gap-2">
+                                      {availableAssets.map(asset => {
+                                        const selected = editMediaUrls.includes(asset.file_url);
+                                        const isAudio = asset.asset_type === "audio" || /\.(mp3|wav|aac|flac)/i.test(asset.file_url);
+                                        const isVideo = asset.asset_type === "video" || /\.(mp4|mov|webm)/i.test(asset.file_url);
+                                        return (
+                                          <button
+                                            key={asset.id}
+                                            type="button"
+                                            onClick={() => {
+                                              if (selected) {
+                                                setEditMediaUrls(prev => prev.filter(u => u !== asset.file_url));
+                                              } else {
+                                                setEditMediaUrls(prev => [...prev, asset.file_url]);
+                                              }
+                                            }}
+                                            className={cn(
+                                              "rounded-lg border-2 p-0.5 transition-colors",
+                                              selected ? "border-indigo-600" : "border-transparent hover:border-gray-300"
+                                            )}
+                                            title={asset.name}
+                                          >
+                                            {isAudio ? (
+                                              <div className="w-full aspect-square rounded bg-gray-100 flex flex-col items-center justify-center">
+                                                <span className="text-lg">♫</span>
+                                                <span className="text-[8px] text-[var(--text-secondary)] truncate w-full px-0.5 text-center">{asset.name}</span>
+                                              </div>
+                                            ) : isVideo ? (
+                                              <div className="w-full aspect-square rounded bg-gray-100 flex flex-col items-center justify-center">
+                                                <span className="text-lg">▶</span>
+                                                <span className="text-[8px] text-[var(--text-secondary)] truncate w-full px-0.5 text-center">{asset.name}</span>
+                                              </div>
+                                            ) : (
+                                              <img src={asset.file_url} alt={asset.name} className="w-full aspect-square rounded object-cover" />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
                             <div className="flex gap-2">
                               <button
                                 onClick={() => handleSaveEdit(post.id)}
@@ -796,7 +906,7 @@ export default function CampaignDetailPage() {
                                 {isActioning ? <ButtonSpinner label="Saving..." /> : "Save"}
                               </button>
                               <button
-                                onClick={() => setEditingPost(null)}
+                                onClick={() => { setEditingPost(null); setShowAssetPicker(false); }}
                                 className="rounded-lg px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                               >
                                 Cancel
@@ -868,6 +978,8 @@ export default function CampaignDetailPage() {
                                 onClick={() => {
                                   setEditingPost(post.id);
                                   setEditText(post.content_text);
+                                  setEditMediaUrls(post.media_urls || []);
+                                  setShowAssetPicker(false);
                                 }}
                                 className="rounded-lg bg-[var(--bg-primary)] px-2 py-1 text-[10px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
                               >
