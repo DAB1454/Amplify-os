@@ -221,10 +221,17 @@ export default function PostsPage() {
           { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
         ];
+      case "publishing":
+        return [
+          { label: "Re-publish", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
+          { label: "Reset to Draft", action: "reset_draft", style: "bg-gray-100 text-gray-600" },
+          { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" },
+        ];
       case "failed":
         return [
           { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Mark Published", action: "mark_published", style: "bg-emerald-100 text-emerald-600" },
+          { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" },
         ];
       default:
         return [];
@@ -869,6 +876,67 @@ export default function PostsPage() {
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
                       >
                         Schedule
+                      </button>
+                    ) : btn.action === "retry" ? (
+                      <button
+                        key="retry"
+                        onClick={async () => {
+                          setActionLoading(`${post.id}-retry`);
+                          try {
+                            await apiPost(`/api/v1/posts/${post.id}/retry`, { republish: true });
+                            setFetchError(null);
+                            fetchPosts();
+                          } catch (err) {
+                            setFetchError(err instanceof Error ? err.message : "Retry failed");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `${post.id}-retry`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {actionLoading === `${post.id}-retry` ? <ButtonSpinner label="Retrying..." /> : btn.label}
+                      </button>
+                    ) : btn.action === "reset_draft" ? (
+                      <button
+                        key="reset_draft"
+                        onClick={async () => {
+                          setActionLoading(`${post.id}-reset_draft`);
+                          try {
+                            await apiPut(`/api/v1/posts/${post.id}`, { status: "draft", last_error: null });
+                            setFetchError(null);
+                            fetchPosts();
+                          } catch (err) {
+                            setFetchError(err instanceof Error ? err.message : "Reset failed");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `${post.id}-reset_draft`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {actionLoading === `${post.id}-reset_draft` ? <ButtonSpinner label="Resetting..." /> : btn.label}
+                      </button>
+                    ) : btn.action === "delete" ? (
+                      <button
+                        key="delete"
+                        onClick={async () => {
+                          if (!confirm("Delete this post?")) return;
+                          setActionLoading(`${post.id}-delete`);
+                          try {
+                            await apiDelete(`/api/v1/posts/${post.id}`);
+                            setFetchError(null);
+                            fetchPosts();
+                          } catch (err) {
+                            setFetchError(err instanceof Error ? err.message : "Delete failed");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `${post.id}-delete`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {actionLoading === `${post.id}-delete` ? <ButtonSpinner label="Deleting..." /> : btn.label}
                       </button>
                     ) : btn.action === "mark_published" ? (
                       <button
