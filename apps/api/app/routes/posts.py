@@ -436,6 +436,32 @@ async def generate_media_for_post(
     )
 
 
+# ── Retry / Reset ─────────────────────────────────────────────────
+
+
+@router.post("/{post_id}/retry")
+async def retry_stuck_post(
+    post_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Reset a stuck 'publishing' or 'failed' post back to 'scheduled' so it can be retried."""
+    repo = BaseRepository(db, PostModel, tenant_id)
+    post = await repo.get(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.status not in ("publishing", "failed"):
+        raise HTTPException(status_code=409, detail=f"Post is '{post.status}', not stuck")
+
+    post.status = "scheduled"
+    post.last_error = None
+    post.retry_count = 0
+    await db.flush()
+
+    return {"post_id": str(post_id), "status": "scheduled", "message": "Post reset — will retry on next scheduler run"}
+
+
 # ── Publishing Workflow ────────────────────────────────────────────
 
 

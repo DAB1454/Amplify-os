@@ -723,6 +723,30 @@ export default function CampaignDetailPage() {
                           {post.status === "published" && (
                             <span className="text-green-500 text-xs font-medium">Published</span>
                           )}
+                          {(post.status === "publishing" || post.status === "failed") && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-amber-500 text-xs font-medium">
+                                {post.status === "publishing" ? "Stuck publishing" : "Failed"}
+                              </span>
+                              <button
+                                onClick={async () => {
+                                  setActioningPost(post.id);
+                                  try {
+                                    await apiPost(`/api/v1/posts/${post.id}/retry`, {});
+                                    await fetchPlan();
+                                  } catch (err) {
+                                    setError(err instanceof Error ? err.message : "Retry failed");
+                                  } finally {
+                                    setActioningPost(null);
+                                  }
+                                }}
+                                disabled={isActioning}
+                                className="rounded-lg bg-amber-500 px-2 py-1 text-[10px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+                              >
+                                {isActioning ? "..." : "Retry"}
+                              </button>
+                            </div>
+                          )}
                           {post.approval_status === "rejected" && (
                             <span className="text-red-400 text-xs">{"\u2715"} Rejected</span>
                           )}
