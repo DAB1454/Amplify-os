@@ -48,7 +48,7 @@ export default function PostsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "" });
+  const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -238,7 +238,7 @@ export default function PostsPage() {
                 const active = chans.filter((c) => ["instagram", "youtube", "tiktok"].includes(c.platform));
                 setChannels(active);
                 if (active.length > 0) {
-                  setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "" });
+                  setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
                 }
               } catch (err) {
                 setCreateError(err instanceof Error ? err.message : "Failed to load channels");
@@ -288,14 +288,18 @@ export default function PostsPage() {
               // Also include any manually entered URLs and selected library assets
               const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
 
-              await apiPost("/api/v1/posts", {
+              const payload: Record<string, unknown> = {
                 channel_id: newPost.channel_id,
                 platform: newPost.platform,
                 content_text: newPost.content_text,
                 media_urls: [...uploadedUrls, ...selectedAssetUrls, ...manualUrls],
-              });
+              };
+              if (newPost.action_type_label) payload.action_type_label = newPost.action_type_label;
+              if (newPost.destination_url) payload.destination_url = newPost.destination_url;
+              if (newPost.scheduled_at) payload.scheduled_at = new Date(newPost.scheduled_at).toISOString();
+              await apiPost("/api/v1/posts", payload);
               setShowCreate(false);
-              setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "" });
+              setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
               setMediaFiles([]);
               setAudioFile(null);
               setSelectedAssetUrls([]);
@@ -318,7 +322,7 @@ export default function PostsPage() {
                 value={newPost.channel_id}
                 onChange={(e) => {
                   const ch = channels.find((c) => c.id === e.target.value);
-                  setNewPost({ ...newPost, channel_id: e.target.value, platform: ch?.platform || "" });
+                  setNewPost({ ...newPost, channel_id: e.target.value, platform: ch?.platform || "", action_type_label: "" });
                 }}
                 className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
               >
@@ -329,6 +333,67 @@ export default function PostsPage() {
                 ))}
               </select>
             )}
+          </div>
+          {/* Post Type + Schedule row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Post Type</label>
+              <select
+                value={newPost.action_type_label}
+                onChange={(e) => setNewPost({ ...newPost, action_type_label: e.target.value })}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                {newPost.platform === "instagram" ? (
+                  <>
+                    <option value="">Auto-detect</option>
+                    <option value="static">Static Image Post</option>
+                    <option value="carousel">Carousel (multiple images)</option>
+                    <option value="reel">Reel (short video)</option>
+                    <option value="story">Story</option>
+                  </>
+                ) : newPost.platform === "tiktok" ? (
+                  <>
+                    <option value="">Auto-detect</option>
+                    <option value="video">Video</option>
+                    <option value="slideshow">Slideshow</option>
+                  </>
+                ) : newPost.platform === "youtube" ? (
+                  <>
+                    <option value="">Auto-detect</option>
+                    <option value="short">YouTube Short</option>
+                    <option value="video">Full Video</option>
+                    <option value="lyric_video">Lyric Video</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="">Default</option>
+                    <option value="static">Image</option>
+                    <option value="video">Video</option>
+                  </>
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Schedule (optional)</label>
+              <input
+                type="datetime-local"
+                value={newPost.scheduled_at}
+                onChange={(e) => setNewPost({ ...newPost, scheduled_at: e.target.value })}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              Destination URL <span className="font-normal">(optional — link in bio, Linktree, etc.)</span>
+            </label>
+            <input
+              type="url"
+              value={newPost.destination_url}
+              onChange={(e) => setNewPost({ ...newPost, destination_url: e.target.value })}
+              placeholder="https://linktr.ee/yourname"
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Content</label>

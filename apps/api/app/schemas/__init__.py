@@ -294,6 +294,7 @@ class PostCreateRequest(BaseModel):
     media_urls: list[str] = Field(default_factory=list)
     scheduled_at: datetime | None = None
     destination_url: str | None = None
+    action_type_label: str | None = None  # e.g. "reel", "story", "static", "short", "lyric_video"
 
 class PostUpdateRequest(BaseModel):
     content_text: str | None = None
@@ -301,6 +302,7 @@ class PostUpdateRequest(BaseModel):
     scheduled_at: datetime | None = None
     status: str | None = None
     destination_url: str | None = None
+    action_type_label: str | None = None
     last_error: str | None = None
     published_at: datetime | None = None
     approval_status: str | None = None
