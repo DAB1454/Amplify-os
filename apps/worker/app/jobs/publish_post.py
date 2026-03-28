@@ -248,6 +248,20 @@ async def _call_adapter(payload: dict) -> dict:
         if not tokens.access_token:
             raise ValueError(f"No access token for channel {channel_id} — reconnect via OAuth")
 
+        # Preemptive refresh: if token is expired or about to expire (<5 min),
+        # refresh now before even connecting the adapter
+        from datetime import timedelta
+        if tokens.expires_at and datetime.utcnow() >= tokens.expires_at - timedelta(minutes=5):
+            logger.info("Token expired/expiring for %s channel %s — refreshing before publish", platform, channel_id)
+            try:
+                tokens = await _refresh_channel_token(
+                    channel_id, channel.tenant_id, platform, tokens, encryptor, settings
+                )
+                logger.info("Preemptive refresh succeeded for channel %s", channel_id)
+            except Exception as refresh_exc:
+                logger.warning("Preemptive refresh failed for channel %s: %s", channel_id, refresh_exc)
+                # Continue anyway — the adapter will raise TokenExpiredError and we'll retry
+
         # Import and instantiate adapter
         module_path, class_name = ADAPTER_MAP[platform].rsplit(".", 1)
         module = importlib.import_module(module_path)
