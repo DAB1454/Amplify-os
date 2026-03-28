@@ -86,10 +86,18 @@ async def create_post(
 ):
     """Create a new post."""
     import logging
+    from datetime import timezone
     logger = logging.getLogger(__name__)
     try:
+        data = body.model_dump()
+        # Strip timezone info — DB stores naive UTC datetimes
+        for dt_field in ("scheduled_at", "published_at"):
+            if dt_field in data and data[dt_field] is not None:
+                dt_val = data[dt_field]
+                if hasattr(dt_val, "tzinfo") and dt_val.tzinfo is not None:
+                    data[dt_field] = dt_val.astimezone(timezone.utc).replace(tzinfo=None)
         repo = BaseRepository(db, PostModel, tenant_id)
-        entity = await repo.create(**body.model_dump())
+        entity = await repo.create(**data)
     except Exception as exc:
         logger.error("Post create failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Post creation failed: {exc}")
