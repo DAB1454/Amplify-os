@@ -53,6 +53,8 @@ class GeneratePlanRequest(BaseModel):
     destination_urls: dict[str, str] = Field(default_factory=dict)
     budget: float | None = None
     content_notes: str = ""  # e.g. "AI-generated music, no video footage, no personal photos"
+    posts_per_day: int = 0  # 0 = let AI decide, 1-3 = target per channel per day
+    focus: str = ""  # e.g. "engagement", "awareness", "conversions"
 
 
 class DailyActionResponse(BaseModel):
@@ -296,6 +298,19 @@ async def generate_plan(
 
     campaign_mode = campaign.mode if hasattr(campaign, 'mode') else "manual"
 
+    # Merge campaign config into request (config saved at campaign creation)
+    campaign_config = campaign.config or {}
+    if not body.channels and campaign_config.get("channels"):
+        body.channels = campaign_config["channels"]
+    if not body.posts_per_day and campaign_config.get("posts_per_day"):
+        body.posts_per_day = campaign_config["posts_per_day"]
+    if not body.focus and campaign_config.get("focus"):
+        body.focus = campaign_config["focus"]
+    if not body.content_notes and campaign_config.get("content_notes"):
+        body.content_notes = campaign_config["content_notes"]
+    if not body.genre and campaign_config.get("genre"):
+        body.genre = campaign_config["genre"]
+
     # Load artist name
     from amplify.db.models.artist import ArtistModel
     artist_result = await db.execute(
@@ -418,6 +433,22 @@ async def generate_plan(
     if has_images:
         img_count = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo"))
         auto_notes.append(f"HAS {img_count} IMAGES (album art, promo photos). Can do carousel posts on Instagram.")
+    # Add posts_per_day and focus as planner directives
+    if body.posts_per_day and body.posts_per_day > 0:
+        auto_notes.append(
+            f"TARGET {body.posts_per_day} POST(S) PER CHANNEL PER DAY. "
+            "Spread them across the day at different times."
+        )
+    if body.focus:
+        focus_map = {
+            "engagement": "Focus on ENGAGEMENT — interactive content, questions, polls, reply-bait, share-worthy posts.",
+            "awareness": "Focus on AWARENESS — maximize reach, use trending formats, hashtag strategy, shareable content.",
+            "conversions": "Focus on CONVERSIONS — strong CTAs, link in bio reminders, pre-save pushes, streaming link drops.",
+            "community": "Focus on COMMUNITY BUILDING — behind-the-scenes, personal stories, fan interaction, user-generated content.",
+        }
+        focus_note = focus_map.get(body.focus, f"Campaign focus: {body.focus}")
+        auto_notes.append(focus_note)
+
     if auto_notes:
         combined_notes = "\n".join(auto_notes)
         if body.content_notes:

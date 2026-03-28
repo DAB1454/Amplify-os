@@ -20,6 +20,22 @@ interface Release {
   release_date: string | null;
 }
 
+interface Channel {
+  id: string;
+  platform: string;
+  display_name: string | null;
+  is_active: boolean;
+  artist_id: string;
+}
+
+interface CampaignConfig {
+  channels?: string[];
+  posts_per_day?: number;
+  focus?: string;
+  genre?: string;
+  content_notes?: string;
+}
+
 interface Campaign {
   id: string;
   artist_id: string;
@@ -31,6 +47,7 @@ interface Campaign {
   start_date: string | null;
   end_date: string | null;
   budget: number | null;
+  config: CampaignConfig;
   created_at: string;
 }
 
@@ -48,10 +65,12 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [artists, setArtists] = useState<Artist[]>([]);
   const [releases, setReleases] = useState<Release[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formStep, setFormStep] = useState<1 | 2>(1);
   const router = useRouter();
   const [formData, setFormData] = useState({
     artist_id: "",
@@ -61,6 +80,13 @@ export default function CampaignsPage() {
     start_date: "",
     end_date: "",
     mode: "ai_plan",
+  });
+  const [configData, setConfigData] = useState<CampaignConfig>({
+    channels: [],
+    posts_per_day: 2,
+    focus: "engagement",
+    genre: "",
+    content_notes: "",
   });
   const [creating, setCreating] = useState(false);
   const [generatingPlanId, setGeneratingPlanId] = useState<string | null>(null);
@@ -79,14 +105,16 @@ export default function CampaignsPage() {
     setError(null);
     try {
       const statusParam = activeTab === "All" ? "" : `?status=${activeTab.toLowerCase()}`;
-      const [camps, arts, rels] = await Promise.all([
+      const [camps, arts, rels, chans] = await Promise.all([
         apiGet<Campaign[]>(`/api/v1/campaigns/${statusParam}`),
         apiGet<Artist[]>("/api/v1/artists/"),
         apiGet<Release[]>("/api/v1/releases/"),
+        apiGet<Channel[]>("/api/v1/channels").catch(() => [] as Channel[]),
       ]);
       setCampaigns(camps);
       setArtists(arts);
       setReleases(rels);
+      setChannels(chans);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load campaigns");
     } finally {
@@ -118,6 +146,15 @@ export default function CampaignsPage() {
       if (formData.end_date) payload.end_date = formData.end_date;
       payload.mode = selectedMode;
 
+      // Save campaign config (channels, posts_per_day, focus, genre, content_notes)
+      const config: CampaignConfig = {};
+      if (configData.channels && configData.channels.length > 0) config.channels = configData.channels;
+      if (configData.posts_per_day) config.posts_per_day = configData.posts_per_day;
+      if (configData.focus) config.focus = configData.focus;
+      if (configData.genre) config.genre = configData.genre;
+      if (configData.content_notes) config.content_notes = configData.content_notes;
+      payload.config = config;
+
       let campaignId = editingId;
 
       if (editingId) {
@@ -129,7 +166,9 @@ export default function CampaignsPage() {
 
       setShowForm(false);
       setEditingId(null);
+      setFormStep(1);
       setFormData({ artist_id: "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "", mode: "ai_plan" });
+      setConfigData({ channels: [], posts_per_day: 2, focus: "engagement", genre: "", content_notes: "" });
 
       // For AI modes, redirect to detail page with auto-generate flag
       if (generatePlan && selectedMode !== "manual" && campaignId) {
@@ -165,6 +204,14 @@ export default function CampaignsPage() {
       end_date: c.end_date || "",
       mode: c.mode || "ai_plan",
     });
+    setConfigData({
+      channels: c.config?.channels || [],
+      posts_per_day: c.config?.posts_per_day || 2,
+      focus: c.config?.focus || "engagement",
+      genre: c.config?.genre || "",
+      content_notes: c.config?.content_notes || "",
+    });
+    setFormStep(1);
     setShowForm(true);
   };
 
@@ -282,6 +329,8 @@ export default function CampaignsPage() {
           onClick={() => {
             setEditingId(null);
             setFormData({ artist_id: artists[0]?.id || "", release_id: "", name: "", phase: "pre_release", start_date: "", end_date: "", mode: "ai_plan" });
+            setConfigData({ channels: [], posts_per_day: 2, focus: "engagement", genre: "", content_notes: "" });
+            setFormStep(1);
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
@@ -293,15 +342,43 @@ export default function CampaignsPage() {
       {/* Form */}
       {showForm && (
         <div className="mt-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-            {editingId ? "Edit Campaign" : "New Campaign"}
-          </h3>
+          {/* Step indicator */}
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+              {editingId ? "Edit Campaign" : "New Campaign"}
+            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setFormStep(1)}
+                className={cn(
+                  "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  formStep === 1 ? "bg-indigo-100 text-indigo-700" : "bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                )}
+              >
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-current/20 text-[10px]">1</span>
+                Basics
+              </button>
+              <span className="text-[var(--text-secondary)]">&rarr;</span>
+              <button
+                onClick={() => { if (formData.name.trim() && formData.artist_id) setFormStep(2); }}
+                className={cn(
+                  "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  formStep === 2 ? "bg-indigo-100 text-indigo-700" : "bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                )}
+              >
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-current/20 text-[10px]">2</span>
+                Strategy
+              </button>
+            </div>
+          </div>
+
           {artists.length === 0 ? (
             <p className="text-sm text-[var(--text-secondary)]">
               Create an artist first before adding a campaign.
             </p>
-          ) : (
+          ) : formStep === 1 ? (
             <>
+              {/* STEP 1: Basics */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label className="text-xs text-[var(--text-secondary)]">Artist *</label>
@@ -327,7 +404,7 @@ export default function CampaignsPage() {
                     <option value="">No release (general campaign)</option>
                     {artistReleases.map((r) => (
                       <option key={r.id} value={r.id}>
-                        {r.title} ({r.release_type}{r.release_date ? ` · ${r.release_date}` : ""})
+                        {r.title} ({r.release_type}{r.release_date ? ` \u00b7 ${r.release_date}` : ""})
                       </option>
                     ))}
                   </select>
@@ -406,7 +483,158 @@ export default function CampaignsPage() {
               )}
               <div className="flex justify-end gap-2">
                 <button
-                  onClick={() => { setShowForm(false); setEditingId(null); }}
+                  onClick={() => { setShowForm(false); setEditingId(null); setFormStep(1); }}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setFormStep(2)}
+                  disabled={!formData.name.trim() || !formData.artist_id}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Next: Strategy &rarr;
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* STEP 2: Strategy & Configuration */}
+
+              {/* Channel Selection */}
+              <div>
+                <label className="text-xs font-medium text-[var(--text-secondary)]">Channels</label>
+                <p className="text-[10px] text-[var(--text-secondary)] mb-2">Select which platforms to include in this campaign</p>
+                <div className="flex flex-wrap gap-2">
+                  {(() => {
+                    // Get unique platforms from connected channels (for the selected artist or all)
+                    const artistChannels = channels.filter(ch => ch.is_active && (!formData.artist_id || ch.artist_id === formData.artist_id));
+                    const platforms = [...new Set(artistChannels.map(ch => ch.platform))];
+                    // Also include common platforms even if not connected
+                    const allPlatforms = [...new Set([...platforms, "instagram", "tiktok", "youtube", "facebook"])];
+                    const platformLabels: Record<string, string> = {
+                      instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube",
+                      facebook: "Facebook", twitter: "X / Twitter",
+                    };
+                    const platformEmoji: Record<string, string> = {
+                      instagram: "\uD83D\uDCF8", tiktok: "\uD83C\uDFB5", youtube: "\u25B6\uFE0F",
+                      facebook: "\uD83D\uDCD8", twitter: "\uD835\uDD4F",
+                    };
+                    return allPlatforms.map((p) => {
+                      const selected = (configData.channels || []).includes(p);
+                      const connected = platforms.includes(p);
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            const current = configData.channels || [];
+                            setConfigData({
+                              ...configData,
+                              channels: selected ? current.filter(c => c !== p) : [...current, p],
+                            });
+                          }}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-all",
+                            selected
+                              ? "border-indigo-500 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-500"
+                              : "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]",
+                            !connected && "opacity-60"
+                          )}
+                        >
+                          <span>{platformEmoji[p] || ""}</span>
+                          <span>{platformLabels[p] || p}</span>
+                          {!connected && <span className="text-[9px] text-amber-500 ml-1">(not connected)</span>}
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              {/* Posts per day + Focus + Genre */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Posts per Channel per Day</label>
+                  <select
+                    value={configData.posts_per_day || 2}
+                    onChange={(e) => setConfigData({ ...configData, posts_per_day: parseInt(e.target.value) })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  >
+                    <option value={1}>1 post/day (minimal)</option>
+                    <option value={2}>2 posts/day (recommended)</option>
+                    <option value={3}>3 posts/day (aggressive)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Campaign Focus</label>
+                  <select
+                    value={configData.focus || "engagement"}
+                    onChange={(e) => setConfigData({ ...configData, focus: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  >
+                    <option value="engagement">Engagement (likes, comments, shares)</option>
+                    <option value="awareness">Awareness (reach, impressions)</option>
+                    <option value="conversions">Conversions (streams, pre-saves, link clicks)</option>
+                    <option value="community">Community (fans, followers, interaction)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Genre</label>
+                  <select
+                    value={configData.genre || ""}
+                    onChange={(e) => setConfigData({ ...configData, genre: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  >
+                    <option value="">Auto-detect</option>
+                    <option value="country">Country</option>
+                    <option value="hip-hop">Hip-Hop / Rap</option>
+                    <option value="pop">Pop</option>
+                    <option value="rock">Rock</option>
+                    <option value="indie">Indie</option>
+                    <option value="r&b">R&B / Soul</option>
+                    <option value="electronic">Electronic / EDM</option>
+                    <option value="latin">Latin</option>
+                    <option value="folk">Folk / Americana</option>
+                    <option value="metal">Metal</option>
+                    <option value="jazz">Jazz</option>
+                    <option value="classical">Classical</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Content Notes */}
+              <div>
+                <label className="text-xs text-[var(--text-secondary)]">Content Notes</label>
+                <p className="text-[10px] text-[var(--text-secondary)] mb-1">Any special instructions for the AI planner (optional)</p>
+                <textarea
+                  value={configData.content_notes || ""}
+                  onChange={(e) => setConfigData({ ...configData, content_notes: e.target.value })}
+                  rows={2}
+                  className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none resize-none"
+                  placeholder="e.g. &quot;AI-generated music, no personal photos available&quot; or &quot;Focus on track #3 as the lead single&quot;"
+                />
+              </div>
+
+              {/* Summary */}
+              <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-3">
+                <div className="text-xs font-medium text-indigo-700 mb-1">Campaign Summary</div>
+                <div className="text-xs text-indigo-600 space-y-0.5">
+                  <div><span className="font-medium">{formData.name}</span> &middot; {formData.mode === "ai_plan" ? "AI Plan" : formData.mode === "autopilot" ? "Autopilot" : "Manual"}</div>
+                  <div>{(configData.channels || []).length > 0 ? (configData.channels || []).join(", ") : "All connected channels"} &middot; {configData.posts_per_day || 2} post(s)/day</div>
+                  {formData.start_date && <div>{formData.start_date}{formData.end_date ? ` \u2013 ${formData.end_date}` : ""}</div>}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setFormStep(1)}
+                  className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  &larr; Back
+                </button>
+                <button
+                  onClick={() => { setShowForm(false); setEditingId(null); setFormStep(1); }}
                   className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 >
                   Cancel
