@@ -827,7 +827,7 @@ async def generate_lyric_video(
     artist_name = body.artist_name
     track_title = body.track_title
 
-    # Auto-resolve from track if provided
+    # Auto-resolve from track if track_id provided
     if body.track_id:
         from amplify.db.models.track import TrackModel
         track_result = await db.execute(
@@ -841,6 +841,60 @@ async def generate_lyric_video(
                 audio_url = track.audio_url
             if not track_title and track.title:
                 track_title = track.title
+
+    # Auto-resolve track from post content or release tracks when no track_id
+    if not body.track_id and body.post_id:
+        from amplify.db.models.post import PostModel
+        from amplify.db.models.track import TrackModel as _TrackModel
+        post_result = await db.execute(
+            select(PostModel).where(PostModel.id == uuid.UUID(body.post_id))
+        )
+        post = post_result.scalar_one_or_none()
+        post_text = (post.content_text or "").lower() if post else ""
+
+        # Find release_id from post's campaign
+        resolve_release_id = body.release_id
+        if not resolve_release_id and post and post.campaign_id:
+            from amplify.db.models.campaign import CampaignModel
+            camp_result = await db.execute(
+                select(CampaignModel).where(CampaignModel.id == post.campaign_id)
+            )
+            camp = camp_result.scalar_one_or_none()
+            if camp and camp.release_id:
+                resolve_release_id = str(camp.release_id)
+
+        if resolve_release_id:
+            tracks_result = await db.execute(
+                select(_TrackModel).where(
+                    _TrackModel.release_id == uuid.UUID(resolve_release_id)
+                ).order_by(_TrackModel.track_number)
+            )
+            all_tracks = list(tracks_result.scalars().all())
+
+            if all_tracks and post_text:
+                # Match track name to post content
+                from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+                best_track = None
+                best_score = 0
+                for t in all_tracks:
+                    t_name = _normalize_for_match((t.title or "").lower())
+                    p_text = _normalize_for_match(post_text)
+                    score = 0
+                    if t_name and len(t_name) > 3 and t_name in p_text:
+                        score = 50
+                    elif _any_phrase_match(post_text, (t.title or "").lower()):
+                        score = 40
+                    if score > best_score:
+                        best_track, best_score = t, score
+
+                if best_track:
+                    if not lyrics and best_track.lyrics:
+                        lyrics = best_track.lyrics
+                    if not audio_url and best_track.audio_url:
+                        audio_url = best_track.audio_url
+                    if not track_title and best_track.title:
+                        track_title = best_track.title
+                    logger.info("Auto-matched track '%s' (score=%d) for lyric video from post content", best_track.title, best_score)
 
     # Auto-resolve image from release artwork
     if body.release_id and not image_url:

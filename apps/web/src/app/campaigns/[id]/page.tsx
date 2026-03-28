@@ -836,11 +836,12 @@ export default function CampaignDetailPage() {
                     {showVideoForm === post.id && (
                       <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50/50 p-3 space-y-2">
                         <p className="text-xs font-medium text-purple-700">Generate Lyric Video</p>
+                        <p className="text-[10px] text-purple-600">Lyrics, audio, and image are auto-pulled from the matching track. Override lyrics below if needed.</p>
                         <textarea
                           value={videoLyrics}
                           onChange={(e) => setVideoLyrics(e.target.value)}
-                          placeholder="Paste lyrics here (or leave blank to auto-pull from track)..."
-                          rows={4}
+                          placeholder="Optional — leave blank to auto-pull lyrics from track"
+                          rows={3}
                           className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
                         />
                         <div className="flex gap-3 items-center">
