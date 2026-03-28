@@ -49,6 +49,12 @@ export default function PostsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
+  // Video generation options for lyric_video / ai_video types
+  const [videoDuration, setVideoDuration] = useState(30);
+  const [videoAspect, setVideoAspect] = useState("9:16");
+  const [videoLyrics, setVideoLyrics] = useState("");
+  const [aiVideoPrompt, setAiVideoPrompt] = useState("");
+  const [aiVideoScenes, setAiVideoScenes] = useState(6);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -297,9 +303,40 @@ export default function PostsPage() {
               if (newPost.action_type_label) payload.action_type_label = newPost.action_type_label;
               if (newPost.destination_url) payload.destination_url = newPost.destination_url;
               if (newPost.scheduled_at) payload.scheduled_at = new Date(newPost.scheduled_at).toISOString();
-              await apiPost("/api/v1/posts", payload);
+              const created = await apiPost<{id: string}>("/api/v1/posts", payload);
+
+              // Auto-trigger video generation if lyric_video or ai_video was selected
+              const actionType = newPost.action_type_label;
+              if (actionType === "lyric_video" && created?.id) {
+                try {
+                  await apiPost("/api/v1/ai/generate-lyric-video", {
+                    post_id: created.id,
+                    lyrics: videoLyrics || undefined,
+                    duration_seconds: videoDuration,
+                    aspect_ratio: videoAspect,
+                    artist_name: "",
+                  }, 120000);
+                } catch (vidErr) {
+                  setCreateError(`Post created, but video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
+                }
+              } else if (actionType === "ai_video" && created?.id) {
+                try {
+                  await apiPost("/api/v1/ai/generate-ai-video", {
+                    post_id: created.id,
+                    prompt: aiVideoPrompt || undefined,
+                    aspect_ratio: videoAspect,
+                    duration_seconds: videoDuration,
+                    num_scenes: aiVideoScenes,
+                  }, 300000);
+                } catch (vidErr) {
+                  setCreateError(`Post created, but AI video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
+                }
+              }
+
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
+              setVideoLyrics("");
+              setAiVideoPrompt("");
               setMediaFiles([]);
               setAudioFile(null);
               setSelectedAssetUrls([]);
@@ -340,7 +377,14 @@ export default function PostsPage() {
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Post Type</label>
               <select
                 value={newPost.action_type_label}
-                onChange={(e) => setNewPost({ ...newPost, action_type_label: e.target.value })}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setNewPost({ ...newPost, action_type_label: val });
+                  // Auto-set aspect ratio based on platform
+                  if (val === "lyric_video" || val === "ai_video") {
+                    setVideoAspect(newPost.platform === "youtube" ? "16:9" : "9:16");
+                  }
+                }}
                 className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
               >
                 {newPost.platform === "instagram" ? (
@@ -350,12 +394,16 @@ export default function PostsPage() {
                     <option value="carousel">Carousel (multiple images)</option>
                     <option value="reel">Reel (short video)</option>
                     <option value="story">Story</option>
+                    <option value="lyric_video">Lyric Video</option>
+                    <option value="ai_video">AI Video ($)</option>
                   </>
                 ) : newPost.platform === "tiktok" ? (
                   <>
                     <option value="">Auto-detect</option>
                     <option value="video">Video</option>
                     <option value="slideshow">Slideshow</option>
+                    <option value="lyric_video">Lyric Video</option>
+                    <option value="ai_video">AI Video ($)</option>
                   </>
                 ) : newPost.platform === "youtube" ? (
                   <>
@@ -363,12 +411,15 @@ export default function PostsPage() {
                     <option value="short">YouTube Short</option>
                     <option value="video">Full Video</option>
                     <option value="lyric_video">Lyric Video</option>
+                    <option value="ai_video">AI Video ($)</option>
                   </>
                 ) : (
                   <>
                     <option value="">Default</option>
                     <option value="static">Image</option>
                     <option value="video">Video</option>
+                    <option value="lyric_video">Lyric Video</option>
+                    <option value="ai_video">AI Video ($)</option>
                   </>
                 )}
               </select>
@@ -383,6 +434,85 @@ export default function PostsPage() {
               />
             </div>
           </div>
+
+          {/* Lyric Video settings */}
+          {newPost.action_type_label === "lyric_video" && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-3">
+              <p className="text-xs font-medium text-purple-700">Lyric Video Settings</p>
+              <p className="text-[10px] text-purple-600">
+                Lyrics and audio are auto-pulled from the matching track in your release. Override lyrics below if needed.
+              </p>
+              <textarea
+                value={videoLyrics}
+                onChange={(e) => setVideoLyrics(e.target.value)}
+                placeholder="Optional — leave blank to auto-pull lyrics from track"
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm placeholder:text-[var(--text-secondary)]"
+              />
+              <div className="flex gap-4">
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)]">Duration</label>
+                  <select value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
+                    <option value={15}>15s</option>
+                    <option value={30}>30s</option>
+                    <option value={60}>60s</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)]">Aspect</label>
+                  <select value={videoAspect} onChange={(e) => setVideoAspect(e.target.value)} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
+                    <option value="9:16">9:16 (Reel/TikTok)</option>
+                    <option value="1:1">1:1 (Feed)</option>
+                    <option value="16:9">16:9 (YouTube)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI Video settings */}
+          {newPost.action_type_label === "ai_video" && (
+            <div className="rounded-lg border border-pink-200 bg-pink-50/50 p-4 space-y-3">
+              <p className="text-xs font-medium text-pink-700">AI Video Settings (Paid)</p>
+              <textarea
+                value={aiVideoPrompt}
+                onChange={(e) => setAiVideoPrompt(e.target.value)}
+                placeholder={"Describe the video scene (or leave blank to auto-generate from lyrics)...\nExample: Cinematic shots of a country road at sunset, fireflies, old barn, golden light"}
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm placeholder:text-[var(--text-secondary)]"
+              />
+              <div className="flex gap-4">
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)]">Scenes</label>
+                  <select value={aiVideoScenes} onChange={(e) => setAiVideoScenes(Number(e.target.value))} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
+                    <option value={4}>4 (~$1.00)</option>
+                    <option value={6}>6 (~$1.50)</option>
+                    <option value={8}>8 (~$2.00)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)]">Duration</label>
+                  <select value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
+                    <option value={15}>15s</option>
+                    <option value={30}>30s</option>
+                    <option value={60}>60s</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)]">Aspect</label>
+                  <select value={videoAspect} onChange={(e) => setVideoAspect(e.target.value)} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
+                    <option value="9:16">9:16 (Reel/TikTok)</option>
+                    <option value="1:1">1:1 (Feed)</option>
+                    <option value="16:9">16:9 (YouTube)</option>
+                  </select>
+                </div>
+              </div>
+              <p className="text-[10px] text-pink-600">
+                AI-generated video clips are stitched with your audio. Takes 2-5 minutes. Cost charged to your Replicate account.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
               Destination URL <span className="font-normal">(optional — link in bio, Linktree, etc.)</span>
@@ -616,7 +746,7 @@ export default function PostsPage() {
             disabled={channels.length === 0 || creating}
             className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {merging ? <ButtonSpinner label="Merging audio..." /> : creating ? <ButtonSpinner label="Creating..." /> : "Create Post"}
+            {merging ? <ButtonSpinner label="Merging audio..." /> : creating ? <ButtonSpinner label={newPost.action_type_label === "lyric_video" ? "Creating + Generating Video..." : newPost.action_type_label === "ai_video" ? "Creating + Generating AI Video..." : "Creating..."} /> : newPost.action_type_label === "lyric_video" ? "Create + Generate Lyric Video" : newPost.action_type_label === "ai_video" ? "Create + Generate AI Video" : "Create Post"}
           </button>
         </form>
       )}
