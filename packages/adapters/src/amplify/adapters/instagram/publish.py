@@ -164,6 +164,10 @@ class InstagramPublisher:
                 platform="instagram",
             )
 
+        # Instagram carousels support max 10 items
+        if len(media_urls) > 10:
+            media_urls = media_urls[:10]
+
         # Step 1: Create child containers
         children_ids = []
         for url in media_urls:
