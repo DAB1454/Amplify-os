@@ -838,7 +838,7 @@ export default function CampaignDetailPage() {
                                         <button
                                           type="button"
                                           onClick={() => setEditMediaUrls(prev => prev.filter((_, idx) => idx !== i))}
-                                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm"
                                         >
                                           X
                                         </button>
@@ -1109,6 +1109,23 @@ export default function CampaignDetailPage() {
                                   className="rounded-lg bg-red-50 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
                                 >
                                   Delete
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    setActioningPost(post.id);
+                                    try {
+                                      await apiPut(`/api/v1/posts/${post.id}`, { status: "published", published_at: new Date().toISOString() });
+                                      await fetchPlan();
+                                    } catch (err) {
+                                      setError(err instanceof Error ? err.message : "Mark published failed");
+                                    } finally {
+                                      setActioningPost(null);
+                                    }
+                                  }}
+                                  disabled={isActioning}
+                                  className="rounded-lg bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100 disabled:opacity-50"
+                                >
+                                  Mark Published
                                 </button>
                               </div>
                             </div>
