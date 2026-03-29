@@ -69,6 +69,7 @@ export default function PostsPage() {
   const [scheduleDateTime, setScheduleDateTime] = useState("");
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [editMediaUrls, setEditMediaUrls] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
   const [previewPostId, setPreviewPostId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
@@ -169,9 +170,12 @@ export default function PostsPage() {
   const handleEditSave = async (postId: string) => {
     setEditSaving(true);
     try {
-      await apiPut(`/api/v1/posts/${postId}`, { content_text: editContent });
+      const updates: Record<string, unknown> = { content_text: editContent };
+      if (editMediaUrls.length > 0) updates.media_urls = editMediaUrls;
+      await apiPut(`/api/v1/posts/${postId}`, updates);
       setEditingPostId(null);
       setEditContent("");
+      setEditMediaUrls([]);
       setFetchError(null);
       fetchPosts();
     } catch (err) {
@@ -971,6 +975,7 @@ export default function PostsPage() {
                           } else {
                             setEditingPostId(post.id);
                             setEditContent(post.content_text || "");
+                            setEditMediaUrls(post.media_urls || []);
                           }
                         }}
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
@@ -1024,17 +1029,47 @@ export default function PostsPage() {
                   )}
                   {/* Inline edit */}
                   {editingPostId === post.id && (
-                    <div className="mt-2 w-full">
+                    <div className="mt-2 w-full space-y-2">
                       <textarea
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
                         rows={4}
                         className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
                       />
-                      <div className="flex gap-2 mt-2">
+                      {/* Media editor */}
+                      {editMediaUrls.length > 0 && (
+                        <div>
+                          <label className="text-[10px] font-medium text-[var(--text-secondary)]">
+                            Media ({editMediaUrls.length} file{editMediaUrls.length !== 1 ? "s" : ""})
+                            {editMediaUrls.length > 10 && <span className="text-red-500 ml-1">— IG carousel max is 10, remove {editMediaUrls.length - 10}</span>}
+                          </label>
+                          <div className="flex gap-1.5 flex-wrap mt-1">
+                            {editMediaUrls.map((url, i) => {
+                              const isVideo = /\.(mp4|mov|webm)/i.test(url);
+                              return (
+                                <div key={i} className="relative group">
+                                  {isVideo ? (
+                                    <video src={url} className="w-14 h-14 rounded object-cover" muted />
+                                  ) : (
+                                    <img src={url} alt="" className="w-14 h-14 rounded object-cover" />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditMediaUrls(prev => prev.filter((_, idx) => idx !== i))}
+                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    X
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-2">
                         <button
                           onClick={() => handleEditSave(post.id)}
-                          disabled={editSaving || editContent === post.content_text}
+                          disabled={editSaving}
                           className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                         >
                           {editSaving ? <ButtonSpinner label="Saving..." /> : "Save"}
