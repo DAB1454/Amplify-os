@@ -239,6 +239,81 @@ async def approve_all_posts(
     }
 
 
+@router.post("/{campaign_id}/sync-calendar")
+async def sync_campaign_calendar(
+    campaign_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Rebuild calendar items from current campaign posts.
+
+    Deletes existing calendar items for the campaign and recreates them
+    from the current posts, so the calendar stays in sync after edits/deletes.
+    """
+    from sqlalchemy import select, delete as sql_delete
+    from amplify.db.models.post import PostModel
+    from amplify.db.models.calendar_item import CalendarItemModel
+    from datetime import time as dt_time
+
+    # Load current posts
+    posts_result = await db.execute(
+        select(PostModel).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+        ).order_by(PostModel.created_at)
+    )
+    posts = posts_result.scalars().all()
+
+    # Delete existing calendar items for this campaign
+    await db.execute(
+        sql_delete(CalendarItemModel).where(
+            CalendarItemModel.campaign_id == campaign_id,
+            CalendarItemModel.tenant_id == tenant_id,
+        )
+    )
+
+    # Stagger times for posts on the same day
+    TIMES = [
+        dt_time(9, 0), dt_time(10, 30), dt_time(12, 0), dt_time(14, 0),
+        dt_time(16, 30), dt_time(18, 0), dt_time(19, 30), dt_time(21, 0),
+    ]
+    day_counters: dict[str, int] = {}
+
+    created = 0
+    for post in posts:
+        scheduled_date = None
+        if post.scheduled_at:
+            scheduled_date = post.scheduled_at.date()
+        elif post.created_at:
+            scheduled_date = post.created_at.date()
+        if not scheduled_date:
+            continue
+
+        day_key = str(scheduled_date)
+        idx = day_counters.get(day_key, 0)
+        day_counters[day_key] = idx + 1
+
+        action_label = post.action_type_label or "post"
+        caption_preview = (post.content_text or "")[:80]
+        title = f"{post.platform} {action_label}: {caption_preview}"
+
+        item = CalendarItemModel(
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            title=title[:255],
+            description=post.content_text or "",
+            item_type=action_label if action_label in ("reel", "story", "email", "ad") else "post",
+            scheduled_date=scheduled_date,
+            scheduled_time=TIMES[idx % len(TIMES)],
+            is_completed=post.status == "published",
+        )
+        db.add(item)
+        created += 1
+
+    await db.flush()
+    return {"synced": created, "campaign_id": str(campaign_id)}
+
+
 @router.delete(
     "/{campaign_id}",
     status_code=status.HTTP_204_NO_CONTENT,

@@ -241,6 +241,14 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const syncCalendar = async () => {
+    try {
+      await apiPost(`/api/v1/campaigns/${campaignId}/sync-calendar`, {});
+    } catch {
+      // non-fatal
+    }
+  };
+
   const handleSaveEdit = async (postId: string) => {
     setActioningPost(postId);
     try {
@@ -249,6 +257,7 @@ export default function CampaignDetailPage() {
       await apiPut(`/api/v1/posts/${postId}`, updates);
       setEditingPost(null);
       setShowAssetPicker(false);
+      await syncCalendar();
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -991,6 +1000,7 @@ export default function CampaignDetailPage() {
                                   setActioningPost(post.id);
                                   try {
                                     await apiDelete(`/api/v1/posts/${post.id}`);
+                                    await syncCalendar();
                                     await fetchPlan();
                                   } catch (err) {
                                     setError(err instanceof Error ? err.message : "Delete failed");
@@ -1063,6 +1073,7 @@ export default function CampaignDetailPage() {
                                     setActioningPost(post.id);
                                     try {
                                       await apiPost(`/api/v1/posts/${post.id}/retry`, { republish: true });
+                                      await syncCalendar();
                                       await fetchPlan();
                                     } catch (err) {
                                       setError(err instanceof Error ? err.message : "Re-publish failed");
@@ -1080,6 +1091,7 @@ export default function CampaignDetailPage() {
                                     setActioningPost(post.id);
                                     try {
                                       await apiPost(`/api/v1/posts/${post.id}/retry`, {});
+                                      await syncCalendar();
                                       await fetchPlan();
                                     } catch (err) {
                                       setError(err instanceof Error ? err.message : "Reset failed");
@@ -1098,6 +1110,7 @@ export default function CampaignDetailPage() {
                                     setActioningPost(post.id);
                                     try {
                                       await apiDelete(`/api/v1/posts/${post.id}`);
+                                      await syncCalendar();
                                       await fetchPlan();
                                     } catch (err) {
                                       setError(err instanceof Error ? err.message : "Delete failed");
@@ -1115,6 +1128,7 @@ export default function CampaignDetailPage() {
                                     setActioningPost(post.id);
                                     try {
                                       await apiPut(`/api/v1/posts/${post.id}`, { status: "published", published_at: new Date().toISOString() });
+                                      await syncCalendar();
                                       await fetchPlan();
                                     } catch (err) {
                                       setError(err instanceof Error ? err.message : "Mark published failed");

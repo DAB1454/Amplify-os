@@ -200,42 +200,52 @@ export default function PostsPage() {
   };
 
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {
+    const edit = { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" };
+    const del = { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" };
     switch (status) {
       case "draft":
         return [
-          { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" },
+          edit,
           { label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
+          del,
         ];
       case "queued":
         return [
-          { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" },
+          edit,
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
           { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
           { label: "Reject", action: "reject", style: "bg-red-100 text-red-600" },
+          del,
         ];
       case "approved":
         return [
+          edit,
           { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
+          del,
         ];
       case "scheduled":
         return [
+          edit,
           { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
+          del,
         ];
       case "publishing":
         return [
+          edit,
           { label: "Re-publish", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Reset to Draft", action: "reset_draft", style: "bg-gray-100 text-gray-600" },
-          { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" },
+          del,
         ];
       case "failed":
         return [
+          edit,
           { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Mark Published", action: "mark_published", style: "bg-emerald-100 text-emerald-600" },
-          { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" },
+          del,
         ];
       default:
         return [];
