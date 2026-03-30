@@ -171,13 +171,14 @@ async def _auto_generate_post_video(
 
     scored_audio.sort(key=lambda x: x[0], reverse=True)
 
-    # If there's a clear winner, use it. Otherwise rotate for variety.
+    # Pick audio: strong match → use it; weak/no match → round-robin ALL tracks
     top_score = scored_audio[0][0] if scored_audio else 0
-    if top_score > 0:
-        close = [a for s, a in scored_audio if s >= top_score - 10]
-        audio = close[day_number % len(close)] if len(close) > 1 else close[0]
+    if top_score >= 30:
+        # Strong match — the caption clearly references this track
+        audio = scored_audio[0][1]
     else:
-        # No content match — rotate through all tracks
+        # Weak or no match — round-robin through ALL available tracks
+        # This ensures every track gets used across the campaign
         audio = audio_assets[day_number % len(audio_assets)]
 
     # Pick a semi-random start point in the song for variety
@@ -569,6 +570,76 @@ async def generate_plan(
     daily_actions = []
     calendar_items_created = 0
     draft_posts_created = 0
+
+    # ── Track coverage rebalancing ──
+    # Ensure underrepresented tracks get posts assigned to them.
+    if plan and hasattr(plan, "daily_actions") and track_listing and len(track_listing) > 1:
+        from collections import Counter
+
+        # Normalize track names for matching
+        def _norm(s: str) -> str:
+            return s.lower().strip().replace("'", "").replace("'", "")
+
+        track_names = [_norm(t) for t in track_listing]
+        release_title_norm = _norm(release_title or "")
+
+        # Count how many posts reference each track
+        track_counts: Counter = Counter()
+        overall_count = 0
+        for action in plan.daily_actions:
+            ref = _norm(action.track_reference or "")
+            if not ref:
+                overall_count += 1
+                continue
+            matched = False
+            for tn in track_names:
+                if tn in ref or ref in tn:
+                    track_counts[tn] += 1
+                    matched = True
+                    break
+            if not matched:
+                overall_count += 1
+
+        # Find tracks with zero posts
+        zero_tracks = [t for t in track_names if track_counts[t] == 0]
+        # Find the most over-represented track
+        max_track = track_counts.most_common(1)[0] if track_counts else None
+
+        if zero_tracks:
+            logger.info(
+                "Track coverage gap: %d/%d tracks have zero posts. Rebalancing...",
+                len(zero_tracks), len(track_names),
+            )
+
+            # Reassign "overall release" posts and excess title-track posts
+            # to underrepresented tracks via round-robin
+            zero_idx = 0
+            for action in plan.daily_actions:
+                if zero_idx >= len(zero_tracks):
+                    break
+                ref = _norm(action.track_reference or "")
+                reassign = False
+
+                # Reassign overall/empty posts
+                if not ref:
+                    reassign = True
+                # Reassign title-track posts if there are too many
+                elif max_track and ref == max_track[0] and max_track[1] > 2:
+                    reassign = True
+
+                if reassign:
+                    original_track = track_listing[track_names.index(zero_tracks[zero_idx])]
+                    action.track_reference = original_track
+                    # Update the caption to mention this track
+                    if action.content_brief and original_track.lower() not in action.content_brief.lower():
+                        action.content_brief = action.content_brief.replace(
+                            release_title or "", original_track
+                        ) if (release_title and release_title.lower() in action.content_brief.lower()) else (
+                            f"{action.content_brief}\n\n🎵 Featuring: {original_track}"
+                        )
+                    zero_idx += 1
+
+            logger.info("Rebalanced %d posts to cover missing tracks", zero_idx)
 
     if plan and hasattr(plan, "daily_actions"):
         for day_idx, action in enumerate(plan.daily_actions, 1):

@@ -75,6 +75,24 @@ What the system CAN do:
 - Attach existing videos or lyric videos from the library
 - Rotate through different images AND different tracks across posts for variety
 
+## CRITICAL: Track Coverage Rules
+
+When planning for a multi-track release (album, EP):
+
+1. **Every track MUST get at least 2 dedicated posts** across the campaign.
+   Do NOT over-index on the title track or lead single. Deep cuts deserve love.
+2. **Max 15% of posts should be "overall release" or "album overview" posts.**
+   The rest must reference a SPECIFIC track by name in the caption.
+3. **Distribute tracks evenly across the campaign timeline.** Don't cluster all
+   posts for one track on the same day. Spread each track's posts across
+   different days.
+4. **The title track (track whose name matches the album name) gets NO MORE
+   posts than any other track.** Treat it equally.
+5. **Use the `track_reference` field** on every action to indicate which specific
+   track the post features. Leave it empty ONLY for true "overall release" posts.
+6. **Variety in consecutive posts.** Never feature the same track in two
+   consecutive posts on the same platform.
+
 What the system CANNOT do:
 - Add text overlays or graphics to images
 - Create slideshows, montages, or countdown graphics
