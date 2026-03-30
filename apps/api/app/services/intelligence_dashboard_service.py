@@ -13,7 +13,7 @@ Aggregates data across the learning subsystem for operator visibility:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, and_, or_, case, desc
@@ -188,7 +188,7 @@ class IntelligenceDashboardService:
         campaign_id: uuid.UUID | None = None,
     ) -> dict[str, Any]:
         """Reward trends over time, grouped by day."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
 
         stmt = (
             select(
@@ -432,7 +432,7 @@ class IntelligenceDashboardService:
         offset: int = 0,
     ) -> dict[str, Any]:
         """Audit trail with filters. suspicious_only surfaces low-confidence actions."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
 
         stmt = (
             select(LearningAuditLogModel)
@@ -484,7 +484,7 @@ class IntelligenceDashboardService:
         - Rapid version changes (patterns updated > 3 times)
         - Anomalous reward values
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
         alerts: list[dict] = []
 
         # Low-confidence active patterns
@@ -598,7 +598,7 @@ class IntelligenceDashboardService:
         limit: int = 50,
     ) -> dict[str, Any]:
         """Recent ranking/scoring audit log entries with explanations."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
 
         stmt = (
             select(LearningAuditLogModel)
