@@ -191,7 +191,7 @@ async def publish_post(payload: dict) -> dict:
                 post_id, retry_count, delay, exc,
             )
             await _update_post_status(
-                post_id, tenant_id, "failed",
+                post_id, tenant_id, "scheduled",
                 last_error=str(exc)[:1000],
                 retry_count=retry_count,
             )

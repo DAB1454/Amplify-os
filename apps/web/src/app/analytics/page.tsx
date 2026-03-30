@@ -125,7 +125,7 @@ export default function AnalyticsPage() {
     try {
       const [ov, ts, sc, rp] = await Promise.all([
         apiGet<Overview>("/api/v1/analytics/overview"),
-        apiGet<TimeseriesData>(`/api/v1/analytics/campaigns/00000000-0000-0000-0000-000000000000/timeseries?days=${days}`),
+        apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}`),
         apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
         apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
       ]);

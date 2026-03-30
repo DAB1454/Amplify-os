@@ -59,7 +59,7 @@ class AnalyticsService:
 
     async def get_campaign_timeseries(
         self,
-        campaign_id: uuid.UUID,
+        campaign_id: uuid.UUID | None = None,
         days: int = 30,
     ) -> dict:
         """Daily impressions, engagement, clicks for a campaign.
@@ -92,14 +92,14 @@ class AnalyticsService:
                     "value": float(total),
                 })
             return {
-                "campaign_id": str(campaign_id),
+                "campaign_id": str(campaign_id) if campaign_id else "all",
                 "days": days,
                 "series": series,
                 "source": "database",
             }
 
         # Fall back to mock data
-        return self._mock_campaign_timeseries(str(campaign_id), days)
+        return self._mock_campaign_timeseries(str(campaign_id) if campaign_id else "all", days)
 
     # ── post scores ──────────────────────────────────────────────
 

@@ -262,7 +262,7 @@ class PublishingService:
                     "alert": True,
                 }
             else:
-                post.status = PostStatus.FAILED.value
+                post.status = PostStatus.SCHEDULED.value
                 await self.db.flush()
                 delay = self._backoff_delay(post.retry_count)
                 logger.warning(

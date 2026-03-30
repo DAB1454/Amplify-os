@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 GRAPH_API = "https://graph.instagram.com/v21.0"
 CONTAINER_POLL_INTERVAL = 3  # seconds
-CONTAINER_POLL_MAX = 60  # max attempts
+CONTAINER_POLL_MAX = 100  # max attempts (~5 minutes)
 
 
 class InstagramPublisher:
@@ -88,15 +88,25 @@ class InstagramPublisher:
         )
 
     async def get_permalink(self, media_id: str) -> str | None:
-        """Fetch the permalink for a published media item."""
-        try:
-            data = await self._api_get(
-                f"/{media_id}",
-                params={"fields": "permalink"},
-            )
-            return data.get("permalink")
-        except Exception:
-            return None
+        """Fetch the permalink for a published media item.
+
+        Retries a few times with backoff since Instagram may not have the
+        permalink available immediately after publishing.
+        """
+        for attempt in range(4):
+            try:
+                if attempt > 0:
+                    await asyncio.sleep(attempt * 2)
+                data = await self._api_get(
+                    f"/{media_id}",
+                    params={"fields": "permalink"},
+                )
+                link = data.get("permalink")
+                if link:
+                    return link
+            except Exception:
+                pass
+        return None
 
     async def publish_photo(self, image_url: str, caption: str) -> str:
         """Publish a single photo post. Returns the media ID."""
@@ -168,7 +178,7 @@ class InstagramPublisher:
         if len(media_urls) > 10:
             media_urls = media_urls[:10]
 
-        # Step 1: Create child containers
+        # Step 1: Create child containers and wait for each to process
         children_ids = []
         for url in media_urls:
             is_video = any(url.lower().endswith(ext) for ext in (".mp4", ".mov"))
@@ -180,6 +190,7 @@ class InstagramPublisher:
                 data["image_url"] = url
 
             child = await self._api_post(f"/{self.account_id}/media", data)
+            await self._wait_for_container(child["id"])
             children_ids.append(child["id"])
 
         # Step 2: Create carousel container
@@ -192,7 +203,8 @@ class InstagramPublisher:
             },
         )
 
-        # Step 3: Publish
+        # Step 3: Wait for carousel container processing, then publish
+        await self._wait_for_container(container["id"])
         result = await self._api_post(
             f"/{self.account_id}/media_publish",
             {"creation_id": container["id"]},

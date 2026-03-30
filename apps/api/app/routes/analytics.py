@@ -28,6 +28,15 @@ async def analytics_overview(
     return await svc.get_overview()
 
 
+@router.get("/timeseries")
+async def all_timeseries(
+    days: int = Query(default=30, ge=1, le=365),
+    svc: AnalyticsService = Depends(_get_analytics_service),
+):
+    """Daily impressions, engagement, and clicks across all campaigns."""
+    return await svc.get_campaign_timeseries(None, days=days)
+
+
 @router.get("/campaigns/{campaign_id}/timeseries")
 async def campaign_timeseries(
     campaign_id: uuid.UUID,
