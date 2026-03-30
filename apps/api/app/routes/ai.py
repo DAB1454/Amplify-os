@@ -93,97 +93,117 @@ async def _auto_generate_post_video(
     day_number: int,
     settings: Settings,
     duration: int = 15,
+    force_audio_url: str | None = None,
 ) -> str | None:
     """Find the best audio asset and generate image+audio→video.
 
     Returns the uploaded video URL, or None if no audio available.
     """
     from amplify.db.models.asset import AssetModel
+    from amplify.db.models.track import TrackModel
     from sqlalchemy import select, or_
     from app.services.media_service import MediaService
     from app.services.video_generator import create_post_video
 
-    # Find audio assets for this artist/release
-    q = select(AssetModel).where(
-        AssetModel.tenant_id == tenant_id,
-        AssetModel.asset_type == "audio",
-        or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)),
-    )
-    if release_id:
-        q = q.where(AssetModel.release_id == release_id)
-    elif artist_id:
-        q = q.where(AssetModel.artist_id == artist_id)
-    q = q.order_by(AssetModel.created_at.desc()).limit(20)
-    result = await db.execute(q)
-    audio_assets = list(result.scalars().all())
+    audio = None
+    matched_track = None
 
-    if not audio_assets:
-        return None
+    # If user forced a specific audio, use it directly
+    if force_audio_url:
+        # Find the asset to get its name
+        aq = select(AssetModel).where(
+            AssetModel.tenant_id == tenant_id,
+            AssetModel.file_url == force_audio_url,
+        ).limit(1)
+        ar = await db.execute(aq)
+        audio = ar.scalar_one_or_none()
+        if not audio:
+            # Create a minimal stand-in — URL is enough for video generation
+            class _FakeAsset:
+                file_url = force_audio_url
+                name = "User-selected track"
+            audio = _FakeAsset()
 
-    # Content-aware audio matching: pick the track mentioned in the caption
-    from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
-
-    # Load release name to debias title-track matching
-    release_name_clean = ""
-    if release_id:
-        try:
-            from amplify.db.models.release import ReleaseModel
-            rq = select(ReleaseModel).where(
-                ReleaseModel.id == release_id,
-                ReleaseModel.tenant_id == tenant_id,
-            )
-            rr = await db.execute(rq)
-            rel = rr.scalar_one_or_none()
-            if rel and rel.name:
-                release_name_clean = _normalize_for_match(rel.name.lower())
-        except Exception:
-            pass
-
-    hint_lower = content_hint.lower()
-    hint_clean = _normalize_for_match(hint_lower)
-    scored_audio = []
-    for asset in audio_assets:
-        score = 0
-        name_lower = (asset.name or "").lower()
-        name_clean = _normalize_for_match(name_lower)
-
-        # Debias: if track name ≈ album name, the match is about the album, not the track
-        is_title_track = (
-            release_name_clean
-            and name_clean
-            and (name_clean == release_name_clean
-                 or name_clean in release_name_clean
-                 or release_name_clean in name_clean)
+    if not audio:
+        # Find audio assets for this artist/release
+        q = select(AssetModel).where(
+            AssetModel.tenant_id == tenant_id,
+            AssetModel.asset_type == "audio",
+            or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)),
         )
+        if release_id:
+            q = q.where(AssetModel.release_id == release_id)
+        elif artist_id:
+            q = q.where(AssetModel.artist_id == artist_id)
+        q = q.order_by(AssetModel.created_at.desc()).limit(20)
+        result = await db.execute(q)
+        audio_assets = list(result.scalars().all())
 
-        # Strong match: track name appears in caption
-        if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
-            score += 10 if is_title_track else 50
-        elif _any_phrase_match(hint_lower, name_lower):
-            score += 8 if is_title_track else 40
+        if not audio_assets:
+            return None
 
-        # Word-level matches
-        for word in set(name_clean.split()):
-            if len(word) > 3 and word in hint_clean:
-                score += 5
+        # Content-aware audio matching
+        from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
 
-        scored_audio.append((score, asset))
+        release_name_clean = ""
+        if release_id:
+            try:
+                from amplify.db.models.release import ReleaseModel
+                rq = select(ReleaseModel).where(
+                    ReleaseModel.id == release_id,
+                    ReleaseModel.tenant_id == tenant_id,
+                )
+                rr = await db.execute(rq)
+                rel = rr.scalar_one_or_none()
+                if rel and rel.name:
+                    release_name_clean = _normalize_for_match(rel.name.lower())
+            except Exception:
+                pass
 
-    scored_audio.sort(key=lambda x: x[0], reverse=True)
+        hint_lower = content_hint.lower()
+        hint_clean = _normalize_for_match(hint_lower)
+        scored_audio = []
+        for asset in audio_assets:
+            score = 0
+            name_lower = (asset.name or "").lower()
+            name_clean = _normalize_for_match(name_lower)
 
-    # Pick audio: strong match → use it; weak/no match → round-robin ALL tracks
-    top_score = scored_audio[0][0] if scored_audio else 0
-    if top_score >= 30:
-        # Strong match — the caption clearly references this track
-        audio = scored_audio[0][1]
-    else:
-        # Weak or no match — round-robin through ALL available tracks
-        # This ensures every track gets used across the campaign
-        audio = audio_assets[day_number % len(audio_assets)]
+            is_title_track = (
+                release_name_clean
+                and name_clean
+                and (name_clean == release_name_clean
+                     or name_clean in release_name_clean
+                     or release_name_clean in name_clean)
+            )
 
-    # Pick a semi-random start point in the song for variety
-    # Skip the first 15-30 seconds to get past intros
-    audio_start = 15 + (day_number * 7) % 30  # varies between 15-44s
+            if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
+                score += 10 if is_title_track else 50
+            elif _any_phrase_match(hint_lower, name_lower):
+                score += 8 if is_title_track else 40
+
+            for word in set(name_clean.split()):
+                if len(word) > 3 and word in hint_clean:
+                    score += 5
+
+            scored_audio.append((score, asset))
+
+        scored_audio.sort(key=lambda x: x[0], reverse=True)
+
+        top_score = scored_audio[0][0] if scored_audio else 0
+        if top_score >= 30:
+            audio = scored_audio[0][1]
+        else:
+            audio = audio_assets[day_number % len(audio_assets)]
+
+    # Smart clip selection: use lyrics to find verse/chorus boundaries
+    audio_start = await _smart_audio_offset(
+        db=db,
+        tenant_id=tenant_id,
+        release_id=release_id,
+        audio_name=getattr(audio, "name", "") or "",
+        day_number=day_number,
+        duration=duration,
+    )
 
     svc = MediaService(
         s3_bucket=settings.s3_bucket,
@@ -203,22 +223,280 @@ async def _auto_generate_post_video(
         audio_start_seconds=audio_start,
     )
 
-    # Save as an asset in the library for reuse
-    asset = AssetModel(
+    asset_record = AssetModel(
         tenant_id=tenant_id,
         artist_id=artist_id,
         release_id=release_id,
         asset_type="video",
-        name=f"Auto clip - {audio.name or 'track'} ({duration}s)",
+        name=f"Auto clip - {getattr(audio, 'name', 'track')} ({duration}s)",
         file_url=video_url,
         mime_type="video/mp4",
         tags=["auto_generated", "post_video"],
         source="ai_generated",
-        approval_status="approved",  # Auto-approve since it uses existing approved assets
+        approval_status="approved",
+    )
+    db.add(asset_record)
+
+    return video_url
+
+
+async def _smart_audio_offset(
+    *,
+    db: "AsyncSession",
+    tenant_id: uuid.UUID,
+    release_id: uuid.UUID | None,
+    audio_name: str,
+    day_number: int,
+    duration: int,
+) -> int:
+    """Pick an audio start offset using lyrics to target verse/chorus sections.
+
+    If lyrics are available, identifies section breaks (verse, chorus, bridge)
+    and rotates through them. Falls back to varied offset if no lyrics.
+    """
+    from amplify.db.models.track import TrackModel
+    from sqlalchemy import select
+    from app.services.content_pipeline import _normalize_for_match
+
+    # Try to find the matching track with lyrics
+    if release_id and audio_name:
+        try:
+            tq = select(TrackModel).where(
+                TrackModel.release_id == release_id,
+                TrackModel.tenant_id == tenant_id,
+            )
+            tr = await db.execute(tq)
+            tracks = list(tr.scalars().all())
+
+            name_clean = _normalize_for_match(audio_name.lower())
+            matched = None
+            for t in tracks:
+                if _normalize_for_match(t.title.lower()) in name_clean or name_clean in _normalize_for_match(t.title.lower()):
+                    matched = t
+                    break
+
+            if matched and matched.lyrics and matched.duration_seconds:
+                sections = _find_lyric_sections(matched.lyrics, matched.duration_seconds)
+                if sections:
+                    # Rotate through sections using day_number
+                    section_start = sections[day_number % len(sections)]
+                    # Ensure we don't go past the end
+                    max_start = max(0, matched.duration_seconds - duration)
+                    return min(section_start, max_start)
+        except Exception:
+            pass
+
+    # Fallback: varied offset that avoids intros
+    # Cycle through: verse1 (~20s), chorus (~45s), verse2 (~75s), bridge (~120s)
+    offsets = [20, 45, 75, 120, 30, 60, 90, 105]
+    return offsets[day_number % len(offsets)]
+
+
+def _find_lyric_sections(lyrics: str, duration_seconds: int) -> list[int]:
+    """Detect verse/chorus/bridge boundaries from lyrics text.
+
+    Returns list of approximate timestamps (in seconds) for section starts.
+    Uses blank lines and common section markers as boundaries.
+    """
+    lines = lyrics.strip().split("\n")
+    if not lines:
+        return []
+
+    # Find section breaks: blank lines, [Verse], [Chorus], etc.
+    section_starts: list[int] = []
+    current_line = 0
+    total_content_lines = sum(1 for l in lines if l.strip())
+    if total_content_lines == 0:
+        return []
+
+    # Estimate seconds per content line
+    secs_per_line = duration_seconds / total_content_lines
+    elapsed = 0.0
+    in_section_gap = True  # Start at beginning of first section
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect section markers
+        is_marker = (
+            not stripped  # blank line = section break
+            or stripped.startswith("[")  # [Verse 1], [Chorus], etc.
+            or stripped.lower() in ("verse", "chorus", "bridge", "outro", "intro", "pre-chorus", "hook")
+        )
+
+        if is_marker:
+            in_section_gap = True
+            if not stripped:
+                continue
+            # Section label like [Chorus] — next content line starts section
+            continue
+
+        if in_section_gap:
+            # First content line after a gap = section start
+            start_sec = int(elapsed)
+            if start_sec > 5:  # Skip very beginning (likely intro)
+                section_starts.append(start_sec)
+            in_section_gap = False
+
+        elapsed += secs_per_line
+
+    # Always include a few standard offsets as fallbacks
+    if not section_starts:
+        # No clear sections — estimate common song structure
+        section_starts = [
+            int(duration_seconds * 0.08),   # verse 1
+            int(duration_seconds * 0.25),   # chorus 1
+            int(duration_seconds * 0.42),   # verse 2
+            int(duration_seconds * 0.58),   # chorus 2
+            int(duration_seconds * 0.75),   # bridge
+        ]
+
+    return section_starts
+
+
+async def _generate_lyric_video_for_post(
+    *,
+    db: "AsyncSession",
+    tenant_id: uuid.UUID,
+    post,
+    image_url: str,
+    force_audio_url: str | None,
+    artist_id: uuid.UUID | None,
+    release_id: uuid.UUID | None,
+    settings: "Settings",
+    duration: int = 30,
+) -> str | None:
+    """Generate a lyric video for a post — image + audio + lyrics overlay.
+
+    Returns uploaded video URL, or None if lyrics/audio unavailable.
+    """
+    from amplify.db.models.track import TrackModel
+    from amplify.db.models.asset import AssetModel
+    from amplify.db.models.release import ReleaseModel
+    from sqlalchemy import select, or_
+    from app.services.media_service import MediaService
+    from app.services.video_generator import create_post_video
+    from app.services.content_pipeline import _normalize_for_match
+
+    # Resolve the track — match by caption content
+    content_lower = (post.content_text or "").lower()
+    content_clean = _normalize_for_match(content_lower)
+
+    matched_track = None
+    audio_url = force_audio_url
+    lyrics = ""
+    artist_name = ""
+    track_title = ""
+
+    if release_id:
+        tq = select(TrackModel).where(
+            TrackModel.release_id == release_id,
+            TrackModel.tenant_id == tenant_id,
+        ).order_by(TrackModel.track_number)
+        tr = await db.execute(tq)
+        tracks = list(tr.scalars().all())
+
+        # Find track mentioned in caption
+        for t in tracks:
+            title_clean = _normalize_for_match(t.title.lower())
+            if title_clean and len(title_clean) > 3 and title_clean in content_clean:
+                matched_track = t
+                break
+
+        # Fallback: round-robin
+        if not matched_track and tracks:
+            matched_track = tracks[(post.day_number or 1) % len(tracks)]
+
+        if matched_track:
+            track_title = matched_track.title
+            lyrics = matched_track.lyrics or ""
+            if not audio_url and matched_track.audio_url:
+                audio_url = matched_track.audio_url
+
+    # If still no audio URL, find from assets
+    if not audio_url and release_id:
+        aq = select(AssetModel).where(
+            AssetModel.tenant_id == tenant_id,
+            AssetModel.asset_type == "audio",
+            AssetModel.release_id == release_id,
+            or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)),
+        ).limit(1)
+        ar = await db.execute(aq)
+        audio_asset = ar.scalar_one_or_none()
+        if audio_asset:
+            audio_url = audio_asset.file_url
+
+    if not audio_url or not lyrics:
+        logger.info("Lyric video skipped for post %s: audio=%s lyrics=%s",
+                     post.id, bool(audio_url), bool(lyrics))
+        return None
+
+    # Get artist name
+    if artist_id:
+        from amplify.db.models.artist import ArtistModel
+        aq = select(ArtistModel).where(ArtistModel.id == artist_id)
+        ar = await db.execute(aq)
+        artist = ar.scalar_one_or_none()
+        if artist:
+            artist_name = artist.name
+
+    # Use the lyric video generator
+    import tempfile
+    from pathlib import Path
+    from app.services.video_generator import generate_lyric_video, download_url_to_file
+
+    svc = MediaService(
+        s3_bucket=settings.s3_bucket,
+        s3_region=settings.s3_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        media_base_url=settings.media_base_url,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="amplify-lyric-") as tmpdir:
+        img_path = str(Path(tmpdir) / "image.jpg")
+        audio_path = str(Path(tmpdir) / "audio.wav")
+        output_path = str(Path(tmpdir) / "lyric-video.mp4")
+
+        await download_url_to_file(image_url, img_path)
+        await download_url_to_file(audio_url, audio_path)
+
+        await generate_lyric_video(
+            image_path=img_path,
+            audio_path=audio_path,
+            lyrics=lyrics,
+            output_path=output_path,
+            aspect_ratio="9:16",
+            duration_seconds=duration,
+            artist_name=artist_name,
+            track_title=track_title,
+        )
+
+        with open(output_path, "rb") as f:
+            url = await svc.upload(
+                tenant_id,
+                f,
+                f"lyric-video-{uuid.uuid4().hex[:8]}.mp4",
+                "video/mp4",
+            )
+
+    # Save as asset
+    asset = AssetModel(
+        tenant_id=tenant_id,
+        artist_id=artist_id,
+        release_id=release_id,
+        asset_type="lyric_video",
+        name=f"Lyric video - {track_title} ({duration}s)",
+        file_url=url,
+        mime_type="video/mp4",
+        tags=["auto_generated", "lyric_video"],
+        source="ai_generated",
+        approval_status="approved",
     )
     db.add(asset)
 
-    return video_url
+    logger.info("Lyric video generated for post %s: %s", post.id, url)
+    return url
 
 
 def _build_runner():

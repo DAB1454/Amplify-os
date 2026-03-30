@@ -20,6 +20,7 @@ interface Post {
   retry_count: number;
   last_error: string | null;
   policy_decision: string | null;
+  action_type_label: string | null;
   created_at: string;
 }
 
@@ -71,6 +72,7 @@ export default function PostsPage() {
   const [editContent, setEditContent] = useState("");
   const [editMediaUrls, setEditMediaUrls] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
+  const [generatingMedia, setGeneratingMedia] = useState<string | null>(null);
   const [previewPostId, setPreviewPostId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -183,6 +185,31 @@ export default function PostsPage() {
     } finally {
       setEditSaving(false);
     }
+  };
+
+  const handleGenerateMedia = async (postId: string, opts?: { forceImageUrl?: string; forceAudioUrl?: string; lyricVideo?: boolean }) => {
+    setGeneratingMedia(postId);
+    setFetchError(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (opts?.forceImageUrl) body.force_image_url = opts.forceImageUrl;
+      if (opts?.forceAudioUrl) body.force_audio_url = opts.forceAudioUrl;
+      if (opts?.lyricVideo) body.generate_lyric_video = true;
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, 120000);
+      fetchPosts();
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : "Media generation failed");
+    } finally {
+      setGeneratingMedia(null);
+    }
+  };
+
+  const handleSaveAndRegenerate = async (postId: string, actionType?: string) => {
+    await handleEditSave(postId);
+    const imageUrl = editMediaUrls.find(u => /\.(jpg|jpeg|png|webp)/i.test(u));
+    const audioUrl = editMediaUrls.find(u => /\.(mp3|wav|aac|flac)/i.test(u));
+    const isLyric = (actionType || "").toLowerCase().includes("lyric");
+    await handleGenerateMedia(postId, { forceImageUrl: imageUrl, forceAudioUrl: audioUrl, lyricVideo: isLyric });
   };
 
   const handlePreview = async (postId: string) => {
@@ -1076,13 +1103,21 @@ export default function PostsPage() {
                           </div>
                         </div>
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button
                           onClick={() => handleEditSave(post.id)}
                           disabled={editSaving}
                           className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                         >
                           {editSaving ? <ButtonSpinner label="Saving..." /> : "Save"}
+                        </button>
+                        <button
+                          onClick={() => handleSaveAndRegenerate(post.id, post.action_type_label || undefined)}
+                          disabled={editSaving || generatingMedia === post.id}
+                          className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                          title="Save changes and regenerate video with selected image and audio"
+                        >
+                          {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Save & Regenerate"}
                         </button>
                         <button
                           onClick={() => handleAiCaption("edit", post.platform || "instagram")}

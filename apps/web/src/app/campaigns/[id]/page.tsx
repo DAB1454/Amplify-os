@@ -184,11 +184,15 @@ export default function CampaignDetailPage() {
     }
   };
 
-  const handleGenerateMedia = async (postId: string) => {
+  const handleGenerateMedia = async (postId: string, opts?: { forceImageUrl?: string; forceAudioUrl?: string; lyricVideo?: boolean }) => {
     setGeneratingMedia(postId);
     setError(null);
     try {
-      await apiPost(`/api/v1/posts/${postId}/generate-media`, {}, 120000);
+      const body: Record<string, unknown> = {};
+      if (opts?.forceImageUrl) body.force_image_url = opts.forceImageUrl;
+      if (opts?.forceAudioUrl) body.force_audio_url = opts.forceAudioUrl;
+      if (opts?.lyricVideo) body.generate_lyric_video = true;
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, 120000);
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Media generation failed");
@@ -906,13 +910,32 @@ export default function CampaignDetailPage() {
                               )}
                             </div>
 
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                               <button
                                 onClick={() => handleSaveEdit(post.id)}
                                 disabled={isActioning}
                                 className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                               >
                                 {isActioning ? <ButtonSpinner label="Saving..." /> : "Save"}
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  // Save first, then regenerate with forced assets
+                                  await handleSaveEdit(post.id);
+                                  const imageUrl = editMediaUrls.find(u => /\.(jpg|jpeg|png|webp)/i.test(u));
+                                  const audioUrl = editMediaUrls.find(u => /\.(mp3|wav|aac|flac)/i.test(u));
+                                  const isLyric = (post.action_type_label || "").toLowerCase().includes("lyric");
+                                  await handleGenerateMedia(post.id, {
+                                    forceImageUrl: imageUrl,
+                                    forceAudioUrl: audioUrl,
+                                    lyricVideo: isLyric,
+                                  });
+                                }}
+                                disabled={isActioning || generatingMedia === post.id}
+                                className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                                title="Save changes and regenerate video with the selected image and audio"
+                              >
+                                {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Save & Regenerate"}
                               </button>
                               <button
                                 onClick={() => { setEditingPost(null); setShowAssetPicker(false); }}

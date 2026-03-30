@@ -326,6 +326,9 @@ class GenerateMediaRequest(BaseModel):
     duration_seconds: int = 15
     aspect_ratio: str = "9:16"
     generate_video: bool = True  # Auto-generate video for TikTok/YouTube posts
+    force_image_url: str | None = None  # User-selected image override
+    force_audio_url: str | None = None  # User-selected audio override
+    generate_lyric_video: bool = False  # Generate lyric overlay video
 
 
 class GenerateMediaResponse(BaseModel):
@@ -372,39 +375,41 @@ async def generate_media_for_post(
             artist_id = campaign.artist_id
             release_id = campaign.release_id
 
-    # Step 1: Find matching image assets from library
-    # Detect carousel posts — multiple images for Instagram feed posts
+    # Step 1: Resolve image — user override or auto-match from library
     action_lower = (post.action_type_label or "").lower()
     content_lower = (post.content_text or "").lower()
-    is_carousel = (
-        "carousel" in action_lower
-        or (post.platform == "instagram"
-            and action_lower not in ("reel", "reels", "short", "story")
-            and any(kw in content_lower for kw in [
-                "artwork", "each song", "each track", "which one", "some of",
-                "sneak peek", "behind the scenes", "swipe", "slide",
-            ]))
-    )
-    max_images = 5 if is_carousel else 1
 
-    from app.services.content_pipeline import _find_matching_assets
-    image_urls = await _find_matching_assets(
-        db=db,
-        tenant_id=tenant_id,
-        artist_id=artist_id,
-        release_id=release_id,
-        campaign_id=post.campaign_id,
-        platform=post.platform,
-        action_type=post.action_type_label,
-        content_hint=post.content_text or "",
-        day_number=post.day_number,
-        max_results=max_images,
-    )
+    if body.force_image_url:
+        image_urls = [body.force_image_url]
+    else:
+        is_carousel = (
+            "carousel" in action_lower
+            or (post.platform == "instagram"
+                and action_lower not in ("reel", "reels", "short", "story")
+                and any(kw in content_lower for kw in [
+                    "artwork", "each song", "each track", "which one", "some of",
+                    "sneak peek", "behind the scenes", "swipe", "slide",
+                ]))
+        )
+        max_images = 5 if is_carousel else 1
+
+        from app.services.content_pipeline import _find_matching_assets
+        image_urls = await _find_matching_assets(
+            db=db,
+            tenant_id=tenant_id,
+            artist_id=artist_id,
+            release_id=release_id,
+            campaign_id=post.campaign_id,
+            platform=post.platform,
+            action_type=post.action_type_label,
+            content_hint=post.content_text or "",
+            day_number=post.day_number,
+            max_results=max_images,
+        )
 
     video_generated = False
 
     # Step 2: Generate video for video-native platforms/formats
-    # TikTok and YouTube always get video; Instagram Reels get video too
     is_video_post = (
         post.platform in {"tiktok", "youtube"}
         or (post.platform == "instagram" and action_lower in ("reel", "reels", "short", "story"))
@@ -415,7 +420,29 @@ async def generate_media_for_post(
         and is_video_post
     )
 
-    if should_generate_video:
+    # Step 2a: Try lyric video if requested or action_type is lyric_video
+    if (body.generate_lyric_video or action_lower in ("lyric_video", "lyric video")) and image_urls:
+        try:
+            from app.routes.ai import _generate_lyric_video_for_post
+            video_url = await _generate_lyric_video_for_post(
+                db=db,
+                tenant_id=tenant_id,
+                post=post,
+                image_url=image_urls[0],
+                force_audio_url=body.force_audio_url,
+                artist_id=artist_id,
+                release_id=release_id,
+                settings=settings_obj,
+                duration=min(max(body.duration_seconds, 10), 90),
+            )
+            if video_url:
+                post.media_urls = [video_url]
+                video_generated = True
+        except Exception as exc:
+            logger.warning("Lyric video generation failed for post %s: %s", post_id, exc)
+
+    # Step 2b: Standard video (image + audio clip)
+    if not video_generated and should_generate_video:
         try:
             from app.routes.ai import _auto_generate_post_video
             video_url = await _auto_generate_post_video(
@@ -428,6 +455,7 @@ async def generate_media_for_post(
                 day_number=post.day_number or 1,
                 settings=settings_obj,
                 duration=min(max(body.duration_seconds, 10), 60),
+                force_audio_url=body.force_audio_url,
             )
             if video_url:
                 post.media_urls = [video_url]

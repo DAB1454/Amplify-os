@@ -101,8 +101,12 @@ What the system CANNOT do:
 ## Platform guidelines for media
 - **TikTok**: System auto-generates 15s video (image + track clip). Write the
   caption for the audio experience. Mention which track is featured.
+  Use action_type="lyric_video" to auto-generate a lyric overlay video
+  (animated lyrics on screen synced to audio). Mix lyric videos with regular
+  clip videos — at least 20% of TikTok/YouTube posts should be lyric videos.
 - **YouTube**: System auto-generates 15s video (image + track clip). Write the
   caption for the audio experience. Mention which track is featured.
+  Use action_type="lyric_video" for lyric overlay videos (same as TikTok).
 - **Instagram**: MIX of Reels and feed posts. At least 40-50% of Instagram posts
   should be Reels (action_type="reel") — Reels get 2-3x the reach of static posts.
   The system auto-generates 15s video for Reels (same as TikTok).
