@@ -849,75 +849,96 @@ async def generate_plan(
     calendar_items_created = 0
     draft_posts_created = 0
 
-    # ── Track coverage rebalancing ──
-    # Ensure underrepresented tracks get posts assigned to them.
+    # ── Track coverage rebalancing (global + per-channel) ──
     if plan and hasattr(plan, "daily_actions") and track_listing and len(track_listing) > 1:
-        from collections import Counter
+        from collections import Counter, defaultdict
 
-        # Normalize track names for matching
         def _norm(s: str) -> str:
-            return s.lower().strip().replace("'", "").replace("'", "")
+            return s.lower().strip().replace("'", "").replace("\u2019", "")
 
         track_names = [_norm(t) for t in track_listing]
-        release_title_norm = _norm(release_title or "")
 
-        # Count how many posts reference each track
-        track_counts: Counter = Counter()
-        overall_count = 0
-        for action in plan.daily_actions:
-            ref = _norm(action.track_reference or "")
-            if not ref:
-                overall_count += 1
-                continue
-            matched = False
+        def _match_track(ref: str) -> str | None:
+            ref_n = _norm(ref)
+            if not ref_n:
+                return None
             for tn in track_names:
-                if tn in ref or ref in tn:
-                    track_counts[tn] += 1
-                    matched = True
-                    break
-            if not matched:
-                overall_count += 1
+                if tn in ref_n or ref_n in tn:
+                    return tn
+            return None
 
-        # Find tracks with zero posts
+        # ── Pass 1: Global rebalancing — cover tracks with zero posts ──
+        track_counts: Counter = Counter()
+        for action in plan.daily_actions:
+            tn = _match_track(action.track_reference or "")
+            if tn:
+                track_counts[tn] += 1
+
         zero_tracks = [t for t in track_names if track_counts[t] == 0]
-        # Find the most over-represented track
         max_track = track_counts.most_common(1)[0] if track_counts else None
 
         if zero_tracks:
-            logger.info(
-                "Track coverage gap: %d/%d tracks have zero posts. Rebalancing...",
-                len(zero_tracks), len(track_names),
-            )
-
-            # Reassign "overall release" posts and excess title-track posts
-            # to underrepresented tracks via round-robin
+            logger.info("Track coverage gap: %d/%d tracks have zero posts. Rebalancing...",
+                        len(zero_tracks), len(track_names))
             zero_idx = 0
             for action in plan.daily_actions:
                 if zero_idx >= len(zero_tracks):
                     break
                 ref = _norm(action.track_reference or "")
-                reassign = False
-
-                # Reassign overall/empty posts
-                if not ref:
-                    reassign = True
-                # Reassign title-track posts if there are too many
-                elif max_track and ref == max_track[0] and max_track[1] > 2:
-                    reassign = True
-
+                matched = _match_track(ref)
+                reassign = not matched or (max_track and matched == max_track[0] and max_track[1] > 2)
                 if reassign:
                     original_track = track_listing[track_names.index(zero_tracks[zero_idx])]
                     action.track_reference = original_track
-                    # Update the caption to mention this track
                     if action.content_brief and original_track.lower() not in action.content_brief.lower():
                         action.content_brief = action.content_brief.replace(
                             release_title or "", original_track
                         ) if (release_title and release_title.lower() in action.content_brief.lower()) else (
-                            f"{action.content_brief}\n\n🎵 Featuring: {original_track}"
+                            f"{action.content_brief}\n\n\U0001f3b5 Featuring: {original_track}"
                         )
                     zero_idx += 1
-
             logger.info("Rebalanced %d posts to cover missing tracks", zero_idx)
+
+        # ── Pass 2: Per-channel dedup — no repeated tracks within a channel ──
+        # Group actions by platform
+        channel_actions: dict[str, list] = defaultdict(list)
+        for action in plan.daily_actions:
+            channel_actions[action.platform].append(action)
+
+        total_reassigned = 0
+        for platform, actions in channel_actions.items():
+            seen_tracks: set[str] = set()
+            # Track which tracks haven't been used on this channel yet
+            unused_on_channel = list(track_names)
+
+            for action in actions:
+                matched = _match_track(action.track_reference or "")
+                if matched and matched in seen_tracks:
+                    # This track already has a post on this channel — swap to unused
+                    available = [t for t in unused_on_channel if t not in seen_tracks]
+                    if available:
+                        new_track_norm = available[0]
+                        new_track = track_listing[track_names.index(new_track_norm)]
+                        action.track_reference = new_track
+                        if action.content_brief and new_track.lower() not in action.content_brief.lower():
+                            action.content_brief = action.content_brief.replace(
+                                release_title or "", new_track
+                            ) if (release_title and release_title.lower() in action.content_brief.lower()) else (
+                                f"{action.content_brief}\n\n\U0001f3b5 Featuring: {new_track}"
+                            )
+                        seen_tracks.add(new_track_norm)
+                        total_reassigned += 1
+                    else:
+                        # All tracks used on this channel — allow repeat
+                        if matched:
+                            seen_tracks.add(matched)
+                elif matched:
+                    seen_tracks.add(matched)
+                    if matched in unused_on_channel:
+                        unused_on_channel.remove(matched)
+
+        if total_reassigned:
+            logger.info("Per-channel dedup: reassigned %d duplicate-track posts", total_reassigned)
 
     if plan and hasattr(plan, "daily_actions"):
         for day_idx, action in enumerate(plan.daily_actions, 1):

@@ -83,35 +83,59 @@ When planning for a multi-track release (album, EP):
    Do NOT over-index on the title track or lead single. Deep cuts deserve love.
 2. **Max 15% of posts should be "overall release" or "album overview" posts.**
    The rest must reference a SPECIFIC track by name in the caption.
-3. **Distribute tracks evenly across the campaign timeline.** Don't cluster all
-   posts for one track on the same day. Spread each track's posts across
-   different days.
+3. **Distribute tracks evenly across the campaign timeline AND across channels.**
+   Don't cluster all posts for one track on the same day or same channel.
 4. **The title track (track whose name matches the album name) gets NO MORE
-   posts than any other track.** Treat it equally.
+   posts than any other track.** Treat it equally — same number of posts.
 5. **Use the `track_reference` field** on every action to indicate which specific
    track the post features. Leave it empty ONLY for true "overall release" posts.
 6. **Variety in consecutive posts.** Never feature the same track in two
    consecutive posts on the same platform.
+7. **Per-channel track distribution.** Within EACH channel (YouTube, TikTok,
+   Instagram), cycle through ALL tracks before repeating any. If a channel has
+   10 posts and the album has 14 tracks, those 10 posts should feature 10
+   DIFFERENT tracks — not 8 posts about the title track and 2 about others.
 
 What the system CANNOT do:
 - Add text overlays or graphics to images
 - Create slideshows, montages, or countdown graphics
 - Stitch multiple clips together automatically
 
+## Format Variety (CRITICAL for learning)
+
+The intelligence layer learns what performs best by comparing different formats.
+**Every channel MUST have a MIX of content formats** so the system can learn.
+Do NOT use the same format for every post on a channel.
+
+Recommended format distribution PER CHANNEL (approximate):
+- ~30% short video clips (image + audio excerpt, action_type="reel" or "short")
+- ~15-20% lyric videos (action_type="lyric_video") — lyrics animated on screen
+- ~20-25% static image posts (single image + caption)
+- ~15-20% carousel/multi-image posts (action_type="carousel") — great for
+  "album overview" posts showing multiple track artworks with audio
+- ~10% story/ephemeral content (action_type="story")
+
+**Apply this variety to EACH channel independently.** If YouTube has 10 posts,
+don't make all 10 the same format — mix clips, lyric videos, and static posts.
+Same for Instagram, TikTok, etc.
+
 ## Platform guidelines for media
-- **TikTok**: System auto-generates 15s video (image + track clip). Write the
-  caption for the audio experience. Mention which track is featured.
-  Use action_type="lyric_video" to auto-generate a lyric overlay video
-  (animated lyrics on screen synced to audio). Mix lyric videos with regular
-  clip videos — at least 20% of TikTok/YouTube posts should be lyric videos.
-- **YouTube**: System auto-generates 15s video (image + track clip). Write the
-  caption for the audio experience. Mention which track is featured.
-  Use action_type="lyric_video" for lyric overlay videos (same as TikTok).
-- **Instagram**: MIX of Reels and feed posts. At least 40-50% of Instagram posts
-  should be Reels (action_type="reel") — Reels get 2-3x the reach of static posts.
-  The system auto-generates 15s video for Reels (same as TikTok).
-  For feed posts, system attaches images. For carousels, use asset_requirements
-  like ["promo photo", "album art"].
+- **TikTok**: Mix of formats. Use action_type="reel" for standard 15s video
+  (image + track clip), action_type="lyric_video" for lyric overlay video,
+  and action_type="story" for quick engagement. Mention which track is featured.
+  **Distribute tracks evenly across TikTok posts** — don't repeat the same track.
+- **YouTube**: Mix of formats. Use action_type="short" for 15s video clips,
+  action_type="lyric_video" for lyric videos. **Each YouTube post MUST feature
+  a DIFFERENT track** — never repeat tracks on YouTube unless all tracks are covered.
+  Mention which track is featured in every YouTube caption.
+- **Instagram**: MIX of Reels, feed posts, carousels, and stories.
+  - action_type="reel": 15s video (image + audio clip) — highest reach
+  - action_type="carousel": multi-image post (album art, behind-the-scenes) —
+    great for "album overview" or "meet the tracks" posts with multiple images
+  - action_type="post" or "static": single image + caption
+  - action_type="story": ephemeral story content
+  - action_type="lyric_video": lyric overlay video as Reel
+  At least 40% Reels, but vary the rest. Carousels work great for album-level posts.
 - **Facebook**: System attaches images. For regular posts, one image is fine.
 
 Example asset_requirements values:
