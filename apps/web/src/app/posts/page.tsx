@@ -46,6 +46,7 @@ interface Channel {
 export default function PostsPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("all");
+  const [platformFilter, setPlatformFilter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -86,8 +87,17 @@ export default function PostsPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const query = activeTab === "all" ? "" : `?status=${activeTab}`;
+      const params = new URLSearchParams();
+      if (activeTab !== "all") params.set("status", activeTab);
+      if (platformFilter) params.set("platform", platformFilter);
+      const query = params.toString() ? `?${params.toString()}` : "";
       const data = await apiGet<Post[]>(`/api/v1/posts/${query}`);
+      // Sort newest first: published_at for published, scheduled_at for scheduled, else created_at
+      data.sort((a, b) => {
+        const dateA = a.published_at || a.scheduled_at || a.created_at;
+        const dateB = b.published_at || b.scheduled_at || b.created_at;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
       setPosts(data);
     } catch (err) {
       setPosts([]);
@@ -95,7 +105,7 @@ export default function PostsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [activeTab, platformFilter]);
 
   useEffect(() => {
     fetchPosts();
@@ -817,6 +827,24 @@ export default function PostsPage() {
             }`}
           >
             {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Platform filter */}
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-[var(--text-secondary)]">Platform:</span>
+        {[null, "instagram", "tiktok", "youtube"].map((p) => (
+          <button
+            key={p ?? "all"}
+            onClick={() => setPlatformFilter(p)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              platformFilter === p
+                ? "bg-indigo-600 text-white"
+                : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-color)]"
+            }`}
+          >
+            {p ? p.charAt(0).toUpperCase() + p.slice(1) : "All"}
           </button>
         ))}
       </div>
