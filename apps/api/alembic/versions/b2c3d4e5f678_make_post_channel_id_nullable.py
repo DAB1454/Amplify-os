@@ -12,6 +12,8 @@ down_revision = "a1b2c3d4e567"
 branch_labels = None
 depends_on = None
 
+FK_NAME = "fk_posts_channel_id_channel_connections"
+
 
 def upgrade() -> None:
     # Make channel_id nullable so posts survive channel disconnect/reconnect
@@ -22,9 +24,9 @@ def upgrade() -> None:
         nullable=True,
     )
     # Update FK to SET NULL on delete
-    op.drop_constraint("posts_channel_id_fkey", "posts", type_="foreignkey")
+    op.drop_constraint(FK_NAME, "posts", type_="foreignkey")
     op.create_foreign_key(
-        "posts_channel_id_fkey",
+        FK_NAME,
         "posts",
         "channel_connections",
         ["channel_id"],
@@ -34,9 +36,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("posts_channel_id_fkey", "posts", type_="foreignkey")
+    op.drop_constraint(FK_NAME, "posts", type_="foreignkey")
     op.create_foreign_key(
-        "posts_channel_id_fkey",
+        FK_NAME,
         "posts",
         "channel_connections",
         ["channel_id"],
