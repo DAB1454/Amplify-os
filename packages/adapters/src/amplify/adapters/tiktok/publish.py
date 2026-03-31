@@ -172,12 +172,15 @@ class TikTokPublisher:
             )
 
         post_info: dict[str, Any] = {
-            "title": caption[:150],
+            "title": caption[:2200],
+            "description": caption[:2200],
             "privacy_level": privacy_level,
             "disable_duet": False,
             "disable_comment": False,
             "disable_stitch": False,
         }
+
+        logger.info("TikTok publish — caption (%d chars): %s", len(caption), caption[:100])
 
         # Init upload
         init_data = await self._init_upload(file_size, post_info=post_info)
