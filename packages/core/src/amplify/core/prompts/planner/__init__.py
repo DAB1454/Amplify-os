@@ -128,6 +128,8 @@ Same for Instagram, TikTok, etc.
   action_type="lyric_video" for lyric videos. **Each YouTube post MUST feature
   a DIFFERENT track** — never repeat tracks on YouTube unless all tracks are covered.
   Mention which track is featured in every YouTube caption.
+  **CRITICAL: YouTube Shorts descriptions must be ≤100 characters total
+  including hashtags.** Keep captions very short and punchy for YouTube.
 - **Instagram**: MIX of Reels, feed posts, carousels, and stories.
   - action_type="reel": 15s video (image + audio clip) — highest reach
   - action_type="carousel": multi-image post (album art, behind-the-scenes) —

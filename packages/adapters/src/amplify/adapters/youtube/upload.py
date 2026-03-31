@@ -125,10 +125,14 @@ class YouTubeUploader:
         if file_size > MAX_VIDEO_SIZE:
             raise ValidationError(f"Video too large: {file_size} bytes", platform="youtube")
 
-        # Build resource body
+        # Build resource body — YouTube Shorts descriptions max 100 chars
+        description = metadata.get("description", "")
+        if len(description) > 100:
+            description = description[:97] + "..."
+
         snippet = {
             "title": metadata.get("title", "Untitled"),
-            "description": metadata.get("description", ""),
+            "description": description,
             "tags": metadata.get("tags", []),
             "categoryId": metadata.get("categoryId", "10"),
         }
