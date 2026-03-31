@@ -26,8 +26,8 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("campaigns.id"), nullable=True
     )
-    channel_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("channel_connections.id"), nullable=False
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("channel_connections.id", ondelete="SET NULL"), nullable=True
     )
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="draft")

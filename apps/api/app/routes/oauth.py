@@ -134,18 +134,13 @@ async def disconnect_channel(
     except Exception as exc:
         logger.warning("Upstream revocation failed (non-fatal): %s", exc)
 
-    # Nullify channel_id on any posts referencing this channel, then delete
+    # Detach posts from channel (preserve them) then delete the channel
     try:
         from amplify.db.models.channel import ChannelConnectionModel
         from sqlalchemy import select, text
-        # Delete child records of posts tied to this channel
-        for child_table in ("learning_events", "post_feature_vectors", "post_outcomes", "approvals"):
-            await db.execute(
-                text(f"DELETE FROM {child_table} WHERE post_id IN (SELECT id FROM posts WHERE channel_id = :cid)"),
-                {"cid": str(channel_id)},
-            )
+        # Nullify channel_id so posts survive reconnect
         await db.execute(
-            text("DELETE FROM posts WHERE channel_id = :cid"),
+            text("UPDATE posts SET channel_id = NULL WHERE channel_id = :cid"),
             {"cid": str(channel_id)},
         )
         result = await db.execute(
@@ -209,8 +204,23 @@ async def oauth_callback(
     async with async_session() as db:
         try:
             from app.services.oauth_service import OAuthService
+            from sqlalchemy import text
             svc = OAuthService(db, redis, settings)
             channel = await svc.handle_callback(platform, code, state)
+
+            # Re-associate orphaned posts (from prior disconnect) with the new channel
+            await db.execute(
+                text(
+                    "UPDATE posts SET channel_id = :new_cid "
+                    "WHERE channel_id IS NULL AND platform = :plat AND tenant_id = :tid"
+                ),
+                {
+                    "new_cid": str(channel.id),
+                    "plat": platform,
+                    "tid": str(channel.tenant_id),
+                },
+            )
+
             await db.commit()
 
             return RedirectResponse(
