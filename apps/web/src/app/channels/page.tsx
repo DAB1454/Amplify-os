@@ -22,6 +22,7 @@ interface Channel {
   platform: string;
   integration_mode: string;
   display_name: string | null;
+  avatar_url: string | null;
   platform_url: string | null;
   platform_account_id: string | null;
   is_active: boolean;
@@ -543,12 +544,20 @@ function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefr
 
   return (
     <div className="flex items-center gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] px-5 py-3">
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-lg shrink-0"
-        style={{ backgroundColor: `${platformColors[channel.platform] || "#888"}20` }}
-      >
-        {platformIcons[channel.platform] || "🔌"}
-      </span>
+      {channel.avatar_url ? (
+        <img
+          src={channel.avatar_url}
+          alt={channel.display_name || channel.platform}
+          className="h-8 w-8 rounded-lg object-cover shrink-0"
+        />
+      ) : (
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-lg shrink-0"
+          style={{ backgroundColor: `${platformColors[channel.platform] || "#888"}20` }}
+        >
+          {platformIcons[channel.platform] || "🔌"}
+        </span>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-[var(--text-primary)] truncate">

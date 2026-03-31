@@ -38,7 +38,6 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
         "user.info.basic",
         "video.publish",
         "video.upload",
-        "video.list",
     ],
 }
 
@@ -56,7 +55,7 @@ SCOPE_CAPABILITIES: dict[str, dict[str, list[str]]] = {
     "tiktok": {
         "can_publish": ["video.publish", "video.upload"],
         "can_fetch_comments": [],
-        "can_sync_metrics": ["video.list"],
+        "can_sync_metrics": [],
     },
 }
 
@@ -225,14 +224,17 @@ class OAuthService:
 
         # Exchange code with PKCE verifier
         tokens: TokenSet = await auth.exchange_code(code, code_verifier=verifier)
+        logger.info("OAuth %s token exchange — extra: %s", platform, tokens.extra)
 
-        # Instagram: upgrade to long-lived token (preserve scopes + account_id)
+        # Instagram: upgrade to long-lived token (preserve scopes, account_id, extra)
         if platform == "instagram" and tokens.access_token:
             short_lived_scopes = tokens.scopes
             short_lived_account_id = tokens.account_id
+            short_lived_extra = tokens.extra
             tokens = await auth.exchange_long_lived(tokens.access_token)
             tokens.scopes = short_lived_scopes
             tokens.account_id = short_lived_account_id or tokens.account_id or ""
+            tokens.extra = short_lived_extra
 
         # Compute capabilities from granted scopes
         capabilities = self._compute_capabilities(platform, tokens.scopes)
@@ -472,6 +474,7 @@ class OAuthService:
                 integration_mode="automatic",
                 platform_account_id=tokens.account_id or None,
                 display_name=tokens.extra.get("display_name"),
+                avatar_url=tokens.extra.get("avatar_url"),
                 is_active=True,
                 granted_scopes=tokens.scopes,
                 capabilities=capabilities,
@@ -483,6 +486,10 @@ class OAuthService:
             channel.granted_scopes = tokens.scopes
             channel.capabilities = capabilities
             channel.disconnect_reason = None
+            if tokens.extra.get("display_name"):
+                channel.display_name = tokens.extra["display_name"]
+            if tokens.extra.get("avatar_url"):
+                channel.avatar_url = tokens.extra["avatar_url"]
             if tokens.account_id:
                 channel.platform_account_id = tokens.account_id
 

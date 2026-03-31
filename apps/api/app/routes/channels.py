@@ -194,6 +194,7 @@ def _channel_to_dict(ch: ChannelConnectionModel) -> dict:
         "platform_account_id": ch.platform_account_id,
         "platform_url": getattr(ch, "platform_url", None),
         "display_name": ch.display_name,
+        "avatar_url": getattr(ch, "avatar_url", None),
         "is_active": ch.is_active,
         "connection_status": _derive_connection_status(ch),
         "granted_scopes": getattr(ch, "granted_scopes", None) or [],

@@ -91,20 +91,39 @@ class InstagramAuth:
         access_token = token_data["access_token"]
         user_id = str(token_data.get("user_id", ""))
 
+        # Fetch user profile for display_name and avatar
+        extra: dict = {}
+        try:
+            async with httpx.AsyncClient() as client:
+                profile_resp = await client.get(
+                    f"{IG_GRAPH_URL}/me",
+                    params={
+                        "fields": "user_id,username,profile_picture_url",
+                        "access_token": access_token,
+                    },
+                )
+                if profile_resp.status_code == 200:
+                    profile = profile_resp.json()
+                    extra["display_name"] = profile.get("username", "")
+                    extra["avatar_url"] = profile.get("profile_picture_url", "")
+                    logger.info("Instagram profile fetched: %s", extra)
+                else:
+                    logger.warning("Instagram profile fetch returned %s: %s", profile_resp.status_code, profile_resp.text[:300])
+        except Exception as exc:
+            logger.warning("Failed to fetch Instagram profile: %s", exc)
+
         return TokenSet(
             access_token=access_token,
             platform="instagram",
             account_id=user_id,
-            # Short-lived tokens expire in ~1 hour
             expires_at=datetime.utcnow() + timedelta(hours=1),
-            # Instagram doesn't return scopes in token response —
-            # they were granted when the user authorized
             scopes=[
                 "instagram_business_basic",
                 "instagram_business_content_publish",
                 "instagram_business_manage_comments",
                 "instagram_business_manage_messages",
             ],
+            extra=extra,
         )
 
     async def exchange_long_lived(self, short_lived_token: str) -> TokenSet:

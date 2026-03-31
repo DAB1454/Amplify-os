@@ -58,7 +58,6 @@ class TikTokAuth:
                 "user.info.basic",
                 "video.publish",
                 "video.upload",
-                "video.list",
             ]),
             "response_type": "code",
         }
@@ -101,13 +100,36 @@ class TikTokAuth:
             )
 
         expires_in = data.get("expires_in", 86400)
+        access_token = data["access_token"]
+        open_id = data.get("open_id", "")
+
+        # Fetch user profile for display_name and avatar_url
+        extra: dict = {}
+        try:
+            async with httpx.AsyncClient() as client:
+                profile_resp = await client.get(
+                    "https://open.tiktokapis.com/v2/user/info/",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"fields": "open_id,display_name,avatar_url"},
+                )
+                if profile_resp.status_code == 200:
+                    user = profile_resp.json().get("data", {}).get("user", {})
+                    extra["display_name"] = user.get("display_name", "")
+                    extra["avatar_url"] = user.get("avatar_url", "")
+                    logger.info("TikTok profile fetched: %s", extra)
+                else:
+                    logger.warning("TikTok profile fetch returned %s: %s", profile_resp.status_code, profile_resp.text[:300])
+        except Exception as exc:
+            logger.warning("Failed to fetch TikTok user profile: %s", exc)
+
         return TokenSet(
-            access_token=data["access_token"],
+            access_token=access_token,
             refresh_token=data.get("refresh_token", ""),
             expires_at=datetime.utcnow() + timedelta(seconds=expires_in),
             platform="tiktok",
-            account_id=data.get("open_id", ""),
+            account_id=open_id,
             scopes=data.get("scope", "").split(","),
+            extra=extra,
         )
 
     async def refresh_token(self, refresh_tok: str) -> TokenSet:

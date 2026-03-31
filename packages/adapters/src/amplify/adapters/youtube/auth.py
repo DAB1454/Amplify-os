@@ -93,12 +93,39 @@ class YouTubeAuth:
             data = resp.json()
 
         expires_in = data.get("expires_in", 3600)
+        access_token = data["access_token"]
+
+        # Fetch channel info for display_name and avatar
+        extra: dict = {}
+        try:
+            async with httpx.AsyncClient() as client:
+                ch_resp = await client.get(
+                    "https://www.googleapis.com/youtube/v3/channels",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"part": "snippet", "mine": "true"},
+                )
+                if ch_resp.status_code == 200:
+                    items = ch_resp.json().get("items", [])
+                    if items:
+                        snippet = items[0].get("snippet", {})
+                        extra["display_name"] = snippet.get("title", "")
+                        thumbs = snippet.get("thumbnails", {})
+                        extra["avatar_url"] = (
+                            thumbs.get("default", {}).get("url", "")
+                        )
+                    logger.info("YouTube profile fetched: %s", extra)
+                else:
+                    logger.warning("YouTube channel fetch returned %s: %s", ch_resp.status_code, ch_resp.text[:300])
+        except Exception as exc:
+            logger.warning("Failed to fetch YouTube channel info: %s", exc)
+
         return TokenSet(
-            access_token=data["access_token"],
+            access_token=access_token,
             refresh_token=data.get("refresh_token", ""),
             expires_at=datetime.utcnow() + timedelta(seconds=expires_in),
             platform="youtube",
             scopes=data.get("scope", "").split(" "),
+            extra=extra,
         )
 
     async def refresh_token(self, refresh_tok: str) -> TokenSet:
