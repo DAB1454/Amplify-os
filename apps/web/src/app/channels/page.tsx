@@ -544,22 +544,36 @@ function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefr
 
   return (
     <div className="flex items-center gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] px-5 py-3">
-      {channel.avatar_url ? (
-        <img
-          src={channel.avatar_url}
-          alt={channel.display_name || channel.platform}
-          className="h-8 w-8 rounded-lg object-cover shrink-0"
-        />
-      ) : (
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-lg shrink-0"
-          style={{ backgroundColor: `${platformColors[channel.platform] || "#888"}20` }}
-        >
-          {platformIcons[channel.platform] || "🔌"}
-        </span>
-      )}
+      <div className="relative shrink-0">
+        {channel.avatar_url ? (
+          <img
+            src={channel.avatar_url}
+            alt={channel.display_name || channel.platform}
+            className="h-10 w-10 rounded-lg object-cover"
+          />
+        ) : (
+          <span
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-lg"
+            style={{ backgroundColor: `${platformColors[channel.platform] || "#888"}20` }}
+          >
+            {platformIcons[channel.platform] || "🔌"}
+          </span>
+        )}
+        {channel.avatar_url && (
+          <span
+            className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] ring-2 ring-[var(--bg-surface)]"
+            style={{ backgroundColor: platformColors[channel.platform] || "#888" }}
+            title={channel.platform}
+          >
+            {platformIcons[channel.platform]}
+          </span>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wider" style={{ color: platformColors[channel.platform] || "#888" }}>
+            {channel.platform}
+          </span>
           <span className="text-sm font-medium text-[var(--text-primary)] truncate">
             {channel.display_name || channel.platform_url || channel.platform}
           </span>
