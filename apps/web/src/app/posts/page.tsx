@@ -92,11 +92,13 @@ export default function PostsPage() {
       if (platformFilter) params.set("platform", platformFilter);
       const query = params.toString() ? `?${params.toString()}` : "";
       const data = await apiGet<Post[]>(`/api/v1/posts/${query}`);
-      // Sort newest first: published_at for published, scheduled_at for scheduled, else created_at
+      // Published/failed: newest first. Everything else: oldest first (next-to-publish on top).
+      const newestFirst = activeTab === "published" || activeTab === "failed";
       data.sort((a, b) => {
         const dateA = a.published_at || a.scheduled_at || a.created_at;
         const dateB = b.published_at || b.scheduled_at || b.created_at;
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
+        const diff = new Date(dateA).getTime() - new Date(dateB).getTime();
+        return newestFirst ? -diff : diff;
       });
       setPosts(data);
     } catch (err) {
