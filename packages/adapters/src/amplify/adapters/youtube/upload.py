@@ -137,7 +137,7 @@ class YouTubeUploader:
             "categoryId": metadata.get("categoryId", "10"),
         }
         status = {
-            "privacyStatus": metadata.get("privacyStatus", "private"),
+            "privacyStatus": metadata.get("privacyStatus", "public"),
             "selfDeclaredMadeForKids": False,
         }
         body = json.dumps({"snippet": snippet, "status": status})
