@@ -189,7 +189,7 @@ class TikTokAdapter(BaseAdapter):
         publish_id = await self._publisher.upload_video(
             media_paths[0],
             content,
-            privacy_level=kwargs.get("privacy_level", "SELF_ONLY"),
+            privacy_level=kwargs.get("privacy_level", "PUBLIC_TO_EVERYONE"),
             as_draft=kwargs.get("as_draft", False),
         )
 
@@ -198,7 +198,7 @@ class TikTokAdapter(BaseAdapter):
             platform_post_id=publish_id,
             status="processing",
             metadata={
-                "privacy_level": kwargs.get("privacy_level", "SELF_ONLY"),
+                "privacy_level": kwargs.get("privacy_level", "PUBLIC_TO_EVERYONE"),
                 "as_draft": kwargs.get("as_draft", False),
             },
         )

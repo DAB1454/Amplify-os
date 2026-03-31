@@ -125,7 +125,7 @@ class TikTokPublisher:
         caption: str,
         *,
         sounds: list[str] | None = None,
-        privacy_level: str = "SELF_ONLY",
+        privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
     ) -> str:
         """Upload a video to TikTok. Returns the publish_id.
@@ -157,7 +157,7 @@ class TikTokPublisher:
         video: Path,
         caption: str,
         *,
-        privacy_level: str = "SELF_ONLY",
+        privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
     ) -> str:
         """Upload a local video file to TikTok. Returns the publish_id."""
