@@ -32,7 +32,7 @@ class ChannelConnectionModel(Base, TimestampMixin, TenantMixin):
     platform_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     platform_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
