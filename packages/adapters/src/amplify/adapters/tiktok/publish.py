@@ -215,17 +215,20 @@ class TikTokPublisher:
             "disable_stitch": False,
         }
 
-        logger.info("TikTok publish — caption (%d chars): %s", len(caption), caption[:100])
+        logger.info("TikTok publish — file_size=%d, caption (%d chars): %s", file_size, len(caption), caption[:100])
 
         # Init upload
         init_data = await self._init_upload(file_size, post_info=post_info)
         publish_id = init_data.get("data", {}).get("publish_id", "")
         upload_url = init_data.get("data", {}).get("upload_url", "")
 
+        logger.info("TikTok init_upload OK — publish_id=%s, has_upload_url=%s", publish_id, bool(upload_url))
+
         if not upload_url:
             raise PublishError("No upload URL returned", platform="tiktok")
 
         # Upload video bytes in chunks
+        chunk_num = 0
         async with httpx.AsyncClient(timeout=300) as client:
             with open(video, "rb") as f:
                 offset = 0
@@ -240,12 +243,28 @@ class TikTokPublisher:
                             "Content-Range": f"bytes {offset}-{chunk_end}/{file_size}",
                         },
                     )
+                    chunk_num += 1
+                    logger.info(
+                        "TikTok chunk %d upload: bytes %d-%d/%d → HTTP %d",
+                        chunk_num, offset, chunk_end, file_size, resp.status_code,
+                    )
                     if resp.status_code >= 400:
                         raise PublishError(
-                            f"Video upload failed: {resp.status_code}",
+                            f"Video chunk upload failed: HTTP {resp.status_code} body={resp.text[:300]}",
                             platform="tiktok",
                         )
                     offset += len(chunk)
+
+        logger.info("TikTok video upload complete — %d chunks, publish_id=%s", chunk_num, publish_id)
+
+        # Check publish status after upload
+        try:
+            import asyncio
+            await asyncio.sleep(2)  # Brief delay for TikTok to process
+            status_data = await self.get_post_status(publish_id)
+            logger.info("TikTok post status after upload: %s", status_data)
+        except Exception as exc:
+            logger.warning("TikTok status check failed (non-fatal): %s", exc)
 
         return publish_id
 
