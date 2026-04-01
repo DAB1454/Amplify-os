@@ -1165,14 +1165,28 @@ export default function PostsPage() {
                         {actionLoading === `${post.id}-delete` ? <ButtonSpinner label="Deleting..." /> : btn.label}
                       </button>
                     ) : btn.action === "generate_video" ? (
-                      <button
-                        key="generate_video"
-                        onClick={() => handleGenerateMedia(post.id, { lyricVideo: (post.action_type_label || "").includes("lyric") })}
-                        disabled={generatingMedia === post.id}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
-                      >
-                        {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Generate Video"}
-                      </button>
+                      generatingMedia === post.id ? (
+                        <span key="generate_video" className={`rounded-lg px-3 py-1.5 text-xs font-medium ${btn.style}`}>
+                          <ButtonSpinner label="Generating..." />
+                        </span>
+                      ) : (
+                        <span key="generate_video" className="inline-flex gap-1">
+                          <button
+                            onClick={() => handleGenerateMedia(post.id, { lyricVideo: false })}
+                            disabled={generatingMedia === post.id}
+                            className="rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 bg-purple-100 text-purple-600"
+                          >
+                            Static Video
+                          </button>
+                          <button
+                            onClick={() => handleGenerateMedia(post.id, { lyricVideo: true })}
+                            disabled={generatingMedia === post.id}
+                            className="rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 bg-purple-600 text-white"
+                          >
+                            Lyric Video
+                          </button>
+                        </span>
+                      )
                     ) : btn.action === "mark_published" ? (
                       <button
                         key="mark_published"
