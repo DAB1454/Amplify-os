@@ -240,7 +240,14 @@ class PublishingService:
         except Exception as exc:
             post.retry_count = (post.retry_count or 0) + 1
             post.last_error = str(exc)[:1000]
-            is_permanent = post.retry_count >= post.max_retries
+            # Detect permanent errors that should not be retried
+            err_str = str(exc).lower()
+            is_auth_error = any(kw in err_str for kw in [
+                "unaudited_client", "invalid_token", "token expired",
+                "access_token_invalid", "scope not authorized",
+                "403", "401", "permission",
+            ])
+            is_permanent = is_auth_error or post.retry_count >= post.max_retries
             if is_permanent:
                 post.status = PostStatus.FAILED.value
                 await self.db.flush()
