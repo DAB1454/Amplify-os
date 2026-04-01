@@ -116,34 +116,44 @@ class TikTokPublisher:
         self,
         video_size: int,
         *,
-        post_info: dict[str, Any],
+        post_info: dict[str, Any] | None = None,
     ) -> dict:
         """Initialize a video upload and get the upload URL.
 
-        For audited apps: uses direct publish endpoint.
-        For unaudited apps: uses inbox endpoint (creator reviews in TikTok app).
+        For audited apps: uses direct publish endpoint with post_info
+        (caption, privacy_level, etc.).
+        For unaudited apps: uses inbox endpoint with source_info only
+        (creator sets caption when reviewing in TikTok app).
         """
+        source_info = {
+            "source": "FILE_UPLOAD",
+            "video_size": video_size,
+            "chunk_size": min(video_size, CHUNK_SIZE),
+            "total_chunk_count": max(1, -(-video_size // CHUNK_SIZE)),
+        }
+
         if self._is_app_audited():
             endpoint = f"{TT_API}/post/publish/video/init/"
+            body: dict[str, Any] = {
+                "post_info": post_info or {},
+                "source_info": source_info,
+            }
         else:
+            # Inbox endpoint does NOT accept post_info — only source_info.
+            # The creator sets caption/privacy when reviewing in TikTok.
             endpoint = f"{TT_API}/post/publish/inbox/video/init/"
+            body = {"source_info": source_info}
             logger.info("Using inbox endpoint (unaudited app) — creator will review in TikTok")
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 endpoint,
                 headers=self._headers(),
-                json={
-                    "post_info": post_info,
-                    "source_info": {
-                        "source": "FILE_UPLOAD",
-                        "video_size": video_size,
-                        "chunk_size": min(video_size, CHUNK_SIZE),
-                        "total_chunk_count": max(1, -(-video_size // CHUNK_SIZE)),
-                    },
-                },
+                json=body,
             )
-            return self._check_response(resp, "init_upload")
+            data = self._check_response(resp, "init_upload")
+            logger.info("TikTok init_upload response: publish_id=%s", data.get("data", {}).get("publish_id", ""))
+            return data
 
     async def upload_video(
         self,
