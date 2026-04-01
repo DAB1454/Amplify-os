@@ -316,6 +316,11 @@ export default function PostsPage() {
           { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           del,
         ];
+      case "published":
+        return [
+          { label: "Re-publish", action: "retry", style: "bg-indigo-100 text-indigo-600" },
+          del,
+        ];
       case "failed":
         return [
           edit,
