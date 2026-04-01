@@ -43,6 +43,11 @@ interface Channel {
   is_active: boolean;
 }
 
+interface ReleaseLink {
+  label: string;
+  url: string;
+}
+
 export default function PostsPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>("all");
@@ -87,6 +92,12 @@ export default function PostsPage() {
   const [libraryAssets, setLibraryAssets] = useState<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>([]);
   const [selectedAssetUrls, setSelectedAssetUrls] = useState<string[]>([]);
   const [assetsLoading, setAssetsLoading] = useState(false);
+  const [releaseLinks, setReleaseLinks] = useState<ReleaseLink[]>([]);
+  const [destMode, setDestMode] = useState<"choose" | "custom">("choose");
+  const [audioFromLibrary, setAudioFromLibrary] = useState<{ name: string; url: string } | null>(null);
+  const [showAudioLibrary, setShowAudioLibrary] = useState(false);
+  const [audioLibraryAssets, setAudioLibraryAssets] = useState<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>([]);
+  const [audioAssetsLoading, setAudioAssetsLoading] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -160,7 +171,7 @@ export default function PostsPage() {
   const handleAiCaption = async (target: "create" | "edit", platform: string) => {
     setAiLoading(true);
     try {
-      const result = await apiPost<{ variants: { body: string; hashtags: string[] }[] }>(
+      const result = await apiPost<{ variants: { headline?: string; body: string; hashtags: string[]; cta?: string }[] }>(
         "/api/v1/ai/generate-caption",
         {
           platform,
@@ -172,7 +183,13 @@ export default function PostsPage() {
       );
       const best = result.variants?.[0];
       if (best) {
-        const caption = best.body + (best.hashtags?.length ? "\n\n" + best.hashtags.join(" ") : "");
+        // Build caption from all available parts: headline, body, CTA, hashtags
+        const parts: string[] = [];
+        if (best.headline) parts.push(best.headline);
+        if (best.body) parts.push(best.body);
+        if (best.cta && !best.body?.includes(best.cta)) parts.push(best.cta);
+        if (best.hashtags?.length) parts.push("\n" + best.hashtags.join(" "));
+        const caption = parts.join("\n\n") || best.body || "";
         if (target === "create") {
           setNewPost((prev) => ({ ...prev, content_text: caption }));
         } else {
@@ -250,10 +267,12 @@ export default function PostsPage() {
   const actionsForStatus = (status: string): { label: string; action: string; style: string }[] => {
     const edit = { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" };
     const del = { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" };
+    const genVideo = { label: "Generate Video", action: "generate_video", style: "bg-purple-100 text-purple-600" };
     switch (status) {
       case "draft":
         return [
           edit,
+          genVideo,
           { label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
           del,
@@ -261,6 +280,7 @@ export default function PostsPage() {
       case "queued":
         return [
           edit,
+          genVideo,
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
           { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
           { label: "Reject", action: "reject", style: "bg-red-100 text-red-600" },
@@ -269,6 +289,7 @@ export default function PostsPage() {
       case "approved":
         return [
           edit,
+          genVideo,
           { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
           { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
@@ -315,6 +336,21 @@ export default function PostsPage() {
                 if (active.length > 0) {
                   setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
                 }
+                // Fetch release URLs for destination dropdown
+                try {
+                  const releases = await apiGet<{id: string; title: string; linktree_url: string | null; bandcamp_url: string | null; hyperfollow_url: string | null}[]>("/api/v1/releases/");
+                  const links: ReleaseLink[] = [];
+                  for (const r of releases) {
+                    if (r.linktree_url) links.push({ label: `${r.title} — Linktree`, url: r.linktree_url });
+                    if (r.bandcamp_url) links.push({ label: `${r.title} — Bandcamp`, url: r.bandcamp_url });
+                    if (r.hyperfollow_url) links.push({ label: `${r.title} — HyperFollow`, url: r.hyperfollow_url });
+                  }
+                  setReleaseLinks(links);
+                  setDestMode(links.length > 0 ? "choose" : "custom");
+                } catch (_) {
+                  setReleaseLinks([]);
+                  setDestMode("custom");
+                }
               } catch (err) {
                 setCreateError(err instanceof Error ? err.message : "Failed to load channels");
               }
@@ -346,19 +382,33 @@ export default function PostsPage() {
                 }
               }
 
-              // If audio file is attached, upload it and merge with the first video
-              if (audioFile && uploadedUrls.length > 0) {
+              // Resolve audio URL from either uploaded file or library selection
+              let resolvedAudioUrl: string | null = null;
+              if (audioFile) {
                 setMerging(true);
-                let audioUrl = audioFile.url;
-                if (!audioUrl) {
+                resolvedAudioUrl = audioFile.url;
+                if (!resolvedAudioUrl) {
                   const audioResult = await apiUpload<{ url: string }>("/api/v1/media/upload", audioFile.file);
-                  audioUrl = audioResult.url;
+                  resolvedAudioUrl = audioResult.url;
                 }
-                // Merge audio with the first video file
-                const mergeResult = await apiPost<{ url: string }>(`/api/v1/media/merge?video_url=${encodeURIComponent(uploadedUrls[0])}&audio_url=${encodeURIComponent(audioUrl)}`, {});
+              } else if (audioFromLibrary) {
+                resolvedAudioUrl = audioFromLibrary.url;
+              }
+
+              // For non-lyric-video posts: merge audio with first video if both present
+              if (resolvedAudioUrl && uploadedUrls.length > 0 && newPost.action_type_label !== "lyric_video") {
+                setMerging(true);
+                const mergeResult = await apiPost<{ url: string }>(`/api/v1/media/merge?video_url=${encodeURIComponent(uploadedUrls[0])}&audio_url=${encodeURIComponent(resolvedAudioUrl)}`, {});
                 uploadedUrls[0] = mergeResult.url;
                 setMerging(false);
+              } else {
+                setMerging(false);
               }
+
+              // Filter audio out of selectedAssetUrls for lyric videos (audio goes to audio track)
+              const filteredAssetUrls = newPost.action_type_label === "lyric_video"
+                ? selectedAssetUrls.filter((u) => !/\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
+                : selectedAssetUrls;
 
               // Also include any manually entered URLs and selected library assets
               const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
@@ -367,7 +417,7 @@ export default function PostsPage() {
                 channel_id: newPost.channel_id,
                 platform: newPost.platform,
                 content_text: newPost.content_text,
-                media_urls: [...uploadedUrls, ...selectedAssetUrls, ...manualUrls],
+                media_urls: [...uploadedUrls, ...filteredAssetUrls, ...manualUrls],
               };
               if (newPost.action_type_label) payload.action_type_label = newPost.action_type_label;
               if (newPost.destination_url) payload.destination_url = newPost.destination_url;
@@ -384,6 +434,7 @@ export default function PostsPage() {
                     duration_seconds: videoDuration,
                     aspect_ratio: videoAspect,
                     artist_name: "",
+                    audio_url: resolvedAudioUrl || undefined,
                   }, 120000);
                 } catch (vidErr) {
                   setCreateError(`Post created, but video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
@@ -408,6 +459,8 @@ export default function PostsPage() {
               setAiVideoPrompt("");
               setMediaFiles([]);
               setAudioFile(null);
+              setAudioFromLibrary(null);
+              setShowAudioLibrary(false);
               setSelectedAssetUrls([]);
               setShowAssetPicker(false);
               fetchPosts();
@@ -586,13 +639,32 @@ export default function PostsPage() {
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
               Destination URL <span className="font-normal">(optional — link in bio, Linktree, etc.)</span>
             </label>
-            <input
-              type="url"
-              value={newPost.destination_url}
-              onChange={(e) => setNewPost({ ...newPost, destination_url: e.target.value })}
-              placeholder="https://linktr.ee/yourname"
-              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
-            />
+            {releaseLinks.length > 0 && (
+              <div className="flex gap-2 mb-1">
+                <button type="button" onClick={() => setDestMode("choose")} className={`text-xs px-2 py-0.5 rounded ${destMode === "choose" ? "bg-indigo-100 text-indigo-700 font-medium" : "text-[var(--text-secondary)]"}`}>Choose from release</button>
+                <button type="button" onClick={() => setDestMode("custom")} className={`text-xs px-2 py-0.5 rounded ${destMode === "custom" ? "bg-indigo-100 text-indigo-700 font-medium" : "text-[var(--text-secondary)]"}`}>Custom URL</button>
+              </div>
+            )}
+            {destMode === "choose" && releaseLinks.length > 0 ? (
+              <select
+                value={newPost.destination_url}
+                onChange={(e) => setNewPost({ ...newPost, destination_url: e.target.value })}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="">None</option>
+                {releaseLinks.map((rl, i) => (
+                  <option key={i} value={rl.url}>{rl.label}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="url"
+                value={newPost.destination_url}
+                onChange={(e) => setNewPost({ ...newPost, destination_url: e.target.value })}
+                placeholder="https://linktr.ee/yourname"
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+              />
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Content</label>
@@ -687,6 +759,7 @@ export default function PostsPage() {
               <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/30 p-3">
                 <p className="text-xs font-medium text-indigo-700 mb-2">
                   Asset Library {libraryAssets.length > 0 && <span className="font-normal text-indigo-500">({libraryAssets.length} assets)</span>}
+                  {newPost.action_type_label === "lyric_video" && <span className="ml-2 text-[10px] text-purple-600 font-normal">Audio will be used as the track for your lyric video</span>}
                 </p>
                 {libraryAssets.length === 0 ? (
                   <p className="text-xs text-[var(--text-secondary)]">No assets in library. Upload some first.</p>
@@ -697,11 +770,23 @@ export default function PostsPage() {
                       const isImage = ["image", "album_art", "promo_photo", "logo"].includes(asset.asset_type);
                       const isVideo = ["video", "lyric_video", "ai_video"].includes(asset.asset_type);
                       const isAudio = asset.asset_type === "audio";
+                      const isAudioForLyric = isAudio && newPost.action_type_label === "lyric_video";
+                      const isAudioSelected = isAudioForLyric && audioFromLibrary?.url === asset.file_url;
                       return (
                         <button
                           key={asset.id}
                           type="button"
                           onClick={() => {
+                            // For lyric videos, audio goes to audio track slot
+                            if (isAudioForLyric) {
+                              if (isAudioSelected) {
+                                setAudioFromLibrary(null);
+                              } else {
+                                setAudioFromLibrary({ name: asset.name, url: asset.file_url });
+                                setAudioFile(null); // clear uploaded audio
+                              }
+                              return;
+                            }
                             if (isSelected) {
                               setSelectedAssetUrls((prev) => prev.filter((u) => u !== asset.file_url));
                             } else {
@@ -709,7 +794,7 @@ export default function PostsPage() {
                             }
                           }}
                           className={`relative rounded-lg border-2 p-1 text-left transition-all ${
-                            isSelected
+                            isSelected || isAudioSelected
                               ? "border-indigo-500 bg-indigo-100"
                               : "border-transparent hover:border-indigo-300 bg-white"
                           }`}
@@ -738,9 +823,9 @@ export default function PostsPage() {
                             </div>
                           )}
                           <p className="mt-1 text-[9px] text-[var(--text-secondary)] truncate">{asset.name}</p>
-                          {isSelected && (
+                          {(isSelected || isAudioSelected) && (
                             <div className="absolute top-0 right-0 bg-indigo-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px] font-bold -mt-1 -mr-1">
-                              ✓
+                              {isAudioSelected ? "♪" : "✓"}
                             </div>
                           )}
                         </button>
@@ -767,7 +852,10 @@ export default function PostsPage() {
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) setAudioFile({ file, url: null });
+                if (file) {
+                  setAudioFile({ file, url: null });
+                  setAudioFromLibrary(null);
+                }
                 if (audioInputRef.current) audioInputRef.current.value = "";
               }}
             />
@@ -787,14 +875,72 @@ export default function PostsPage() {
                   ×
                 </button>
               </span>
+            ) : audioFromLibrary ? (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 border border-indigo-200 px-2 py-1 text-xs">
+                <span className="truncate max-w-[200px]">
+                  🎵 {audioFromLibrary.name}
+                </span>
+                <span className="text-indigo-400">(library)</span>
+                <button
+                  type="button"
+                  onClick={() => setAudioFromLibrary(null)}
+                  className="ml-1 text-red-500 hover:text-red-700"
+                >
+                  ×
+                </button>
+              </span>
             ) : (
-              <button
-                type="button"
-                onClick={() => audioInputRef.current?.click()}
-                className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
-              >
-                + Add Audio Track
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  className="rounded-lg border border-dashed border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:border-[var(--brand-gold)] hover:text-[var(--brand-gold)] transition-colors"
+                >
+                  + Upload Audio
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (showAudioLibrary) { setShowAudioLibrary(false); return; }
+                    setAudioAssetsLoading(true);
+                    try {
+                      const assets = await apiGet<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>("/api/v1/assets");
+                      setAudioLibraryAssets(assets.filter((a) => a.asset_type === "audio"));
+                    } catch (_) { setAudioLibraryAssets([]); }
+                    finally { setAudioAssetsLoading(false); setShowAudioLibrary(true); }
+                  }}
+                  className="rounded-lg border border-dashed border-indigo-300 px-4 py-2 text-sm text-indigo-600 hover:border-indigo-500 hover:bg-indigo-50 transition-colors"
+                >
+                  {audioAssetsLoading ? <Spinner className="w-4 h-4" /> : showAudioLibrary ? "Hide Library" : "Choose from Library"}
+                </button>
+              </div>
+            )}
+            {showAudioLibrary && !audioFile && !audioFromLibrary && (
+              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/30 p-3">
+                <p className="text-xs font-medium text-indigo-700 mb-2">Audio Library</p>
+                {audioLibraryAssets.length === 0 ? (
+                  <p className="text-xs text-[var(--text-secondary)]">No audio assets in library.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2 max-h-36 overflow-y-auto">
+                    {audioLibraryAssets.map((asset) => (
+                      <button
+                        key={asset.id}
+                        type="button"
+                        onClick={() => {
+                          setAudioFromLibrary({ name: asset.name, url: asset.file_url });
+                          setShowAudioLibrary(false);
+                        }}
+                        className="rounded-lg border-2 border-transparent hover:border-indigo-300 bg-white p-2 text-left transition-all"
+                      >
+                        <div className="w-full h-10 rounded bg-blue-100 flex items-center justify-center">
+                          <span className="text-lg">🎵</span>
+                        </div>
+                        <p className="mt-1 text-[9px] text-[var(--text-secondary)] truncate">{asset.name}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <div>
@@ -1017,6 +1163,15 @@ export default function PostsPage() {
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
                       >
                         {actionLoading === `${post.id}-delete` ? <ButtonSpinner label="Deleting..." /> : btn.label}
+                      </button>
+                    ) : btn.action === "generate_video" ? (
+                      <button
+                        key="generate_video"
+                        onClick={() => handleGenerateMedia(post.id, { lyricVideo: (post.action_type_label || "").includes("lyric") })}
+                        disabled={generatingMedia === post.id}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
+                      >
+                        {generatingMedia === post.id ? <ButtonSpinner label="Generating..." /> : "Generate Video"}
                       </button>
                     ) : btn.action === "mark_published" ? (
                       <button

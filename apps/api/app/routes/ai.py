@@ -665,11 +665,18 @@ async def generate_caption(
             for v in result.structured.variants:
                 variants.append(CaptionVariant(
                     variant_id=v.variant_id,
-                    headline=v.headline,
-                    body=v.body,
-                    hashtags=v.hashtags,
-                    cta=v.cta,
+                    headline=getattr(v, "headline", "") or "",
+                    body=getattr(v, "body", "") or "",
+                    hashtags=getattr(v, "hashtags", []) or [],
+                    cta=getattr(v, "cta", "") or "",
                 ))
+
+        # If structured parsing succeeded but variants have empty bodies,
+        # try to build body from headline + cta as fallback
+        for v in variants:
+            if not v.body and (v.headline or v.cta):
+                parts = [p for p in [v.headline, v.cta] if p]
+                v.body = "\n\n".join(parts)
 
         # If structured parsing failed, try to extract from raw text
         if not variants and result.text:
