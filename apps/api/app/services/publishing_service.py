@@ -152,9 +152,12 @@ class PublishingService:
         }
 
     async def approve_post(self, post_id: uuid.UUID) -> dict:
-        """Approve a queued post."""
+        """Approve a queued post. Auto-schedules if scheduled_at is already set."""
         post = await self._get_post(post_id)
         post = await self._transition(post, PostStatus.APPROVED)
+        # If post already has a scheduled time, auto-transition to SCHEDULED
+        if post.scheduled_at:
+            post = await self._transition(post, PostStatus.SCHEDULED)
         return {"post_id": str(post_id), "status": post.status}
 
     async def reject_post(self, post_id: uuid.UUID) -> dict:
