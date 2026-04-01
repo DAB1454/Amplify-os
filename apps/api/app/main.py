@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -7,6 +8,12 @@ from fastapi.responses import JSONResponse
 
 from app.config import Settings
 from app.middleware.tenant import TenantMiddleware
+
+# Configure root logger so adapter/service logs are visible
+logging.basicConfig(
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 
 logger = logging.getLogger(__name__)
 from app.routes.health import router as health_router
