@@ -31,17 +31,35 @@ async def generate_lyric_video(
     output_path: str,
     aspect_ratio: str = "9:16",
     duration_seconds: int = 30,
+    audio_start_seconds: int = 0,
     artist_name: str = "",
     track_title: str = "",
 ) -> str:
     """Generate a lyric video using FFmpeg.
 
+    Parameters
+    ----------
+    audio_start_seconds : int
+        Where to start the audio clip (e.g. 30 = skip to chorus).
+        The lyrics passed in should already be the subset for this segment.
+
     Returns the output file path.
     """
     width, height = RESOLUTIONS.get(aspect_ratio, (720, 1280))
 
-    # Parse lyrics into lines
-    lines = [l.strip() for l in lyrics.strip().split("\n") if l.strip()]
+    # Parse lyrics into lines, skipping section markers like [Verse], [Chorus]
+    lines = []
+    for l in lyrics.strip().split("\n"):
+        stripped = l.strip()
+        if not stripped:
+            continue
+        # Skip section markers
+        if stripped.startswith("[") and stripped.endswith("]"):
+            continue
+        if stripped.lower() in ("verse", "chorus", "bridge", "outro", "intro", "pre-chorus", "hook"):
+            continue
+        lines.append(stripped)
+
     if not lines:
         lines = [f"{track_title}" if track_title else ""]
 
@@ -67,8 +85,8 @@ async def generate_lyric_video(
         "ffmpeg", "-y",
         # Input 1: image (looped)
         "-loop", "1", "-i", image_path,
-        # Input 2: audio
-        "-i", audio_path,
+        # Input 2: audio (start from offset)
+        "-ss", str(audio_start_seconds), "-i", audio_path,
         # Video filter: zoom + subtitles
         "-filter_complex",
         f"[0:v]{zoom_filter},ass={ass_path}[v]",

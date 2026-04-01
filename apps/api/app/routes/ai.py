@@ -376,6 +376,69 @@ def _find_lyric_sections(lyrics: str, duration_seconds: int) -> list[int]:
     return section_starts
 
 
+def _extract_lyrics_for_segment(
+    full_lyrics: str,
+    audio_start: int,
+    duration: int,
+    track_duration: int | None = None,
+) -> str:
+    """Extract the lyrics that correspond to a specific audio segment.
+
+    Given full song lyrics, audio_start offset, and clip duration,
+    returns only the lines that would be sung during that segment.
+    This prevents dumping all 40+ lines into a 15-second clip.
+
+    Timing is estimated by dividing song duration by total lyric lines.
+    """
+    all_lines = full_lyrics.strip().split("\n")
+
+    # Filter to content lines only (skip blanks and markers) but track original indices
+    content_lines: list[tuple[int, str]] = []
+    for i, line in enumerate(all_lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            continue
+        if stripped.lower() in ("verse", "chorus", "bridge", "outro", "intro", "pre-chorus", "hook"):
+            continue
+        content_lines.append((i, stripped))
+
+    if not content_lines:
+        return full_lyrics
+
+    # If we don't know the track duration, estimate ~3.5s per lyric line
+    if not track_duration or track_duration <= 0:
+        track_duration = int(len(content_lines) * 3.5)
+
+    secs_per_line = track_duration / len(content_lines)
+    audio_end = audio_start + duration
+
+    # Find lines that fall within the audio segment
+    segment_lines: list[str] = []
+    for idx, (_, line) in enumerate(content_lines):
+        line_start = idx * secs_per_line
+        line_end = line_start + secs_per_line
+        # Include line if it overlaps with our segment
+        if line_end > audio_start and line_start < audio_end:
+            segment_lines.append(line)
+
+    # If we got too few lines (e.g. audio_start beyond lyrics), fall back
+    # to a reasonable chunk from the middle
+    if len(segment_lines) < 2 and len(content_lines) > 4:
+        # Pick lines from the middle third
+        mid = len(content_lines) // 3
+        count = max(4, duration // 3)  # ~1 line per 3 seconds
+        segment_lines = [line for _, line in content_lines[mid:mid + count]]
+
+    # Cap at a reasonable number: ~1 line per 2-3 seconds
+    max_lines = max(3, duration // 2)
+    if len(segment_lines) > max_lines:
+        segment_lines = segment_lines[:max_lines]
+
+    return "\n".join(segment_lines)
+
+
 async def _generate_lyric_video_for_post(
     *,
     db: "AsyncSession",
@@ -478,6 +541,25 @@ async def _generate_lyric_video_for_post(
         if artist:
             artist_name = artist.name
 
+    # Pick audio offset — use smart section detection from lyrics
+    audio_start = await _smart_audio_offset(
+        db=db,
+        tenant_id=tenant_id,
+        release_id=release_id,
+        audio_name=track_title or "",
+        day_number=post.day_number or 1,
+        duration=duration,
+    )
+
+    # Extract only the lyrics for the audio segment being played
+    segment_lyrics = _extract_lyrics_for_segment(
+        lyrics, audio_start, duration,
+        track_duration=matched_track.duration_seconds if matched_track else None,
+    )
+
+    logger.info("Lyric video for post %s: track='%s', offset=%ds, %d lines",
+                post.id, track_title, audio_start, segment_lyrics.count("\n") + 1)
+
     # Use the lyric video generator
     import tempfile
     from pathlib import Path
@@ -502,10 +584,11 @@ async def _generate_lyric_video_for_post(
         await generate_lyric_video(
             image_path=img_path,
             audio_path=audio_path,
-            lyrics=lyrics,
+            lyrics=segment_lyrics,
             output_path=output_path,
             aspect_ratio="9:16",
             duration_seconds=duration,
+            audio_start_seconds=audio_start,
             artist_name=artist_name,
             track_title=track_title,
         )
@@ -1230,6 +1313,7 @@ class GenerateLyricVideoRequest(BaseModel):
     lyrics: str = ""  # Raw lyrics text
     aspect_ratio: str = "9:16"  # 9:16, 1:1, 16:9
     duration_seconds: int = 30  # 15, 30, or 60
+    audio_start_seconds: int = 0  # Where to start audio (0 = auto-pick)
     artist_name: str = ""
     track_title: str = ""
     # Convenience: auto-resolve from track/release
@@ -1402,6 +1486,26 @@ async def generate_lyric_video(
     # Validate duration
     duration = min(max(body.duration_seconds, 10), 90)
 
+    # Pick an audio offset and extract only the corresponding lyrics
+    audio_start = body.audio_start_seconds or 0
+    if not audio_start and body.post_id:
+        # Auto-pick using smart offset
+        try:
+            audio_start = await _smart_audio_offset(
+                db=db, tenant_id=tenant_id,
+                release_id=uuid.UUID(body.release_id) if body.release_id else None,
+                audio_name=track_title or "",
+                day_number=1, duration=duration,
+            )
+        except Exception:
+            audio_start = 0
+
+    # Extract only the lyrics for the audio segment being played
+    segment_lyrics = _extract_lyrics_for_segment(
+        lyrics, audio_start, duration,
+        track_duration=None,  # Direct endpoint doesn't always have track_duration
+    )
+
     try:
         from app.services.video_generator import generate_lyric_video as gen_video, download_url_to_file
 
@@ -1422,10 +1526,11 @@ async def generate_lyric_video(
             await gen_video(
                 image_path=img_path,
                 audio_path=aud_path,
-                lyrics=lyrics,
+                lyrics=segment_lyrics,
                 output_path=out_path,
                 aspect_ratio=body.aspect_ratio,
                 duration_seconds=duration,
+                audio_start_seconds=audio_start,
                 artist_name=artist_name,
                 track_title=track_title,
             )
