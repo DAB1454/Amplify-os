@@ -6,7 +6,7 @@ import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
-import { formatLocal } from "@/lib/utils";
+import { cn, formatLocal } from "@/lib/utils";
 
 interface Post {
   id: string;
@@ -73,6 +73,11 @@ export default function PostsPage() {
   const [editContent, setEditContent] = useState("");
   const [editMediaUrls, setEditMediaUrls] = useState<string[]>([]);
   const [editSaving, setEditSaving] = useState(false);
+  const [editForceImage, setEditForceImage] = useState<string | null>(null);
+  const [editForceAudio, setEditForceAudio] = useState<string | null>(null);
+  const [editAssetPicker, setEditAssetPicker] = useState<"image" | "audio" | null>(null);
+  const [editLibraryAssets, setEditLibraryAssets] = useState<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>([]);
+  const [editAssetsLoading, setEditAssetsLoading] = useState(false);
   const [generatingMedia, setGeneratingMedia] = useState<string | null>(null);
   const [previewPostId, setPreviewPostId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
@@ -218,10 +223,14 @@ export default function PostsPage() {
 
   const handleSaveAndRegenerate = async (postId: string, actionType?: string) => {
     await handleEditSave(postId);
-    const imageUrl = editMediaUrls.find(u => /\.(jpg|jpeg|png|webp)/i.test(u));
-    const audioUrl = editMediaUrls.find(u => /\.(mp3|wav|aac|flac)/i.test(u));
+    // Use explicitly picked image/audio, falling back to extracting from editMediaUrls
+    const imageUrl = editForceImage || editMediaUrls.find(u => /\.(jpg|jpeg|png|webp)/i.test(u));
+    const audioUrl = editForceAudio || editMediaUrls.find(u => /\.(mp3|wav|aac|flac)/i.test(u));
     const isLyric = (actionType || "").toLowerCase().includes("lyric");
     await handleGenerateMedia(postId, { forceImageUrl: imageUrl, forceAudioUrl: audioUrl, lyricVideo: isLyric });
+    // Clear forced selections after regeneration
+    setEditForceImage(null);
+    setEditForceAudio(null);
   };
 
   const handlePreview = async (postId: string) => {
@@ -1043,6 +1052,9 @@ export default function PostsPage() {
                             setEditingPostId(post.id);
                             setEditContent(post.content_text || "");
                             setEditMediaUrls(post.media_urls || []);
+                            setEditForceImage(null);
+                            setEditForceAudio(null);
+                            setEditAssetPicker(null);
                           }
                         }}
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 ${btn.style}`}
@@ -1131,6 +1143,84 @@ export default function PostsPage() {
                               );
                             })}
                           </div>
+                        </div>
+                      )}
+                      {/* Swap Image / Audio for regeneration */}
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <button
+                          onClick={async () => {
+                            if (editAssetPicker === "image") { setEditAssetPicker(null); return; }
+                            setEditAssetPicker("image");
+                            setEditAssetsLoading(true);
+                            try {
+                              const assets = await apiGet<typeof editLibraryAssets>("/api/v1/assets?asset_type=image,album_art,promo_photo");
+                              setEditLibraryAssets(assets);
+                            } catch { /* ignore */ }
+                            setEditAssetsLoading(false);
+                          }}
+                          className={cn("rounded-lg border px-2.5 py-1 text-[10px] font-medium", editForceImage ? "border-green-500 text-green-600 bg-green-50" : "border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}
+                        >
+                          {editForceImage ? "Image Selected" : "Swap Image"}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (editAssetPicker === "audio") { setEditAssetPicker(null); return; }
+                            setEditAssetPicker("audio");
+                            setEditAssetsLoading(true);
+                            try {
+                              const assets = await apiGet<typeof editLibraryAssets>("/api/v1/assets?asset_type=audio");
+                              setEditLibraryAssets(assets);
+                            } catch { /* ignore */ }
+                            setEditAssetsLoading(false);
+                          }}
+                          className={cn("rounded-lg border px-2.5 py-1 text-[10px] font-medium", editForceAudio ? "border-green-500 text-green-600 bg-green-50" : "border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}
+                        >
+                          {editForceAudio ? "Audio Selected" : "Swap Audio"}
+                        </button>
+                        {(editForceImage || editForceAudio) && (
+                          <span className="text-[10px] text-green-600">
+                            {[editForceImage && "image", editForceAudio && "audio"].filter(Boolean).join(" + ")} will be used on regenerate
+                          </span>
+                        )}
+                      </div>
+                      {editAssetPicker && (
+                        <div className="mt-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 max-h-48 overflow-y-auto">
+                          <p className="text-[10px] font-medium text-[var(--text-secondary)] mb-2 uppercase tracking-wider">
+                            Pick {editAssetPicker === "image" ? "Image" : "Audio Track"}
+                          </p>
+                          {editAssetsLoading ? (
+                            <Spinner className="w-4 h-4" />
+                          ) : editLibraryAssets.length === 0 ? (
+                            <p className="text-xs text-[var(--text-secondary)]">No {editAssetPicker} assets found</p>
+                          ) : (
+                            <div className={editAssetPicker === "image" ? "grid grid-cols-6 gap-2" : "space-y-1"}>
+                              {editLibraryAssets.map((asset) => {
+                                const isSelected = editAssetPicker === "image" ? editForceImage === asset.file_url : editForceAudio === asset.file_url;
+                                if (editAssetPicker === "image") {
+                                  return (
+                                    <button
+                                      key={asset.id}
+                                      onClick={() => { setEditForceImage(asset.file_url); setEditAssetPicker(null); }}
+                                      className={cn("rounded-lg overflow-hidden ring-2 transition-all", isSelected ? "ring-green-500" : "ring-transparent hover:ring-indigo-300")}
+                                    >
+                                      <img src={asset.file_url} alt={asset.name} className="w-full aspect-square object-cover" />
+                                      <p className="text-[8px] text-[var(--text-secondary)] truncate px-0.5">{asset.name}</p>
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    key={asset.id}
+                                    onClick={() => { setEditForceAudio(asset.file_url); setEditAssetPicker(null); }}
+                                    className={cn("flex items-center gap-2 w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors", isSelected ? "bg-green-50 text-green-700" : "hover:bg-[var(--bg-surface)]")}
+                                  >
+                                    <span className="text-sm">🎵</span>
+                                    <span className="truncate">{asset.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                       <div className="flex gap-2 flex-wrap">

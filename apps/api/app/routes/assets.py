@@ -52,7 +52,12 @@ async def list_assets(
     q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
 
     if asset_type:
-        q = q.where(AssetModel.asset_type == asset_type)
+        # Support comma-separated types: "image,album_art,promo_photo"
+        types = [t.strip() for t in asset_type.split(",") if t.strip()]
+        if len(types) == 1:
+            q = q.where(AssetModel.asset_type == types[0])
+        else:
+            q = q.where(AssetModel.asset_type.in_(types))
     if artist_id:
         q = q.where(AssetModel.artist_id == artist_id)
     if release_id:
