@@ -401,8 +401,14 @@ async def _generate_lyric_video_for_post(
     from app.services.content_pipeline import _normalize_for_match
 
     # Resolve the track — match by caption content
-    content_lower = (post.content_text or "").lower()
-    content_clean = _normalize_for_match(content_lower)
+    from app.services.content_pipeline import _extract_track_reference
+    content_text = post.content_text or ""
+    # Normalize BEFORE lowering so camelCase hashtags get split
+    content_clean = _normalize_for_match(content_text).lower()
+
+    # Extract explicit track reference (e.g. "🎵 Featuring: Good Boy")
+    explicit_track = _extract_track_reference(content_text)
+    explicit_track_clean = _normalize_for_match(explicit_track).lower() if explicit_track else ""
 
     matched_track = None
     audio_url = force_audio_url
@@ -418,12 +424,22 @@ async def _generate_lyric_video_for_post(
         tr = await db.execute(tq)
         tracks = list(tr.scalars().all())
 
-        # Find track mentioned in caption
-        for t in tracks:
-            title_clean = _normalize_for_match(t.title.lower())
-            if title_clean and len(title_clean) > 3 and title_clean in content_clean:
-                matched_track = t
-                break
+        # Priority 1: Match explicit track reference ("Featuring: X")
+        if explicit_track_clean:
+            for t in tracks:
+                title_clean = _normalize_for_match(t.title.lower())
+                if title_clean and (title_clean in explicit_track_clean or explicit_track_clean in title_clean):
+                    matched_track = t
+                    logger.info("Lyric video: explicit track match '%s' → '%s'", explicit_track, t.title)
+                    break
+
+        # Priority 2: Find track title mentioned in caption
+        if not matched_track:
+            for t in tracks:
+                title_clean = _normalize_for_match(t.title.lower())
+                if title_clean and len(title_clean) > 3 and title_clean in content_clean:
+                    matched_track = t
+                    break
 
         # Fallback: round-robin
         if not matched_track and tracks:
@@ -1273,7 +1289,7 @@ async def generate_lyric_video(
             select(PostModel).where(PostModel.id == uuid.UUID(body.post_id))
         )
         post = post_result.scalar_one_or_none()
-        post_text = (post.content_text or "").lower() if post else ""
+        post_text_raw = (post.content_text or "") if post else ""
 
         # Find release_id from post's campaign
         resolve_release_id = body.release_id
@@ -1294,18 +1310,27 @@ async def generate_lyric_video(
             )
             all_tracks = list(tracks_result.scalars().all())
 
-            if all_tracks and post_text:
+            if all_tracks and post_text_raw:
                 # Match track name to post content
-                from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+                from app.services.content_pipeline import (
+                    _normalize_for_match, _any_phrase_match, _extract_track_reference,
+                )
+                # Normalize before lowering so camelCase hashtags get split
+                p_text = _normalize_for_match(post_text_raw).lower()
+                explicit_ref = _extract_track_reference(post_text_raw)
+                explicit_clean = _normalize_for_match(explicit_ref).lower() if explicit_ref else ""
+
                 best_track = None
                 best_score = 0
                 for t in all_tracks:
                     t_name = _normalize_for_match((t.title or "").lower())
-                    p_text = _normalize_for_match(post_text)
                     score = 0
-                    if t_name and len(t_name) > 3 and t_name in p_text:
+                    # Priority 1: Explicit "Featuring: X" match
+                    if explicit_clean and t_name and (t_name in explicit_clean or explicit_clean in t_name):
+                        score = 80
+                    elif t_name and len(t_name) > 3 and t_name in p_text:
                         score = 50
-                    elif _any_phrase_match(post_text, (t.title or "").lower()):
+                    elif _any_phrase_match(p_text, (t.title or "").lower()):
                         score = 40
                     if score > best_score:
                         best_track, best_score = t, score
