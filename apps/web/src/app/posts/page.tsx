@@ -1467,7 +1467,7 @@ export default function PostsPage() {
                   <div>
                     <span className="text-xs font-medium text-[var(--text-secondary)]">Content</span>
                     <p className="mt-1 rounded-lg bg-[var(--bg-primary)] p-3 text-sm text-[var(--text-primary)] whitespace-pre-wrap">
-                      {String(pv.content || "(no content)")}
+                      {String(pv.content_text || pv.content || "(no content)")}
                     </p>
                   </div>
                   {mediaUrls.length > 0 && (
