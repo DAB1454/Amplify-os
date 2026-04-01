@@ -187,6 +187,7 @@ class TikTokAdapter(BaseAdapter):
             raise PublishError("TikTok requires a video file", platform="tiktok")
 
         assert self._publisher is not None
+        is_inbox = not self._publisher._is_app_audited()
         publish_id = await self._publisher.upload_video(
             media_paths[0],
             content,
@@ -197,10 +198,11 @@ class TikTokAdapter(BaseAdapter):
         return PublishResult(
             platform=self.platform,
             platform_post_id=publish_id,
-            status="processing",
+            status="pending_approval" if is_inbox else "processing",
             metadata={
-                "privacy_level": kwargs.get("privacy_level", "PUBLIC_TO_EVERYONE"),
+                "privacy_level": kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY")),
                 "as_draft": kwargs.get("as_draft", False),
+                "inbox_flow": is_inbox,
             },
         )
 

@@ -210,6 +210,24 @@ class PublishingService:
 
         try:
             result = await self._do_publish(post)
+
+            if result.get("pending_approval"):
+                # Inbox flow (e.g. unaudited TikTok) — video uploaded but
+                # creator must approve in the platform app before it goes live.
+                post = await self._transition(
+                    post,
+                    PostStatus.PENDING_APPROVAL,
+                    platform_post_id=result.get("platform_post_id"),
+                    last_error=None,
+                    retry_count=0,
+                )
+                return {
+                    "post_id": str(post_id),
+                    "status": post.status,
+                    "platform_post_id": post.platform_post_id,
+                    "message": "Video uploaded — check your TikTok app to approve and publish.",
+                }
+
             post = await self._transition(
                 post,
                 PostStatus.PUBLISHED,
@@ -433,6 +451,7 @@ class PublishingService:
         return {
             "platform_post_id": result.platform_post_id,
             "permalink": result.url,
+            "pending_approval": result.status == "pending_approval",
         }
 
     @staticmethod

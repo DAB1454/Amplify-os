@@ -30,6 +30,7 @@ const statusColors: Record<string, string> = {
   approved: "bg-green-100 text-green-600",
   scheduled: "bg-blue-100 text-blue-600",
   publishing: "bg-purple-100 text-purple-600",
+  pending_approval: "bg-amber-100 text-amber-600",
   published: "bg-emerald-100 text-emerald-600",
   failed: "bg-red-100 text-red-600",
 };
@@ -307,6 +308,12 @@ export default function PostsPage() {
           edit,
           { label: "Re-publish", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           { label: "Reset to Draft", action: "reset_draft", style: "bg-gray-100 text-gray-600" },
+          del,
+        ];
+      case "pending_approval":
+        return [
+          { label: "Mark Published", action: "mark_published", style: "bg-emerald-100 text-emerald-600" },
+          { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
           del,
         ];
       case "failed":
@@ -1028,8 +1035,11 @@ export default function PostsPage() {
                         statusColors[post.status] || "bg-gray-100 text-gray-500"
                       }`}
                     >
-                      {post.status}
+                      {post.status === "pending_approval" ? "Pending Approval" : post.status}
                     </span>
+                    {post.status === "pending_approval" && (
+                      <span className="text-xs text-amber-600">Check TikTok app to approve</span>
+                    )}
                     {post.retry_count > 0 && (
                       <span className="text-xs text-[var(--text-secondary)]">
                         Retries: {post.retry_count}

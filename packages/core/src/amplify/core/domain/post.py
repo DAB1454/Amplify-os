@@ -15,6 +15,7 @@ class PostStatus(str, Enum):
     APPROVED = "approved"
     SCHEDULED = "scheduled"
     PUBLISHING = "publishing"
+    PENDING_APPROVAL = "pending_approval"
     PUBLISHED = "published"
     FAILED = "failed"
 
@@ -25,7 +26,8 @@ VALID_TRANSITIONS: dict[PostStatus, set[PostStatus]] = {
     PostStatus.QUEUED: {PostStatus.APPROVED, PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHING},
     PostStatus.APPROVED: {PostStatus.SCHEDULED, PostStatus.PUBLISHING, PostStatus.DRAFT},
     PostStatus.SCHEDULED: {PostStatus.PUBLISHING, PostStatus.DRAFT},
-    PostStatus.PUBLISHING: {PostStatus.PUBLISHED, PostStatus.FAILED, PostStatus.SCHEDULED, PostStatus.DRAFT},
+    PostStatus.PUBLISHING: {PostStatus.PUBLISHED, PostStatus.PENDING_APPROVAL, PostStatus.FAILED, PostStatus.SCHEDULED, PostStatus.DRAFT},
+    PostStatus.PENDING_APPROVAL: {PostStatus.PUBLISHED, PostStatus.FAILED},
     PostStatus.PUBLISHED: set(),
     PostStatus.FAILED: {PostStatus.QUEUED, PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHED},
 }
