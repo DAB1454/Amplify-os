@@ -276,8 +276,18 @@ async def _find_matching_assets(
     if not candidates:
         return []
 
+    # ── Build track name map for UUID-named asset enrichment ──
+    track_url_to_title = await _build_track_name_map(db, tenant_id, release_id)
+
+    # ── Extract explicit track reference from content ──
+    # Catches "🎵 Featuring: Good Boy" or quoted track titles
+    explicit_track = _extract_track_reference(content_hint)
+    explicit_track_clean = _normalize_for_match(explicit_track).lower() if explicit_track else ""
+
     # Build combined hint text from content_hint + assets_required
-    hint_lower = content_hint.lower()
+    # IMPORTANT: normalize BEFORE lowering so camelCase splitting works on hashtags
+    # e.g. #IfTheBootFitsWearIt → "if the boot fits wear it" (not "ifthebootfitswearit")
+    hint_lower = _normalize_for_match(content_hint).lower()
     hint_words = set(w for w in hint_lower.split() if len(w) > 3)
     if assets_required:
         for req in assets_required:
@@ -297,9 +307,6 @@ async def _find_matching_assets(
             wants_album_art = True
 
     # IMPORTANT: Only consider visual assets (image, video, album_art, promo_photo, lyric_video)
-    # Raw audio files should NOT be attached to social media posts —
-    # they're full-length songs, not clips, and platforms don't support image+audio.
-    # Audio is only useful inside generated lyric videos.
     VISUAL_TYPES = {"image", "album_art", "promo_photo", "video", "lyric_video", "logo"}
     visual_candidates = [c for c in candidates if c.asset_type in VISUAL_TYPES]
 
@@ -307,34 +314,28 @@ async def _find_matching_assets(
     pool = visual_candidates if visual_candidates else candidates
 
     scored = []
+    import re as _re
     for asset in pool:
         score = 0
-        # Use asset name, falling back to original filename from URL if name is a UUID
+        # Use asset name, falling back to track title or description if name is a UUID
         raw_name = asset.name or ""
-        # If name looks like a UUID (e.g. "23efe365-7328-4635-96c3-b36fb1ac0956.wav"),
-        # try to extract original filename from description or tags instead
-        import re as _re
         if _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", raw_name):
-            # Name is a UUID — use description or tags as searchable text
-            raw_name = asset.description or ""
+            # Name is a UUID — try track title from audio_url mapping first
+            track_title = track_url_to_title.get(asset.file_url, "")
+            raw_name = track_title or asset.description or ""
         name_lower = raw_name.lower()
         desc_lower = (asset.description or "").lower()
         tag_text = " ".join(asset.tags or []).lower()
-        asset_text = f"{name_lower} {desc_lower} {tag_text}"
 
-        logger.debug("Matching asset %s (name=%s, type=%s) against hint: %s",
-                      asset.id, asset.name, asset.asset_type, hint_lower[:60])
+        logger.debug("Matching asset %s (name=%s, resolved=%s, type=%s) against hint: %s",
+                      asset.id, asset.name, raw_name[:40], asset.asset_type, hint_lower[:60])
 
-        # ── Strong match: asset name appears in the caption (or vice versa) ──
-        # This catches "Whis(key) to My Heart" in caption matching an asset
-        # named "Whiskey to My Heart" or "Whis(key) to My Heart.wav"
+        # ── Normalize for comparison ──
         name_clean = _normalize_for_match(name_lower)
-        hint_clean = _normalize_for_match(hint_lower)
+        # hint_lower is already normalized (camelCase split + lowered above)
+        hint_clean = hint_lower
 
-        # Debias: if asset name matches the release/album name, the match
-        # is likely about the album, NOT specifically about that track.
-        # e.g. album "For Love of Country" + track "For Love of Country" —
-        # every caption mentions the album name, inflating the title track.
+        # Debias title-track matching
         is_title_track_match = (
             release_name_clean
             and name_clean
@@ -343,15 +344,19 @@ async def _find_matching_assets(
                  or release_name_clean in name_clean)
         )
 
-        # Check if the asset name (minus extension/type suffixes) appears in caption
+        # ── Priority 1: Explicit track reference match ──
+        # If content says "Featuring: Good Boy", strongly prefer assets named "Good Boy"
+        if explicit_track_clean and name_clean and len(name_clean) > 3:
+            if name_clean in explicit_track_clean or explicit_track_clean in name_clean:
+                score += 80  # Strongest signal — explicit track reference
+                logger.debug("  → Explicit track match: %s ↔ %s (+80)", name_clean, explicit_track_clean)
+
+        # ── Priority 2: Asset name appears in caption (or vice versa) ──
         if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
             if is_title_track_match:
-                # Only give a small bump — might genuinely be about the title track,
-                # but more likely it's just the album name in the caption
                 score += 10
             else:
-                score += 50  # Strong signal — the post IS about this track/asset
-        # Check reverse: caption words forming a track name that appear in asset name
+                score += 50
         elif hint_clean and len(hint_clean) > 3 and _any_phrase_match(hint_lower, name_lower):
             if is_title_track_match:
                 score += 8
@@ -360,7 +365,7 @@ async def _find_matching_assets(
 
         # ── Keyword matching from hint + assets_required ──
         for word in hint_words:
-            if word in name_lower:
+            if word in name_clean:
                 score += 10
             if word in desc_lower:
                 score += 5
@@ -373,7 +378,6 @@ async def _find_matching_assets(
         elif wants_album_art and asset.asset_type in ("album_art", "image"):
             score += 12
         else:
-            # Generic post — prefer images
             if asset.asset_type in ("image", "album_art", "promo_photo"):
                 score += 5
             elif asset.asset_type in ("video", "lyric_video"):
@@ -392,6 +396,9 @@ async def _find_matching_assets(
     if not scored:
         return []
 
+    logger.info("Asset matching top 3: %s",
+                [(s, a.name, a.asset_type) for s, a in scored[:3]])
+
     # For carousel posts (multiple images), return top N unique visual assets
     if max_results > 1:
         urls = []
@@ -404,10 +411,10 @@ async def _find_matching_assets(
                 break
         return urls
 
-    # If there's a clear winner (>10pt gap), use it.
-    # Otherwise, rotate among top candidates using day_number for variety.
+    # Always use the highest-scored asset.
+    # Only rotate among truly tied candidates (within 5 pts) for variety.
     top_score = scored[0][0]
-    close_candidates = [a for s, a in scored if s >= top_score - 10]
+    close_candidates = [a for s, a in scored if s >= top_score - 5 and top_score > 0]
     if len(close_candidates) > 1 and day_number is not None:
         pick = close_candidates[day_number % len(close_candidates)]
         return [pick.file_url]
@@ -419,12 +426,90 @@ def _normalize_for_match(text: str) -> str:
     import re
     # Remove file extensions
     text = re.sub(r"\.(wav|mp3|mp4|jpeg|jpg|png|webp|flac|aac)$", "", text)
-    # Remove common suffixes like "cover art", "promo", etc.
-    text = re.sub(r"\s*(cover art|cover|promo|artwork|art|audio|video|clip)\s*$", "", text)
+    # Remove common suffixes like "cover art", "promo", etc. (whole words only)
+    text = re.sub(r"\s+(?:cover art|cover|promo|artwork|art|audio|video|clip)\s*$", "", text)
+    # Split camelCase/PascalCase: "IfTheBootFitsWearIt" → "If The Boot Fits Wear It"
+    # This is critical for hashtags like #AintNoBarInHeaven
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
+    text = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", text)
     # Normalize parentheses, punctuation
-    text = text.replace("(", "").replace(")", "").replace("'", "").replace("'", "")
+    text = text.replace("(", "").replace(")", "").replace("'", "").replace("\u2019", "")
     text = re.sub(r"[^\w\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_track_reference(content: str) -> str | None:
+    """Extract explicit track name from content patterns like '🎵 Featuring: Track Name'.
+
+    Returns the track name if found, or None.
+    """
+    import re
+    # Match "Featuring: Track Name" (with or without emoji prefix)
+    m = re.search(r"(?:🎵\s*)?[Ff]eaturing:\s*(.+?)(?:\n|$)", content)
+    if m:
+        return m.group(1).strip()
+    # Match quoted track titles: "Track Name" or 'Track Name'
+    m = re.search(r'["\u201c]([^"\u201d]{3,50})["\u201d]', content)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+async def _build_track_name_map(
+    db: "AsyncSession",
+    tenant_id: "uuid.UUID",
+    release_id: "uuid.UUID | None",
+) -> dict[str, str]:
+    """Build a map of audio asset file_url → track title from TrackModel.
+
+    This lets us match UUID-named audio assets to their real track names.
+    Uses two strategies:
+    1. Direct match: track.audio_url == asset.file_url
+    2. Track number match: if assets are in track_number order
+    """
+    if not release_id:
+        return {}
+    try:
+        from amplify.db.models.track import TrackModel
+        from amplify.db.models.asset import AssetModel
+        from sqlalchemy import or_
+
+        tq = select(TrackModel).where(
+            TrackModel.release_id == release_id,
+            TrackModel.tenant_id == tenant_id,
+        ).order_by(TrackModel.track_number)
+        result = await db.execute(tq)
+        tracks = list(result.scalars().all())
+        if not tracks:
+            return {}
+
+        # Map audio_url → title for tracks that have audio URLs
+        url_to_title: dict[str, str] = {}
+        for track in tracks:
+            if track.audio_url:
+                url_to_title[track.audio_url] = track.title
+
+        # Also load audio assets for this release to try positional matching
+        # (when assets are uploaded in track order but have UUID names)
+        if len(url_to_title) < len(tracks):
+            aq = select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.release_id == release_id,
+                AssetModel.asset_type == "audio",
+                or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None)),
+            ).order_by(AssetModel.created_at)
+            ar = await db.execute(aq)
+            audio_assets = list(ar.scalars().all())
+
+            # If asset count matches track count, map by position
+            if len(audio_assets) == len(tracks):
+                for asset, track in zip(audio_assets, tracks):
+                    if asset.file_url not in url_to_title:
+                        url_to_title[asset.file_url] = track.title
+
+        return url_to_title
+    except Exception:
+        return {}
 
 
 def _any_phrase_match(caption: str, asset_name: str) -> bool:

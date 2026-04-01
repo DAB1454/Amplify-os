@@ -143,7 +143,10 @@ async def _auto_generate_post_video(
             return None
 
         # Content-aware audio matching
-        from app.services.content_pipeline import _normalize_for_match, _any_phrase_match
+        from app.services.content_pipeline import (
+            _normalize_for_match, _any_phrase_match,
+            _extract_track_reference, _build_track_name_map,
+        )
 
         release_name_clean = ""
         if release_id:
@@ -160,12 +163,26 @@ async def _auto_generate_post_video(
             except Exception:
                 pass
 
-        hint_lower = content_hint.lower()
-        hint_clean = _normalize_for_match(hint_lower)
+        # Build track name map for UUID-named audio assets
+        track_url_to_title = await _build_track_name_map(db, tenant_id, release_id)
+
+        # Extract explicit track reference from content
+        explicit_track = _extract_track_reference(content_hint)
+        explicit_track_clean = _normalize_for_match(explicit_track).lower() if explicit_track else ""
+
+        # Normalize BEFORE lowering so camelCase splitting works on hashtags
+        hint_lower = _normalize_for_match(content_hint).lower()
+        hint_clean = hint_lower
         scored_audio = []
         for asset in audio_assets:
             score = 0
-            name_lower = (asset.name or "").lower()
+            raw_name = asset.name or ""
+            import re as _re
+            # Resolve UUID names via track table
+            if _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", raw_name):
+                track_title = track_url_to_title.get(asset.file_url, "")
+                raw_name = track_title or asset.description or ""
+            name_lower = raw_name.lower()
             name_clean = _normalize_for_match(name_lower)
 
             is_title_track = (
@@ -176,6 +193,12 @@ async def _auto_generate_post_video(
                      or release_name_clean in name_clean)
             )
 
+            # Priority 1: Explicit track reference match
+            if explicit_track_clean and name_clean and len(name_clean) > 3:
+                if name_clean in explicit_track_clean or explicit_track_clean in name_clean:
+                    score += 80
+
+            # Priority 2: Name appears in caption
             if name_clean and len(name_clean) > 3 and name_clean in hint_clean:
                 score += 10 if is_title_track else 50
             elif _any_phrase_match(hint_lower, name_lower):
@@ -188,12 +211,11 @@ async def _auto_generate_post_video(
             scored_audio.append((score, asset))
 
         scored_audio.sort(key=lambda x: x[0], reverse=True)
+        logger.info("Audio matching top 3: %s",
+                     [(s, a.name) for s, a in scored_audio[:3]])
 
-        top_score = scored_audio[0][0] if scored_audio else 0
-        if top_score >= 30:
-            audio = scored_audio[0][1]
-        else:
-            audio = audio_assets[day_number % len(audio_assets)]
+        # Always use highest-scored audio — no random fallback
+        audio = scored_audio[0][1] if scored_audio else audio_assets[0]
 
     # Smart clip selection: use lyrics to find verse/chorus boundaries
     audio_start = await _smart_audio_offset(
