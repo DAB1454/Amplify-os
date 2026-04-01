@@ -4,11 +4,17 @@ Two-phase upload flow:
 1. Initialize upload → get upload_url
 2. Upload video bytes to upload_url
 3. Optionally publish or save as draft
+
+For unaudited apps (sandbox), the inbox endpoint is used which sends the
+video to the creator's TikTok app for review before publishing. Set
+TIKTOK_APP_AUDITED=true once the app passes TikTok review to switch to
+direct publish.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -96,6 +102,16 @@ class TikTokPublisher:
             )
         return data
 
+    @staticmethod
+    def _is_app_audited() -> bool:
+        """Check if the TikTok app has passed review (audited).
+
+        Unaudited apps must use the inbox endpoint which sends the video
+        to the creator's TikTok app for review. Audited apps can publish
+        directly.
+        """
+        return os.environ.get("TIKTOK_APP_AUDITED", "").lower() in ("true", "1", "yes")
+
     async def _init_upload(
         self,
         video_size: int,
@@ -104,12 +120,18 @@ class TikTokPublisher:
     ) -> dict:
         """Initialize a video upload and get the upload URL.
 
-        Uses the direct publish endpoint (requires video.publish scope)
-        so the caption and privacy settings are applied immediately.
+        For audited apps: uses direct publish endpoint.
+        For unaudited apps: uses inbox endpoint (creator reviews in TikTok app).
         """
+        if self._is_app_audited():
+            endpoint = f"{TT_API}/post/publish/video/init/"
+        else:
+            endpoint = f"{TT_API}/post/publish/inbox/video/init/"
+            logger.info("Using inbox endpoint (unaudited app) — creator will review in TikTok")
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{TT_API}/post/publish/video/init/",
+                endpoint,
                 headers=self._headers(),
                 json={
                     "post_info": post_info,
