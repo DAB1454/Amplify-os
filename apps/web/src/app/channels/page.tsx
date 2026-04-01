@@ -398,7 +398,7 @@ export default function ChannelsPage() {
               </h3>
               <div className="mt-3 space-y-2">
                 {autoChannels.map((ch) => (
-                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} />
+                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} onSuccess={(msg) => setConnectBanner({ platform: ch.platform, status: "success", message: msg })} />
                 ))}
               </div>
             </>
@@ -415,7 +415,7 @@ export default function ChannelsPage() {
               </h3>
               <div className="mt-3 space-y-2">
                 {assistedChannels.map((ch) => (
-                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} />
+                  <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} onSuccess={(msg) => setConnectBanner({ platform: ch.platform, status: "success", message: msg })} />
                 ))}
               </div>
             </>
@@ -534,7 +534,8 @@ function CapabilityBadge({ name, enabled }: { name: string; enabled: boolean }) 
   );
 }
 
-function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefresh: () => void; onError?: (msg: string) => void }) {
+function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Channel; onRefresh: () => void; onError?: (msg: string) => void; onSuccess?: (msg: string) => void }) {
+  const [importing, setImporting] = useState(false);
   const status = channel.connection_status || (channel.is_active ? "connected" : "disconnected");
   const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected";
   const isAutomatic = channel.integration_mode === "automatic";
@@ -617,6 +618,27 @@ function ChannelCard({ channel, onRefresh, onError }: { channel: Channel; onRefr
               title="Check Health"
             >
               Check
+            </button>
+            <button
+              disabled={importing}
+              onClick={async () => {
+                setImporting(true);
+                try {
+                  const resp = await apiPost<{ imported: number; skipped: number; errors: string[] }>(
+                    `/api/v1/channels/${channel.id}/import-posts`, {}
+                  );
+                  onSuccess?.(`Imported ${resp.imported} posts (${resp.skipped} already existed)`);
+                  onRefresh();
+                } catch (err) {
+                  onError?.(err instanceof Error ? err.message : "Import failed");
+                } finally {
+                  setImporting(false);
+                }
+              }}
+              className="text-[10px] text-indigo-500 hover:text-indigo-400 disabled:opacity-50"
+              title="Import published posts from platform"
+            >
+              {importing ? "Importing..." : "Import"}
             </button>
             {showReconnect && (
               <button
