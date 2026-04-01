@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Any
 
@@ -189,7 +190,7 @@ class TikTokAdapter(BaseAdapter):
         publish_id = await self._publisher.upload_video(
             media_paths[0],
             content,
-            privacy_level=kwargs.get("privacy_level", "PUBLIC_TO_EVERYONE"),
+            privacy_level=kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY")),
             as_draft=kwargs.get("as_draft", False),
         )
 
