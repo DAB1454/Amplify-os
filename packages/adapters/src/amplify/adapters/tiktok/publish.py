@@ -102,10 +102,14 @@ class TikTokPublisher:
         *,
         post_info: dict[str, Any],
     ) -> dict:
-        """Initialize a video upload and get the upload URL."""
+        """Initialize a video upload and get the upload URL.
+
+        Uses the direct publish endpoint (requires video.publish scope)
+        so the caption and privacy settings are applied immediately.
+        """
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{TT_API}/post/publish/inbox/video/init/",
+                f"{TT_API}/post/publish/video/init/",
                 headers=self._headers(),
                 json={
                     "post_info": post_info,
@@ -173,7 +177,6 @@ class TikTokPublisher:
 
         post_info: dict[str, Any] = {
             "title": caption[:2200],
-            "description": caption[:2200],
             "privacy_level": privacy_level,
             "disable_duet": False,
             "disable_comment": False,
