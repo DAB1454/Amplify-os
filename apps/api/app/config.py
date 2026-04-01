@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Replicate (AI video generation)
     replicate_api_token: str = ""
 
+    # OpenAI (Whisper audio transcription for lyric videos)
+    openai_api_key: str = ""
+
     # Stripe billing
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""

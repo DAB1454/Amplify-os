@@ -3,12 +3,16 @@
 Uses FFmpeg to combine a static image (with subtle Ken Burns zoom) with
 an audio snippet and animated lyrics overlay. Output is optimized for
 Instagram Reels, TikTok, and YouTube Shorts.
+
+When OpenAI API key is available, uses Whisper to transcribe the audio
+clip for word-level timing instead of estimating from stored lyrics.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -43,29 +47,50 @@ async def generate_lyric_video(
         Where to start the audio clip (e.g. 30 = skip to chorus).
         The lyrics passed in should already be the subset for this segment.
 
+    If OPENAI_API_KEY is set, uses Whisper to transcribe the actual audio
+    clip for word-level timing. Otherwise falls back to evenly-spaced lyrics.
+
     Returns the output file path.
     """
     width, height = RESOLUTIONS.get(aspect_ratio, (720, 1280))
 
-    # Parse lyrics into lines, skipping section markers like [Verse], [Chorus]
-    lines = []
-    for l in lyrics.strip().split("\n"):
-        stripped = l.strip()
-        if not stripped:
-            continue
-        # Skip section markers
-        if stripped.startswith("[") and stripped.endswith("]"):
-            continue
-        if stripped.lower() in ("verse", "chorus", "bridge", "outro", "intro", "pre-chorus", "hook"):
-            continue
-        lines.append(stripped)
+    # First, extract the audio segment we'll use
+    segment_audio_path = output_path.replace(".mp4", "-segment.wav")
+    await _extract_audio_segment(audio_path, segment_audio_path, audio_start_seconds, duration_seconds)
 
-    if not lines:
-        lines = [f"{track_title}" if track_title else ""]
+    # Try Whisper transcription for word-level timing
+    timed_lines: list[tuple[float, float, str]] | None = None
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    if openai_key:
+        try:
+            timed_lines = await _whisper_transcribe(segment_audio_path, openai_key)
+            if timed_lines:
+                logger.info("Whisper transcribed %d segments for lyric video", len(timed_lines))
+        except Exception as exc:
+            logger.warning("Whisper transcription failed, falling back to estimated timing: %s", exc)
 
-    # Generate ASS subtitle file for animated lyrics
     ass_path = output_path.replace(".mp4", ".ass")
-    _write_ass_subtitles(ass_path, lines, duration_seconds, width, height, artist_name, track_title)
+
+    if timed_lines:
+        # Use Whisper's word-level timing for perfect sync
+        _write_ass_subtitles_timed(ass_path, timed_lines, duration_seconds, width, height, artist_name, track_title)
+    else:
+        # Fall back to evenly-spaced lyrics from stored text
+        lines = []
+        for l in lyrics.strip().split("\n"):
+            stripped = l.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                continue
+            if stripped.lower() in ("verse", "chorus", "bridge", "outro", "intro", "pre-chorus", "hook"):
+                continue
+            lines.append(stripped)
+
+        if not lines:
+            lines = [f"{track_title}" if track_title else ""]
+
+        _write_ass_subtitles(ass_path, lines, duration_seconds, width, height, artist_name, track_title)
 
     # Build FFmpeg command
     fps = 24
@@ -85,8 +110,8 @@ async def generate_lyric_video(
         "ffmpeg", "-y",
         # Input 1: image (looped)
         "-loop", "1", "-i", image_path,
-        # Input 2: audio (start from offset)
-        "-ss", str(audio_start_seconds), "-i", audio_path,
+        # Input 2: pre-extracted audio segment (already trimmed to offset+duration)
+        "-i", segment_audio_path,
         # Video filter: zoom + subtitles
         "-filter_complex",
         f"[0:v]{zoom_filter},ass={ass_path}[v]",
@@ -120,7 +145,175 @@ async def generate_lyric_video(
         raise RuntimeError(f"FFmpeg failed: {error_msg}")
 
     logger.info("Lyric video generated: %s", output_path)
+
+    # Clean up temp segment file
+    try:
+        Path(segment_audio_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
     return output_path
+
+
+async def _extract_audio_segment(
+    input_path: str,
+    output_path: str,
+    start_seconds: int,
+    duration_seconds: int,
+) -> None:
+    """Extract a segment of audio using FFmpeg."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start_seconds),
+        "-i", input_path,
+        "-t", str(duration_seconds),
+        "-c:a", "pcm_s16le",  # WAV format for Whisper compatibility
+        "-ar", "16000",       # 16kHz mono for Whisper
+        "-ac", "1",
+        output_path,
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=30)
+    if proc.returncode != 0:
+        # Non-fatal — fall back to full audio
+        logger.warning("Audio segment extraction failed (rc=%d), using full file", proc.returncode)
+        import shutil
+        shutil.copy2(input_path, output_path)
+
+
+async def _whisper_transcribe(
+    audio_path: str,
+    api_key: str,
+) -> list[tuple[float, float, str]] | None:
+    """Transcribe audio using OpenAI Whisper API with word-level timestamps.
+
+    Returns list of (start_sec, end_sec, text) tuples, or None on failure.
+    Groups words into natural phrase chunks (~3-6 words) for subtitle display.
+    """
+    import httpx
+
+    file_size = Path(audio_path).stat().st_size
+    if file_size < 1000:  # Too small to transcribe
+        return None
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        with open(audio_path, "rb") as f:
+            resp = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data={
+                    "model": "whisper-1",
+                    "response_format": "verbose_json",
+                    "timestamp_granularity[]": "word",
+                },
+                files={"file": ("audio.wav", f, "audio/wav")},
+            )
+
+    if resp.status_code != 200:
+        logger.warning("Whisper API returned %d: %s", resp.status_code, resp.text[:200])
+        return None
+
+    data = resp.json()
+    words = data.get("words", [])
+    if not words:
+        # Fall back to segment-level timestamps
+        segments = data.get("segments", [])
+        if segments:
+            return [(s["start"], s["end"], s["text"].strip()) for s in segments if s.get("text", "").strip()]
+        return None
+
+    # Group words into natural phrases (~3-6 words each)
+    phrases: list[tuple[float, float, str]] = []
+    current_words: list[str] = []
+    phrase_start: float = 0.0
+    phrase_end: float = 0.0
+
+    for w in words:
+        word_text = w.get("word", "").strip()
+        if not word_text:
+            continue
+
+        if not current_words:
+            phrase_start = w.get("start", 0.0)
+
+        current_words.append(word_text)
+        phrase_end = w.get("end", phrase_start + 1.0)
+
+        # Break into a new phrase every 4-6 words or at natural pauses (>0.3s gap)
+        should_break = (
+            len(current_words) >= 5
+            or (len(current_words) >= 3 and (phrase_end - phrase_start) > 2.5)
+        )
+        if should_break:
+            phrases.append((phrase_start, phrase_end, " ".join(current_words)))
+            current_words = []
+
+    # Flush remaining words
+    if current_words:
+        phrases.append((phrase_start, phrase_end, " ".join(current_words)))
+
+    return phrases if phrases else None
+
+
+def _write_ass_subtitles_timed(
+    path: str,
+    timed_lines: list[tuple[float, float, str]],
+    duration: int,
+    width: int,
+    height: int,
+    artist_name: str = "",
+    track_title: str = "",
+) -> None:
+    """Write ASS subtitle file using Whisper's word-level timestamps."""
+    font_size = int(height * 0.04)
+    title_font_size = int(height * 0.035)
+    margin_bottom = int(height * 0.15)
+
+    ass = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {width}
+PlayResY: {height}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Lyrics,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,1,0,1,3,2,2,40,40,{margin_bottom},1
+Style: Title,Arial,{title_font_size},&H00CCCCCC,&H000000FF,&H00000000,&H80000000,0,1,0,0,100,100,0,0,1,2,1,8,40,40,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    # Title card
+    header_time = 3.0 if (artist_name or track_title) else 0.0
+    if artist_name or track_title:
+        title_text = ""
+        if artist_name:
+            title_text += artist_name
+        if track_title:
+            if title_text:
+                title_text += " — "
+            title_text += track_title
+        ass += f"Dialogue: 0,{_format_ass_time(0)},{_format_ass_time(header_time)},Title,,0,0,0,,{{\\fad(500,500)}}{_escape_ass(title_text)}\n"
+
+    # Timed lyric lines from Whisper
+    for start, end, text in timed_lines:
+        if not text.strip():
+            continue
+        # Clamp to video duration
+        if start > duration:
+            break
+        end = min(end + 0.2, duration)  # Small extension for readability
+        start_ts = _format_ass_time(start)
+        end_ts = _format_ass_time(end)
+        ass += f"Dialogue: 0,{start_ts},{end_ts},Lyrics,,0,0,0,,{{\\fad(200,200)}}{_escape_ass(text)}\n"
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(ass)
 
 
 def _write_ass_subtitles(

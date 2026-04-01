@@ -310,8 +310,17 @@ async def _find_matching_assets(
     VISUAL_TYPES = {"image", "album_art", "promo_photo", "video", "lyric_video", "logo"}
     visual_candidates = [c for c in candidates if c.asset_type in VISUAL_TYPES]
 
-    # Fall back to all candidates only if there are zero visual assets
-    pool = visual_candidates if visual_candidates else candidates
+    # Separate original assets from auto-generated clips to prevent repetition.
+    # Auto-generated clips can be reused occasionally (e.g. cross-platform)
+    # but shouldn't dominate — prefer original images/art for fresh video generation.
+    original_assets = [
+        c for c in visual_candidates
+        if not (c.source == "ai_generated" and c.asset_type in ("video", "lyric_video"))
+    ]
+
+    # Use originals if available; fall back to all visual (including generated) only
+    # if there are no original visual assets at all
+    pool = original_assets if original_assets else (visual_candidates if visual_candidates else candidates)
 
     scored = []
     import re as _re
