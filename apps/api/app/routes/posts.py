@@ -375,12 +375,19 @@ async def generate_media_for_post(
             artist_id = campaign.artist_id
             release_id = campaign.release_id
 
-    # Step 1: Resolve image — user override or auto-match from library
+    # Step 1: Resolve image — user override, existing post media, or auto-match from library
     action_lower = (post.action_type_label or "").lower()
     content_lower = (post.content_text or "").lower()
 
+    # Extract image and audio from post's existing media_urls
+    existing_media = post.media_urls or []
+    existing_images = [u for u in existing_media if any(u.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))]
+    existing_audio = [u for u in existing_media if any(u.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a"))]
+
     if body.force_image_url:
         image_urls = [body.force_image_url]
+    elif existing_images:
+        image_urls = existing_images
     else:
         is_carousel = (
             "carousel" in action_lower
@@ -406,6 +413,10 @@ async def generate_media_for_post(
             day_number=post.day_number,
             max_results=max_images,
         )
+
+    # Use existing audio from post if no force override provided
+    if not body.force_audio_url and existing_audio:
+        body.force_audio_url = existing_audio[0]
 
     video_generated = False
 
