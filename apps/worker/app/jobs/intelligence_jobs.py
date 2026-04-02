@@ -150,10 +150,50 @@ async def compute_rewards(payload: dict) -> dict:
         if computed:
             await db.commit()
 
+    # Feed computed rewards to the contextual bandit
+    bandit_updated = 0
+    if computed:
+        try:
+            from collections import defaultdict
+            from amplify.db.models.post import PostModel
+
+            tenant_outcomes: dict[uuid.UUID, list] = defaultdict(list)
+            for outcome in outcomes:
+                if outcome.reward is not None:
+                    tenant_outcomes[outcome.tenant_id].append(outcome)
+
+            for tid, tenant_outs in tenant_outcomes.items():
+                try:
+                    from app.services.bandit_service import load_bandit, save_bandit
+                    bandit = await load_bandit(db, tid)
+
+                    for outcome in tenant_outs:
+                        # Get post features for context key
+                        post_result = await db.execute(
+                            select(PostModel).where(PostModel.id == outcome.post_id)
+                        )
+                        post = post_result.scalar_one_or_none()
+                        if post:
+                            platform = post.platform or "unknown"
+                            action_type = post.action_type_label or "post"
+                            # Build composite arm key
+                            ctx_key = f"{platform}:{action_type}"
+                            bandit.update(str(outcome.post_id), ctx_key, outcome.reward)
+                            bandit_updated += 1
+
+                    await save_bandit(db, tid, bandit)
+                except Exception as bandit_exc:
+                    logger.warning("Bandit update failed for tenant %s: %s", tid, bandit_exc)
+
+            if bandit_updated:
+                await db.commit()
+        except Exception as exc:
+            logger.warning("Bandit feedback loop error: %s", exc)
+
     metrics.gauge("intelligence.rewards.computed", computed)
     metrics.gauge("intelligence.rewards.pending", len(outcomes))
-    logger.info("Reward computation: %d computed from %d outcomes", computed, len(outcomes))
-    return {"computed": computed, "total_pending": len(outcomes)}
+    logger.info("Reward computation: %d computed, %d bandit updates from %d outcomes", computed, bandit_updated, len(outcomes))
+    return {"computed": computed, "bandit_updated": bandit_updated, "total_pending": len(outcomes)}
 
 
 # ── Tenant Pattern Update ────────────────────────────────────────

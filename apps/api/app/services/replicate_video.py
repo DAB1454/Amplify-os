@@ -266,3 +266,72 @@ async def _stitch_clips_with_audio(
     if proc.returncode != 0:
         error_msg = stderr.decode()[-500:] if stderr else "unknown error"
         raise RuntimeError(f"FFmpeg stitch failed: {error_msg}")
+
+
+async def generate_ai_video_for_post(
+    *,
+    image_url: str | None,
+    audio_url: str,
+    track_title: str = "",
+    artist_name: str = "",
+    lyrics: str = "",
+    tenant_id: "uuid.UUID",
+    replicate_api_token: str,
+    s3_bucket: str,
+    s3_region: str,
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    media_base_url: str = "",
+    num_scenes: int = 4,
+    duration_seconds: int = 15,
+    aspect_ratio: str = "9:16",
+) -> tuple[str, float]:
+    """Generate an AI video for a post via Replicate and upload to S3.
+
+    Returns (video_url, cost_usd).
+    """
+    import tempfile
+
+    # Build prompts
+    if lyrics:
+        prompts = await generate_scene_prompts_from_lyrics(
+            lyrics=lyrics,
+            artist_name=artist_name,
+            track_title=track_title,
+            num_scenes=num_scenes,
+        )
+    else:
+        prompts = [
+            f"Cinematic music video scene for {artist_name} - {track_title}. "
+            f"Beautiful cinematography, atmospheric lighting."
+        ] * num_scenes
+
+    cost = len(prompts) * ESTIMATED_COST_PER_CLIP
+
+    with tempfile.TemporaryDirectory(prefix="aivid_") as tmp_dir:
+        output_path = await generate_music_video(
+            prompts=prompts,
+            audio_url=audio_url,
+            image_url=image_url,
+            duration_seconds=duration_seconds,
+            aspect_ratio=aspect_ratio,
+            replicate_api_token=replicate_api_token,
+            output_dir=tmp_dir,
+        )
+
+        # Upload to S3
+        from app.services.media_service import MediaService
+        media_svc = MediaService(
+            s3_bucket=s3_bucket,
+            s3_region=s3_region,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            media_base_url=media_base_url,
+        )
+        with open(output_path, "rb") as f:
+            video_url = await media_svc.upload(
+                tenant_id, f, f"ai-video-{uuid.uuid4()}.mp4", "video/mp4"
+            )
+
+    logger.info("AI video generated: %s (cost=$%.2f, %d clips)", video_url, cost, len(prompts))
+    return video_url, cost

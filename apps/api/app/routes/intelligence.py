@@ -210,3 +210,80 @@ async def get_alerts(
     """Surface learning actions that need operator attention:
     low-confidence patterns, thin data, rapid changes, anomalous rewards."""
     return await svc.get_suspicious_actions(days=days)
+
+
+# ── Bandit Summary ──────────────────────────────────────────────
+
+
+@router.get(
+    "/bandit-summary",
+    summary="Contextual bandit status and arm statistics",
+)
+async def get_bandit_summary(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Returns bandit arm stats, exploration rate, and shadow mode status."""
+    from app.services.bandit_service import load_bandit
+    from amplify.learning.ranking.bandit import TenantBanditState
+
+    bandit = await load_bandit(db, tenant_id)
+    state = TenantBanditState.from_bandit(str(tenant_id), bandit)
+
+    arms_summary = []
+    for arm_id, arm_data in state.arms.items():
+        arms_summary.append({
+            "arm_id": arm_id,
+            "n_pulls": arm_data.get("n_pulls", 0),
+            "mean_reward": arm_data.get("mean_reward", 0.0),
+            "alpha": arm_data.get("alpha", 1.0),
+            "beta": arm_data.get("beta", 1.0),
+        })
+    arms_summary.sort(key=lambda a: a["mean_reward"], reverse=True)
+
+    exploration_rate = (
+        state.exploratory_decisions / state.total_decisions
+        if state.total_decisions > 0 else 0.0
+    )
+
+    return {
+        "enabled": state.config.get("enabled", True),
+        "shadow_mode": state.config.get("shadow_mode", True),
+        "policy": state.config.get("policy", "epsilon_greedy"),
+        "current_epsilon": state.current_epsilon,
+        "total_decisions": state.total_decisions,
+        "exploratory_decisions": state.exploratory_decisions,
+        "exploration_rate": round(exploration_rate, 4),
+        "arms": arms_summary,
+        "updated_at": state.updated_at,
+    }
+
+
+# ── Video Generation Settings ──────────────────────────────────
+
+
+@router.get(
+    "/video-settings",
+    summary="Video auto-generation settings and spend",
+)
+async def get_video_settings_route(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Returns Replicate auto-generation settings and current month spend."""
+    from app.services.video_budget_service import get_video_settings
+    return await get_video_settings(db, tenant_id)
+
+
+@router.put(
+    "/video-settings",
+    summary="Update video auto-generation settings",
+)
+async def update_video_settings_route(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Toggle auto-Replicate and set monthly budget cap."""
+    from app.services.video_budget_service import update_video_settings
+    return await update_video_settings(db, tenant_id, body)

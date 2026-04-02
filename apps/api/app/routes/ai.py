@@ -1201,6 +1201,27 @@ async def generate_plan(
 
         await db.flush()
 
+    # Run bandit in shadow mode on the generated posts for learning
+    try:
+        from app.services.bandit_service import load_bandit, log_decision
+        from amplify.learning.ranking.post_ranker import CandidatePost
+        bandit = await load_bandit(db, tenant_id)
+        # Build candidate posts from the generated actions
+        candidates = []
+        for action in daily_actions:
+            candidates.append(CandidatePost(
+                candidate_id=f"{action.day}_{action.platform}_{action.action_type}",
+                platform=action.platform,
+                content_type=action.action_type,
+                campaign_phase=campaign.phase or "pre_release",
+            ))
+        if len(candidates) >= 2:
+            decision = bandit.select(candidates)
+            await log_decision(db, tenant_id, decision)
+            logger.info("Bandit shadow decision logged for plan: %s", decision.policy_used)
+    except Exception as bandit_exc:
+        logger.debug("Bandit shadow logging skipped: %s", bandit_exc)
+
     try:
         await audit.log(
             action="ai.plan_generated",

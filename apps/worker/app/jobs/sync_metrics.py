@@ -189,6 +189,63 @@ async def sync_metrics(payload: dict | None = None) -> dict:
                                     value=float(value),
                                 ))
 
+                        # Create/update PostOutcomeModel for the reward pipeline
+                        try:
+                            from amplify.db.models.learning import PostOutcomeModel
+                            # Determine measurement window by post age
+                            age_hours = (datetime.utcnow() - post.published_at).total_seconds() / 3600 if post.published_at else 0
+                            if age_hours < 24:
+                                window = "24h"
+                            elif age_hours < 48:
+                                window = "48h"
+                            elif age_hours < 168:  # 7 days
+                                window = "7d"
+                            else:
+                                window = "final"
+
+                            existing_outcome = await db.execute(
+                                select(PostOutcomeModel).where(
+                                    PostOutcomeModel.post_id == post.id,
+                                    PostOutcomeModel.measurement_window == window,
+                                )
+                            )
+                            outcome = existing_outcome.scalar_one_or_none()
+                            total_eng = snapshot.likes + snapshot.comments + snapshot.shares + snapshot.saves
+                            eng_rate = total_eng / snapshot.impressions if snapshot.impressions > 0 else 0.0
+                            ctr = snapshot.clicks / snapshot.impressions if snapshot.impressions > 0 else 0.0
+
+                            if outcome:
+                                outcome.impressions = snapshot.impressions
+                                outcome.reach = snapshot.reach
+                                outcome.engagements = total_eng
+                                outcome.saves = snapshot.saves
+                                outcome.shares = snapshot.shares
+                                outcome.clicks = snapshot.clicks
+                                outcome.comments_count = snapshot.comments
+                                outcome.engagement_rate = eng_rate
+                                outcome.click_through_rate = ctr
+                                outcome.measured_at = datetime.utcnow()
+                                outcome.source = platform
+                            else:
+                                db.add(PostOutcomeModel(
+                                    tenant_id=post.tenant_id,
+                                    post_id=post.id,
+                                    measurement_window=window,
+                                    impressions=snapshot.impressions,
+                                    reach=snapshot.reach,
+                                    engagements=total_eng,
+                                    saves=snapshot.saves,
+                                    shares=snapshot.shares,
+                                    clicks=snapshot.clicks,
+                                    comments_count=snapshot.comments,
+                                    engagement_rate=eng_rate,
+                                    click_through_rate=ctr,
+                                    measured_at=datetime.utcnow(),
+                                    source=platform,
+                                ))
+                        except Exception as outcome_exc:
+                            logger.warning("PostOutcomeModel upsert failed for %s: %s", post.id, outcome_exc)
+
                         synced += 1
                         logger.info(
                             "Synced metrics for post %s (%s): impressions=%d likes=%d views=%d",

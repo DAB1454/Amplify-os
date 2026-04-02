@@ -457,7 +457,53 @@ async def generate_media_for_post(
         except Exception as exc:
             logger.warning("Lyric video generation failed for post %s: %s", post_id, exc)
 
-    # Step 2b: Standard video (image + audio clip)
+    # Step 2b: Try Replicate AI video if enabled and budget allows
+    if not video_generated and should_generate_video and not is_carousel:
+        try:
+            from app.services.video_budget_service import can_generate_ai_video, record_spend
+            allowed, reason = await can_generate_ai_video(db, tenant_id)
+            if allowed and settings_obj.replicate_api_token:
+                from app.services.replicate_video import generate_ai_video_for_post
+                # Resolve track info for better prompts
+                track_title = post.track_reference or ""
+                artist_name_str = ""
+                lyrics_str = ""
+                if release_id:
+                    from amplify.db.models.release import ReleaseModel
+                    rel_r = await db.execute(
+                        select(ReleaseModel).where(ReleaseModel.id == release_id)
+                    )
+                    rel = rel_r.scalar_one_or_none()
+                    if rel:
+                        artist_name_str = getattr(rel, "artist_name", "") or ""
+                # Find audio URL
+                audio_for_replicate = body.force_audio_url
+                if not audio_for_replicate and existing_audio:
+                    audio_for_replicate = existing_audio[0]
+                if audio_for_replicate and image_urls:
+                    ai_video_url, cost = await generate_ai_video_for_post(
+                        image_url=image_urls[0],
+                        audio_url=audio_for_replicate,
+                        track_title=track_title,
+                        artist_name=artist_name_str,
+                        lyrics=lyrics_str,
+                        tenant_id=tenant_id,
+                        replicate_api_token=settings_obj.replicate_api_token,
+                        s3_bucket=settings_obj.s3_bucket,
+                        s3_region=settings_obj.s3_region,
+                        aws_access_key_id=settings_obj.aws_access_key_id,
+                        aws_secret_access_key=settings_obj.aws_secret_access_key,
+                        media_base_url=getattr(settings_obj, "media_base_url", ""),
+                    )
+                    if ai_video_url:
+                        post.media_urls = [ai_video_url]
+                        video_generated = True
+                        await record_spend(db, tenant_id, cost)
+                        logger.info("Replicate AI video for post %s: $%.2f", post_id, cost)
+        except Exception as exc:
+            logger.warning("Replicate AI video failed for post %s (falling back to static): %s", post_id, exc)
+
+    # Step 2c: Standard video (image + audio clip)
     # For carousels, generate one video per image with varied tracks
     if not video_generated and should_generate_video:
         try:
