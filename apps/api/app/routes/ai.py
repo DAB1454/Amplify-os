@@ -1700,6 +1700,8 @@ class GenerateAIVideoRequest(BaseModel):
     lyrics: str = ""  # Auto-generate scene prompts from lyrics
     image_url: str = ""  # Starting image (album art)
     audio_url: str = ""  # Audio to sync with
+    audio_start: float | None = None  # Start offset in seconds (e.g. 14 for 0:14)
+    audio_end: float | None = None  # End offset in seconds (e.g. 44 for 0:44)
     aspect_ratio: str = "9:16"
     duration_seconds: int = 30
     num_scenes: int = 6  # Number of AI-generated clips
@@ -1877,12 +1879,32 @@ async def generate_ai_video(
     from app.services.replicate_video import (
         generate_scene_prompts_from_lyrics,
         generate_music_video,
+        parse_timed_scenes,
         ESTIMATED_COST_PER_CLIP,
     )
 
+    scene_durations: list[float] | None = None
+    audio_start = body.audio_start
+    audio_end = body.audio_end
+
     if body.prompt:
-        # Single prompt — replicate it for each scene
-        prompts = [body.prompt] * body.num_scenes
+        # Try to parse timed shots from the prompt (e.g., "Shot #1 (0:14-0:21): ...")
+        timed_scenes = parse_timed_scenes(body.prompt)
+        if timed_scenes:
+            prompts = [s["prompt"] for s in timed_scenes]
+            scene_durations = [s["duration"] for s in timed_scenes]
+            # Auto-detect audio range from shot timestamps if not explicitly set
+            if audio_start is None:
+                audio_start = timed_scenes[0]["start"]
+            if audio_end is None:
+                audio_end = timed_scenes[-1]["end"]
+            logger.info(
+                "Parsed %d timed scenes (audio %.1f-%.1fs, durations=%s)",
+                len(prompts), audio_start, audio_end, scene_durations,
+            )
+        else:
+            # Single prompt — replicate it for each scene
+            prompts = [body.prompt] * body.num_scenes
     elif lyrics:
         prompts = await generate_scene_prompts_from_lyrics(
             lyrics=lyrics,
@@ -1896,6 +1918,12 @@ async def generate_ai_video(
             f"Beautiful cinematography, atmospheric lighting."
         ] * body.num_scenes
 
+    # Calculate total duration from audio range or explicit setting
+    if audio_start is not None and audio_end is not None:
+        total_duration = audio_end - audio_start
+    else:
+        total_duration = body.duration_seconds
+
     estimated_cost = len(prompts) * ESTIMATED_COST_PER_CLIP
 
     try:
@@ -1904,10 +1932,13 @@ async def generate_ai_video(
                 prompts=prompts,
                 audio_url=audio_url,
                 image_url=image_url,
-                duration_seconds=body.duration_seconds,
+                duration_seconds=int(total_duration),
                 aspect_ratio=body.aspect_ratio,
                 replicate_api_token=settings.replicate_api_token,
                 output_dir=tmp_dir,
+                scene_durations=scene_durations,
+                audio_start=audio_start,
+                audio_end=audio_end,
             )
 
             # Upload to S3

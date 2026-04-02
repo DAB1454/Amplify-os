@@ -621,8 +621,8 @@ export default function PostsPage() {
               <textarea
                 value={aiVideoPrompt}
                 onChange={(e) => setAiVideoPrompt(e.target.value)}
-                placeholder={"Describe the video scene (or leave blank to auto-generate from lyrics)...\nExample: Cinematic shots of a country road at sunset, fireflies, old barn, golden light"}
-                rows={3}
+                placeholder={"Describe each shot with audio timestamps and the system will sync them:\n\nShot #1 (0:14-0:21): Drone shot of a stadium at night...\nShot #2 (0:21-0:27): Close-up of the main character...\nShot #3 (0:27-0:38): Wide shot of a crowd...\n\nOr describe a single scene and it will be split into clips automatically."}
+                rows={8}
                 className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm placeholder:text-[var(--text-secondary)]"
               />
               <div className="flex gap-4">
@@ -635,14 +635,6 @@ export default function PostsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-[var(--text-secondary)]">Duration</label>
-                  <select value={videoDuration} onChange={(e) => setVideoDuration(Number(e.target.value))} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
-                    <option value={15}>15s</option>
-                    <option value={30}>30s</option>
-                    <option value={60}>60s</option>
-                  </select>
-                </div>
-                <div>
                   <label className="text-[10px] text-[var(--text-secondary)]">Aspect</label>
                   <select value={videoAspect} onChange={(e) => setVideoAspect(e.target.value)} className="ml-1 rounded border border-[var(--border-color)] bg-white px-2 py-1 text-xs">
                     <option value="9:16">9:16 (Reel/TikTok)</option>
@@ -652,7 +644,7 @@ export default function PostsPage() {
                 </div>
               </div>
               <p className="text-[10px] text-pink-600">
-                AI-generated video clips are stitched with your audio. Takes 2-5 minutes. Cost charged to your Replicate account.
+                Include timestamps like &quot;Shot #1 (0:14-0:21):&quot; to sync each scene to your audio. Audio is auto-trimmed to your timestamp range. Takes 2-5 minutes.
               </p>
             </div>
           )}
