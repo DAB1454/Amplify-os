@@ -41,44 +41,62 @@ async def generate_video_from_prompt(
     if not replicate_api_token:
         raise ValueError("REPLICATE_API_TOKEN not configured")
 
+    headers = {
+        "Authorization": f"Bearer {replicate_api_token}",
+        "Content-Type": "application/json",
+        "Prefer": "wait",  # Use sync mode for shorter waits
+    }
+
     # Use image-to-video if we have an image, text-to-video otherwise
     if image_url:
-        # Stable Video Diffusion: image → video
+        # Stable Video Diffusion: image → video (versioned model)
+        model = DEFAULT_MODEL
         model_input = {
             "input_image": image_url,
-            "motion_bucket_id": 127,  # Amount of motion (0-255)
+            "motion_bucket_id": 127,
             "fps": 24,
             "cond_aug": 0.02,
         }
-        model = DEFAULT_MODEL
+        api_url = "https://api.replicate.com/v1/predictions"
+        body = {
+            "version": model.split(":")[-1],
+            "input": model_input,
+        }
     else:
-        # Text-to-video model
+        # Text-to-video: minimax/video-01-live (official model — uses models endpoint)
         model = "minimax/video-01-live"
         model_input = {
             "prompt": prompt,
             "prompt_optimizer": True,
         }
+        # Official models use /v1/models/{owner}/{name}/predictions
+        api_url = f"https://api.replicate.com/v1/models/{model}/predictions"
+        body = {
+            "input": model_input,
+        }
 
-    logger.info("Replicate generation: model=%s prompt=%s", model, prompt[:100])
+    logger.info("Replicate generation: model=%s url=%s prompt=%s", model, api_url, prompt[:100])
 
     # Create prediction
     async with httpx.AsyncClient(timeout=120) as client:
-        create_resp = await client.post(
-            "https://api.replicate.com/v1/predictions",
-            headers={
-                "Authorization": f"Bearer {replicate_api_token}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "version": model.split(":")[-1] if ":" in model else None,
-                "model": model.split(":")[0] if ":" not in model else None,
-                "input": model_input,
-            },
-        )
-        create_resp.raise_for_status()
+        create_resp = await client.post(api_url, headers=headers, json=body)
+        if create_resp.status_code >= 400:
+            logger.error(
+                "Replicate API error %d: %s", create_resp.status_code, create_resp.text[:500]
+            )
+            create_resp.raise_for_status()
         prediction = create_resp.json()
         prediction_id = prediction["id"]
-        logger.info("Replicate prediction created: %s", prediction_id)
+        status = prediction.get("status")
+        logger.info("Replicate prediction created: %s (status=%s)", prediction_id, status)
+
+        # If sync mode returned completed result, extract output directly
+        if status == "succeeded":
+            output = prediction.get("output")
+            if isinstance(output, list):
+                return output[0]
+            if isinstance(output, str):
+                return output
 
     # Poll for completion (max 5 minutes)
     video_url = await _poll_prediction(prediction_id, replicate_api_token, timeout=300)
