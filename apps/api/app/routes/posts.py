@@ -379,6 +379,16 @@ async def generate_media_for_post(
     action_lower = (post.action_type_label or "").lower()
     content_lower = (post.content_text or "").lower()
 
+    is_carousel = (
+        "carousel" in action_lower
+        or (post.platform == "instagram"
+            and action_lower not in ("reel", "reels", "short", "story")
+            and any(kw in content_lower for kw in [
+                "artwork", "each song", "each track", "which one", "some of",
+                "sneak peek", "behind the scenes", "swipe", "slide",
+            ]))
+    )
+
     # Extract image and audio from post's existing media_urls
     existing_media = post.media_urls or []
     existing_images = [u for u in existing_media if any(u.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))]
@@ -389,18 +399,13 @@ async def generate_media_for_post(
     elif existing_images:
         image_urls = existing_images
     else:
-        is_carousel = (
-            "carousel" in action_lower
-            or (post.platform == "instagram"
-                and action_lower not in ("reel", "reels", "short", "story")
-                and any(kw in content_lower for kw in [
-                    "artwork", "each song", "each track", "which one", "some of",
-                    "sneak peek", "behind the scenes", "swipe", "slide",
-                ]))
-        )
         max_images = 5 if is_carousel else 1
 
         from app.services.content_pipeline import _find_matching_assets
+        # Use track_reference as the primary matching anchor when available
+        content_hint = post.content_text or ""
+        if post.track_reference:
+            content_hint = f"🎵 Featuring: {post.track_reference}\n{content_hint}"
         image_urls = await _find_matching_assets(
             db=db,
             tenant_id=tenant_id,
@@ -409,7 +414,7 @@ async def generate_media_for_post(
             campaign_id=post.campaign_id,
             platform=post.platform,
             action_type=post.action_type_label,
-            content_hint=post.content_text or "",
+            content_hint=content_hint,
             day_number=post.day_number,
             max_results=max_images,
         )
@@ -453,24 +458,57 @@ async def generate_media_for_post(
             logger.warning("Lyric video generation failed for post %s: %s", post_id, exc)
 
     # Step 2b: Standard video (image + audio clip)
+    # For carousels, generate one video per image with varied tracks
     if not video_generated and should_generate_video:
         try:
             from app.routes.ai import _auto_generate_post_video
-            video_url = await _auto_generate_post_video(
-                db=db,
-                tenant_id=tenant_id,
-                image_url=image_urls[0],
-                artist_id=artist_id,
-                release_id=release_id,
-                content_hint=post.content_text or "",
-                day_number=post.day_number or 1,
-                settings=settings_obj,
-                duration=min(max(body.duration_seconds, 10), 60),
-                force_audio_url=body.force_audio_url,
-            )
-            if video_url:
-                post.media_urls = [video_url]
-                video_generated = True
+            # Build content hint with track_reference as the anchor
+            video_content_hint = post.content_text or ""
+            if post.track_reference:
+                video_content_hint = f"🎵 Featuring: {post.track_reference}\n{video_content_hint}"
+
+            if is_carousel and len(image_urls) > 1:
+                # Carousel: generate a video per image, rotating tracks
+                video_urls = []
+                for img_idx, img_url in enumerate(image_urls):
+                    try:
+                        vid_url = await _auto_generate_post_video(
+                            db=db,
+                            tenant_id=tenant_id,
+                            image_url=img_url,
+                            artist_id=artist_id,
+                            release_id=release_id,
+                            content_hint=video_content_hint,
+                            day_number=(post.day_number or 1) + img_idx,
+                            settings=settings_obj,
+                            duration=min(max(body.duration_seconds, 10), 60),
+                            force_audio_url=body.force_audio_url,
+                            carousel_index=img_idx,
+                        )
+                        if vid_url:
+                            video_urls.append(vid_url)
+                    except Exception as exc:
+                        logger.warning("Carousel video %d failed for post %s: %s", img_idx, post_id, exc)
+                        video_urls.append(img_url)  # fallback to image
+                if video_urls:
+                    post.media_urls = video_urls
+                    video_generated = True
+            else:
+                video_url = await _auto_generate_post_video(
+                    db=db,
+                    tenant_id=tenant_id,
+                    image_url=image_urls[0],
+                    artist_id=artist_id,
+                    release_id=release_id,
+                    content_hint=video_content_hint,
+                    day_number=post.day_number or 1,
+                    settings=settings_obj,
+                    duration=min(max(body.duration_seconds, 10), 60),
+                    force_audio_url=body.force_audio_url,
+                )
+                if video_url:
+                    post.media_urls = [video_url]
+                    video_generated = True
         except Exception as exc:
             logger.warning("Video generation failed for post %s (falling back to image): %s", post_id, exc)
 

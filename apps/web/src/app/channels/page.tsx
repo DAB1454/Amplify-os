@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatLocalDate } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -822,7 +822,7 @@ function TaskCard({
           {/* Due date */}
           {task.due_at && (
             <p className="mt-3 text-xs text-[var(--text-secondary)]">
-              Due: {new Date(task.due_at).toLocaleDateString()}
+              Due: {formatLocalDate(task.due_at)}
             </p>
           )}
         </div>

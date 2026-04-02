@@ -46,6 +46,7 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     approval_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     day_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     action_type_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    track_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     campaign: Mapped[CampaignModel | None] = relationship(back_populates="posts")

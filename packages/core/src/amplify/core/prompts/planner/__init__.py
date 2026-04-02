@@ -153,8 +153,12 @@ Generate a campaign plan for the following release.
 ## Campaign date range
 - Start: {campaign_start}
 - End: {campaign_end}
+- Timezone: {timezone}
 - IMPORTANT: Plan MUST cover every day from {campaign_start} through {campaign_end}.
   Do NOT default to 14 days. Use the exact date range above.
+- IMPORTANT: All dates are in the user's local timezone ({timezone}).
+  When writing day-specific content (e.g. "Tuesday Vibe", "Weekend energy"),
+  use the day of the week as it appears in {timezone}, NOT UTC.
 
 ## Release metadata
 - Artist: {artist_name}

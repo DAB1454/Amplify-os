@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CampaignDestinationReport } from "@/types";
+import { formatLocalDate } from "@/lib/utils";
 
 const PLATFORM_ICONS: Record<string, string> = {
   instagram: "IG",
@@ -143,7 +144,7 @@ export function DestinationCard({ campaignId }: DestinationCardProps) {
                 </span>
                 {post.scheduledAt && (
                   <span className="ml-auto text-[var(--text-secondary)]">
-                    {new Date(post.scheduledAt).toLocaleDateString()}
+                    {formatLocalDate(post.scheduledAt)}
                   </span>
                 )}
               </div>

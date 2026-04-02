@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatLocal, formatLocalDate } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -529,7 +529,7 @@ export default function IntelligencePage() {
                           {r.evaluation_type} evaluation
                         </p>
                         <p className="text-xs text-[var(--text-secondary)]">
-                          {r.sample_size} samples &middot; {r.created_at ? new Date(r.created_at).toLocaleDateString() : "—"}
+                          {r.sample_size} samples &middot; {r.created_at ? formatLocalDate(r.created_at) : "—"}
                         </p>
                       </div>
                       <div className="flex items-center gap-4 text-right">
@@ -645,7 +645,7 @@ export default function IntelligencePage() {
                           </span>
                         </div>
                         <span className="text-[10px] text-[var(--text-secondary)]">
-                          {e.created_at ? new Date(e.created_at).toLocaleString() : "—"}
+                          {e.created_at ? formatLocal(e.created_at) : "—"}
                         </span>
                       </div>
                       {e.explanation && (

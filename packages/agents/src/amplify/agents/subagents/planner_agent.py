@@ -213,6 +213,7 @@ class PlannerAgent:
         campaign_start: str | date = "",
         campaign_end: str | date = "",
         campaign_phase: str = "",
+        timezone: str = "America/New_York",
     ) -> AgentResult:
         """Generate a structured campaign plan for the given date range.
 
@@ -255,6 +256,7 @@ class PlannerAgent:
             today=str(date.today()),
             campaign_start=cs,
             campaign_end=ce,
+            timezone=timezone,
         )
 
         # Inject campaign phase so the planner respects pre-release vs release vs sustain

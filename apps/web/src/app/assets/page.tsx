@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiDelete, apiPut, apiUpload } from "@/lib/api";
+import { formatLocalDate } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview } from "@/components/ui/media-preview";
 
@@ -641,7 +642,7 @@ export default function AssetsPage() {
                       <div className="flex items-center gap-2 text-[10px] text-[var(--text-secondary)]">
                         <span className="capitalize">{asset.asset_type.replace("_", " ")}</span>
                         {asset.file_size_bytes && <span>{formatBytes(asset.file_size_bytes)}</span>}
-                        <span>{new Date(asset.created_at).toLocaleDateString()}</span>
+                        <span>{formatLocalDate(asset.created_at)}</span>
                         {asset.approval_status === "pending_review" && (
                           <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 font-medium">Pending Review</span>
                         )}

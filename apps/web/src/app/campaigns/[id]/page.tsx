@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatLocal, formatLocalDate } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
 
@@ -287,6 +287,7 @@ export default function CampaignDetailPage() {
       await apiPost("/api/v1/ai/generate-plan", {
         campaign_id: campaignId,
         content_notes: contentNotes,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       await fetchPlan();
     } catch (err) {
@@ -1075,7 +1076,7 @@ export default function CampaignDetailPage() {
                               disabled={isActioning}
                               className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                             >
-                              {isActioning ? "..." : post.scheduled_at ? `Schedule (${new Date(post.scheduled_at).toLocaleDateString()})` : "Schedule Now"}
+                              {isActioning ? "..." : post.scheduled_at ? `Schedule (${formatLocalDate(post.scheduled_at)})` : "Schedule Now"}
                             </button>
                           )}
 

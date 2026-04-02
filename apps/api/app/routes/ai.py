@@ -55,6 +55,7 @@ class GeneratePlanRequest(BaseModel):
     content_notes: str = ""  # e.g. "AI-generated music, no video footage, no personal photos"
     posts_per_day: int = 0  # 0 = let AI decide, 1-3 = target per channel per day
     focus: str = ""  # e.g. "engagement", "awareness", "conversions"
+    timezone: str = "America/New_York"  # IANA timezone for scheduling
 
 
 class DailyActionResponse(BaseModel):
@@ -94,10 +95,13 @@ async def _auto_generate_post_video(
     settings: Settings,
     duration: int = 15,
     force_audio_url: str | None = None,
+    carousel_index: int | None = None,
 ) -> str | None:
     """Find the best audio asset and generate image+audio→video.
 
     Returns the uploaded video URL, or None if no audio available.
+    For carousel items, carousel_index rotates through available tracks
+    so each slide features a different song.
     """
     from amplify.db.models.asset import AssetModel
     from amplify.db.models.track import TrackModel
@@ -214,8 +218,15 @@ async def _auto_generate_post_video(
         logger.info("Audio matching top 3: %s",
                      [(s, a.name) for s, a in scored_audio[:3]])
 
-        # Always use highest-scored audio — no random fallback
-        audio = scored_audio[0][1] if scored_audio else audio_assets[0]
+        if carousel_index is not None and len(scored_audio) > 1:
+            # Carousel: rotate through top-scored tracks so each slide is different
+            pick_idx = carousel_index % len(scored_audio)
+            audio = scored_audio[pick_idx][1]
+            logger.info("Carousel index %d → using track %d: %s",
+                        carousel_index, pick_idx, audio.name)
+        else:
+            # Single post: use highest-scored audio
+            audio = scored_audio[0][1] if scored_audio else audio_assets[0]
 
     # Smart clip selection: use lyrics to find verse/chorus boundaries
     audio_start = await _smart_audio_offset(
@@ -916,6 +927,7 @@ async def generate_plan(
             campaign_start=str(campaign.start_date) if campaign.start_date else "",
             campaign_end=str(campaign.end_date) if campaign.end_date else "",
             campaign_phase=campaign.phase or "",
+            timezone=body.timezone,
         )
         logger.info(
             "Plan generated for campaign %s: start=%s end=%s",
@@ -1081,14 +1093,14 @@ async def generate_plan(
             ))
 
             # Create calendar item for each action
-            # Stagger times throughout the day for variety
+            # Stagger times throughout the day for variety (local times)
             from datetime import date as date_type, time as time_type
-            _post_times = [
+            _post_times_local = [
                 time_type(9, 0), time_type(10, 30), time_type(12, 0),
                 time_type(14, 0), time_type(16, 30), time_type(18, 0),
                 time_type(19, 30), time_type(21, 0),
             ]
-            post_time = _post_times[day_idx % len(_post_times)]
+            post_time_local = _post_times_local[day_idx % len(_post_times_local)]
 
             try:
                 action_date = date_type.fromisoformat(action.day) if action.day else None
@@ -1100,7 +1112,7 @@ async def generate_plan(
                         description=action.content_brief,
                         item_type=action.action_type or "post",
                         scheduled_date=action_date,
-                        scheduled_time=post_time,
+                        scheduled_time=post_time_local,
                     )
                     db.add(cal_item)
                     calendar_items_created += 1
@@ -1134,29 +1146,34 @@ async def generate_plan(
                             post_approval = None
                             post_status = "draft"
 
-                        # Set scheduled_at from the action's day with staggered time
-                        # If the time is in the past (today), push to next available slot
+                        # Set scheduled_at from the action's day with staggered local time,
+                        # then convert to UTC for storage.
+                        # If the time is in the past (today), push to next available slot.
                         scheduled_at = None
                         try:
-                            from datetime import datetime as dt_type
+                            from datetime import datetime as dt_type, timedelta
+                            from zoneinfo import ZoneInfo
                             action_date = date_type.fromisoformat(action.day) if action.day else None
                             if action_date:
-                                candidate = dt_type.combine(action_date, post_time)
+                                user_tz = ZoneInfo(body.timezone)
+                                # Build a timezone-aware local datetime, then convert to UTC
+                                local_dt = dt_type.combine(action_date, post_time_local, tzinfo=user_tz)
+                                candidate_utc = local_dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
                                 now = dt_type.utcnow()
-                                if candidate < now:
+                                if candidate_utc < now:
                                     # Time already passed — find the next future slot today
-                                    future_times = [
-                                        dt_type.combine(action_date, t)
-                                        for t in _post_times
-                                        if dt_type.combine(action_date, t) > now
-                                    ]
+                                    future_times = []
+                                    for t in _post_times_local:
+                                        lt = dt_type.combine(action_date, t, tzinfo=user_tz)
+                                        ut = lt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                                        if ut > now:
+                                            future_times.append(ut)
                                     if future_times:
-                                        candidate = future_times[0]
+                                        candidate_utc = future_times[0]
                                     else:
                                         # All today's slots passed — schedule 5 min from now
-                                        from datetime import timedelta
-                                        candidate = now + timedelta(minutes=5)
-                                scheduled_at = candidate
+                                        candidate_utc = now + timedelta(minutes=5)
+                                scheduled_at = candidate_utc
                         except (ValueError, TypeError):
                             pass
 
@@ -1175,6 +1192,7 @@ async def generate_plan(
                             day_number=day_idx,
                             action_type_label=action.action_type,
                             scheduled_at=scheduled_at,
+                            track_reference=action.track_reference or None,
                         )
                         db.add(post)
                         draft_posts_created += 1

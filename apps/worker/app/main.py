@@ -24,6 +24,7 @@ from app.jobs.scan_scheduled import scan_scheduled
 from app.jobs.weekly_analyst import weekly_analyst
 from app.jobs.backfill_learning import backfill_learning
 from app.jobs.refresh_tokens import refresh_tokens
+from app.jobs.check_campaigns import check_campaigns
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -55,6 +56,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "aggregate_cohorts": aggregate_cohorts,
     "run_evaluation": run_evaluation,
     "check_model_health": check_model_health,
+    "check_campaigns": check_campaigns,
 }
 
 
@@ -156,6 +158,18 @@ class Worker:
             await self._queue.enqueue("refresh_tokens", {})
 
         self._scheduler.register(scheduled_refresh_tokens, 900)            # 15m
+
+        # ── Check campaigns for completion — every 5 minutes ─────────
+        async def scheduled_check_campaigns() -> None:
+            await self._queue.enqueue("check_campaigns", {})
+
+        self._scheduler.register(scheduled_check_campaigns, 300)           # 5m
+
+        # ── Sync metrics from platforms — every 30 minutes ────────────
+        async def scheduled_sync_metrics() -> None:
+            await self._queue.enqueue("sync_metrics", {})
+
+        self._scheduler.register(scheduled_sync_metrics, 1800)             # 30m
 
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h
