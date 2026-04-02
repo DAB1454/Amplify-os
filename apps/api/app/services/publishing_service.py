@@ -426,10 +426,24 @@ class PublishingService:
             logger.error("Failed to load adapter for channel %s: %s", channel_id, exc)
             raise
 
+        # Build platform-specific kwargs
+        publish_kwargs: dict = {}
+        if post.platform == "youtube":
+            # Use first line of content or track_reference as video title
+            content_text = post.content_text or ""
+            first_line = content_text.split("\n")[0].strip()
+            publish_kwargs["title"] = first_line[:100] if first_line else "Untitled"
+            publish_kwargs["privacyStatus"] = "public"
+            if post.action_type_label in ("short", "shorts", "reel", "reels"):
+                # YouTube Shorts: add #Shorts tag for discovery
+                if "#Shorts" not in content_text and "#shorts" not in content_text:
+                    publish_kwargs["tags"] = ["Shorts"]
+
         try:
             result = await adapter.publish(
                 content=post.content_text or "",
                 media_paths=post.media_urls or [],
+                **publish_kwargs,
             )
         except TokenExpiredError:
             # Auto-refresh and retry once
@@ -442,6 +456,7 @@ class PublishingService:
             result = await adapter.publish(
                 content=post.content_text or "",
                 media_paths=post.media_urls or [],
+                **publish_kwargs,
             )
         except RateLimitError as exc:
             raise Exception(

@@ -192,7 +192,7 @@ class YouTubeAdapter(BaseAdapter):
             "description": content,
             "tags": kwargs.get("tags", []),
             "categoryId": kwargs.get("categoryId", "10"),
-            "privacyStatus": kwargs.get("privacyStatus", "private"),
+            "privacyStatus": kwargs.get("privacyStatus", "public"),
         }
 
         video_id = await self._uploader.upload_video(media_paths[0], metadata)
