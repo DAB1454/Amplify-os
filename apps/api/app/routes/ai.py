@@ -1766,6 +1766,27 @@ async def generate_ai_video(
     if not settings.replicate_api_token:
         raise HTTPException(status_code=503, detail="AI video generation not configured. Set REPLICATE_API_TOKEN.")
 
+    # Persist the user's prompt immediately so it's never lost
+    if body.post_id and body.prompt:
+        from amplify.db.models.post import PostModel as _PromptPost
+        _pp_r = await db.execute(
+            select(_PromptPost).where(
+                _PromptPost.id == uuid.UUID(body.post_id),
+                _PromptPost.tenant_id == tenant_id,
+            )
+        )
+        _pp = _pp_r.scalar_one_or_none()
+        if _pp:
+            eng = dict(_pp.engagement or {})
+            eng["ai_video_prompt"] = body.prompt
+            eng["ai_video_settings"] = {
+                "num_scenes": body.num_scenes,
+                "duration_seconds": body.duration_seconds,
+                "aspect_ratio": body.aspect_ratio,
+            }
+            _pp.engagement = eng
+            await db.flush()
+
     # Resolve inputs from track/release if needed
     image_url = body.image_url
     audio_url = body.audio_url
