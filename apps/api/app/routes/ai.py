@@ -1787,6 +1787,23 @@ async def generate_ai_video(
             if not track_title and track.title:
                 track_title = track.title
 
+    # Fall back: check post's own media_urls for image/audio
+    if body.post_id and (not image_url or not audio_url):
+        from amplify.db.models.post import PostModel as _PostModel
+        _post_q = await db.execute(
+            select(_PostModel).where(
+                _PostModel.id == uuid.UUID(body.post_id),
+                _PostModel.tenant_id == tenant_id,
+            )
+        )
+        _linked = _post_q.scalar_one_or_none()
+        if _linked and _linked.media_urls:
+            for mu in _linked.media_urls:
+                if not image_url and any(mu.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                    image_url = mu
+                if not audio_url and any(mu.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")):
+                    audio_url = mu
+
     if body.release_id and not image_url:
         from amplify.db.models.release import ReleaseModel
         release_result = await db.execute(

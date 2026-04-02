@@ -408,7 +408,7 @@ export default function PostsPage() {
               }
 
               // For non-lyric-video posts: merge audio with first video if both present
-              if (resolvedAudioUrl && uploadedUrls.length > 0 && newPost.action_type_label !== "lyric_video") {
+              if (resolvedAudioUrl && uploadedUrls.length > 0 && newPost.action_type_label !== "lyric_video" && newPost.action_type_label !== "ai_video") {
                 setMerging(true);
                 const mergeResult = await apiPost<{ url: string }>(`/api/v1/media/merge?video_url=${encodeURIComponent(uploadedUrls[0])}&audio_url=${encodeURIComponent(resolvedAudioUrl)}`, {});
                 uploadedUrls[0] = mergeResult.url;
@@ -453,9 +453,19 @@ export default function PostsPage() {
                 }
               } else if (actionType === "ai_video" && created?.id) {
                 try {
+                  // Pass audio + image URLs so Replicate has the inputs it needs
+                  const aiImageUrl = uploadedUrls.find((u) => /\.(jpg|jpeg|png|webp|gif|bmp)/i.test(u))
+                    || selectedAssetUrls.find((u) => /\.(jpg|jpeg|png|webp|gif|bmp)/i.test(u))
+                    || "";
+                  const aiAudioUrl = resolvedAudioUrl
+                    || uploadedUrls.find((u) => /\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
+                    || selectedAssetUrls.find((u) => /\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
+                    || "";
                   await apiPost("/api/v1/ai/generate-ai-video", {
                     post_id: created.id,
                     prompt: aiVideoPrompt || undefined,
+                    image_url: aiImageUrl || undefined,
+                    audio_url: aiAudioUrl || undefined,
                     aspect_ratio: videoAspect,
                     duration_seconds: videoDuration,
                     num_scenes: aiVideoScenes,
