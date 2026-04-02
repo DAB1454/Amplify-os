@@ -124,12 +124,16 @@ Same for Instagram, TikTok, etc.
   (image + track clip), action_type="lyric_video" for lyric overlay video,
   and action_type="story" for quick engagement. Mention which track is featured.
   **Distribute tracks evenly across TikTok posts** — don't repeat the same track.
-- **YouTube**: Mix of formats. Use action_type="short" for 15s video clips,
-  action_type="lyric_video" for lyric videos. **Each YouTube post MUST feature
-  a DIFFERENT track** — never repeat tracks on YouTube unless all tracks are covered.
-  Mention which track is featured in every YouTube caption.
-  **CRITICAL: YouTube Shorts descriptions must be ≤100 characters total
-  including hashtags.** Keep captions very short and punchy for YouTube.
+- **YouTube**: Mix of Shorts AND full-length videos for maximum discovery + engagement.
+  - action_type="short": 15-30s video clips (YouTube Shorts) — algorithm-boosted discovery
+    **CRITICAL: Shorts descriptions must be ≤100 characters total including hashtags.**
+  - action_type="video": 1-3 minute full-length video — deeper engagement, better monetization.
+    Full videos should feature a verse+chorus or extended section of a track.
+    Titles should be compelling (e.g. "For Love of Country — Drew Baird (Official Lyric Video)")
+  - action_type="lyric_video": full lyric overlay video — works as either Short or full video
+  **Recommended YouTube mix: ~50% Shorts, ~30% full videos, ~20% lyric videos.**
+  **Each YouTube post MUST feature a DIFFERENT track** — never repeat tracks on YouTube
+  unless all tracks are covered. Mention which track is featured in every YouTube caption.
 - **Instagram**: MIX of Reels, feed posts, carousels, and stories.
   - action_type="reel": 15s video (image + audio clip) — highest reach
   - action_type="carousel": multi-image post (album art, behind-the-scenes) —
@@ -177,6 +181,9 @@ Generate a campaign plan for the following release.
 
 ## Prior metrics (if available)
 {prior_metrics}
+
+## YouTube strategy
+{youtube_strategy}
 
 ## Budget
 {budget}

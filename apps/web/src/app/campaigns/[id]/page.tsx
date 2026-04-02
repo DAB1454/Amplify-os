@@ -125,6 +125,7 @@ export default function CampaignDetailPage() {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [showPlanOptions, setShowPlanOptions] = useState(false);
   const [contentNotes, setContentNotes] = useState("");
+  const [youtubeStrategy, setYoutubeStrategy] = useState("mixed");
   // Media generation (new 3-step workflow)
   const [generatingMedia, setGeneratingMedia] = useState<string | null>(null);
   const [generatingAllMedia, setGeneratingAllMedia] = useState(false);
@@ -288,6 +289,7 @@ export default function CampaignDetailPage() {
         campaign_id: campaignId,
         content_notes: contentNotes,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        youtube_strategy: youtubeStrategy,
       });
       await fetchPlan();
     } catch (err) {
@@ -534,6 +536,21 @@ export default function CampaignDetailPage() {
               <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
                 The AI will also check your Asset Library to see what media you have available.
               </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                YouTube strategy
+              </label>
+              <select
+                value={youtubeStrategy}
+                onChange={(e) => setYoutubeStrategy(e.target.value)}
+                className="rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="mixed">Mixed — Shorts + Full Videos (recommended)</option>
+                <option value="shorts_heavy">Shorts-Heavy — 70% Shorts, 30% Full</option>
+                <option value="shorts_only">Shorts Only — 15-30s clips</option>
+                <option value="long_only">Full Videos Only — 1-3 min</option>
+              </select>
             </div>
             <div className="flex gap-2">
               <button

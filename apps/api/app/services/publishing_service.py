@@ -434,7 +434,9 @@ class PublishingService:
             first_line = content_text.split("\n")[0].strip()
             publish_kwargs["title"] = first_line[:100] if first_line else "Untitled"
             publish_kwargs["privacyStatus"] = "public"
-            if post.action_type_label in ("short", "shorts", "reel", "reels"):
+            is_short = post.action_type_label in ("short", "shorts", "reel", "reels")
+            publish_kwargs["is_short"] = is_short
+            if is_short:
                 # YouTube Shorts: add #Shorts tag for discovery
                 if "#Shorts" not in content_text and "#shorts" not in content_text:
                     publish_kwargs["tags"] = ["Shorts"]

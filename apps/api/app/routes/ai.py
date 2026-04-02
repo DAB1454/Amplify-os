@@ -56,6 +56,7 @@ class GeneratePlanRequest(BaseModel):
     posts_per_day: int = 0  # 0 = let AI decide, 1-3 = target per channel per day
     focus: str = ""  # e.g. "engagement", "awareness", "conversions"
     timezone: str = "America/New_York"  # IANA timezone for scheduling
+    youtube_strategy: str = "mixed"  # "shorts_only", "long_only", "mixed", "shorts_heavy"
 
 
 class DailyActionResponse(BaseModel):
@@ -928,6 +929,7 @@ async def generate_plan(
             campaign_end=str(campaign.end_date) if campaign.end_date else "",
             campaign_phase=campaign.phase or "",
             timezone=body.timezone,
+            youtube_strategy=body.youtube_strategy,
         )
         logger.info(
             "Plan generated for campaign %s: start=%s end=%s",

@@ -214,6 +214,7 @@ class PlannerAgent:
         campaign_end: str | date = "",
         campaign_phase: str = "",
         timezone: str = "America/New_York",
+        youtube_strategy: str = "mixed",
     ) -> AgentResult:
         """Generate a structured campaign plan for the given date range.
 
@@ -241,6 +242,34 @@ class PlannerAgent:
                 start_dt = date.today()
             ce = str(start_dt + timedelta(days=13))
 
+        # Build YouTube strategy description
+        yt_strategies = {
+            "shorts_only": (
+                "YouTube: SHORTS ONLY. All YouTube posts should be action_type='short' (15-30s). "
+                "Do not create full-length YouTube videos."
+            ),
+            "long_only": (
+                "YouTube: FULL VIDEOS ONLY. All YouTube posts should be action_type='video' (1-3 min). "
+                "Do not create YouTube Shorts."
+            ),
+            "mixed": (
+                "YouTube: MIX of Shorts and full-length videos. "
+                "~50% Shorts (action_type='short', 15-30s, descriptions ≤100 chars) for algorithm discovery. "
+                "~30% full videos (action_type='video', 1-3 min, verse+chorus or extended section) for deeper engagement. "
+                "~20% lyric videos (action_type='lyric_video'). "
+                "Alternate between Shorts and full videos — don't cluster all Shorts together."
+            ),
+            "shorts_heavy": (
+                "YouTube: SHORTS-HEAVY mix. "
+                "~70% Shorts (action_type='short') for maximum discovery. "
+                "~20% full videos (action_type='video', 1-3 min) for engagement depth. "
+                "~10% lyric videos."
+            ),
+        }
+        yt_strategy_str = yt_strategies.get(
+            youtube_strategy, yt_strategies["mixed"]
+        )
+
         user_message = template.format(
             artist_name=artist_name,
             release_title=release_title,
@@ -257,6 +286,7 @@ class PlannerAgent:
             campaign_start=cs,
             campaign_end=ce,
             timezone=timezone,
+            youtube_strategy=yt_strategy_str,
         )
 
         # Inject campaign phase so the planner respects pre-release vs release vs sustain
