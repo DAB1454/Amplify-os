@@ -22,6 +22,7 @@ interface Post {
   policy_decision: string | null;
   action_type_label: string | null;
   created_at: string;
+  engagement: Record<string, unknown> | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -129,6 +130,14 @@ export default function PostsPage() {
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
+
+  // Auto-poll every 15s when any post has AI video generating
+  useEffect(() => {
+    const hasGenerating = posts.some((p) => p.engagement?.ai_video_status === "generating");
+    if (!hasGenerating) return;
+    const interval = setInterval(() => fetchPosts(), 15000);
+    return () => clearInterval(interval);
+  }, [posts, fetchPosts]);
 
   const handleAction = async (postId: string, action: string) => {
     setActionLoading(`${postId}-${action}`);
@@ -1078,6 +1087,33 @@ export default function PostsPage() {
                       <div className="mt-1">
                         <DownloadAllButton urls={post.media_urls} />
                       </div>
+                    </div>
+                  )}
+
+                  {/* AI Video generation status */}
+                  {post.engagement?.ai_video_status === "generating" && (
+                    <div className="mt-2 flex items-center gap-2 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+                      <svg className="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="text-xs font-medium text-indigo-700">
+                        AI Video generating ({post.engagement?.ai_video_clips_done as number || 0}/{post.engagement?.ai_video_clips_total as number || 4} clips) — ~10 min total
+                      </span>
+                    </div>
+                  )}
+                  {post.engagement?.ai_video_status === "failed" && (
+                    <div className="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                      <span className="text-xs font-medium text-red-700">
+                        AI Video failed: {(post.engagement?.ai_video_error as string) || "Unknown error"}
+                      </span>
+                    </div>
+                  )}
+                  {post.engagement?.ai_video_status === "complete" && !post.media_urls?.length && (
+                    <div className="mt-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2">
+                      <span className="text-xs font-medium text-green-700">
+                        AI Video ready — refresh to see it
+                      </span>
                     </div>
                   )}
 
