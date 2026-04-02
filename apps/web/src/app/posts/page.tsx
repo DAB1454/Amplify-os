@@ -449,7 +449,7 @@ export default function PostsPage() {
                     audio_url: resolvedAudioUrl || undefined,
                   }, 120000);
                 } catch (vidErr) {
-                  setCreateError(`Post created, but video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
+                  setFetchError(`Post created as draft, but video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
                 }
               } else if (actionType === "ai_video" && created?.id) {
                 try {
@@ -471,7 +471,7 @@ export default function PostsPage() {
                     num_scenes: aiVideoScenes,
                   }, 300000);
                 } catch (vidErr) {
-                  setCreateError(`Post created, but AI video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
+                  setFetchError(`Post created as draft, but AI video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
                 }
               }
 
