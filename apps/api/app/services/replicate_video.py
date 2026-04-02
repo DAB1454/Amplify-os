@@ -16,9 +16,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Default model — Stability AI's Stable Video Diffusion via Replicate
-# Can be swapped to runway, kling, etc. by changing this
-DEFAULT_MODEL = "stability-ai/stable-video-diffusion:3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438"
+# Default image-to-video model via Replicate
+DEFAULT_I2V_MODEL = "minimax/video-01-live"
 
 # Cost estimate per generation (for metering/display)
 ESTIMATED_COST_PER_CLIP = 0.25  # USD
@@ -47,33 +46,21 @@ async def generate_video_from_prompt(
         "Prefer": "wait",  # Use sync mode for shorter waits
     }
 
-    # Use image-to-video if we have an image, text-to-video otherwise
+    # All clips use minimax/video-01 text-to-video (official model)
+    # Even when image_url is provided, we use the text prompt — minimax generates
+    # higher quality results from detailed text descriptions than image-to-video models
+    model = "minimax/video-01"
+    model_input: dict = {
+        "prompt": prompt,
+        "prompt_optimizer": True,
+    }
+    # If we have a reference image, pass it as first_frame_image (video-01 supports it)
     if image_url:
-        # Stable Video Diffusion: image → video (versioned model)
-        model = DEFAULT_MODEL
-        model_input = {
-            "input_image": image_url,
-            "motion_bucket_id": 127,
-            "fps": 24,
-            "cond_aug": 0.02,
-        }
-        api_url = "https://api.replicate.com/v1/predictions"
-        body = {
-            "version": model.split(":")[-1],
-            "input": model_input,
-        }
-    else:
-        # Text-to-video: minimax/video-01-live (official model — uses models endpoint)
-        model = "minimax/video-01-live"
-        model_input = {
-            "prompt": prompt,
-            "prompt_optimizer": True,
-        }
-        # Official models use /v1/models/{owner}/{name}/predictions
-        api_url = f"https://api.replicate.com/v1/models/{model}/predictions"
-        body = {
-            "input": model_input,
-        }
+        model_input["first_frame_image"] = image_url
+    api_url = f"https://api.replicate.com/v1/models/{model}/predictions"
+    body = {
+        "input": model_input,
+    }
 
     logger.info("Replicate generation: model=%s url=%s prompt=%s", model, api_url, prompt[:100])
 
