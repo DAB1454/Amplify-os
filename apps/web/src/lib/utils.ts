@@ -11,8 +11,10 @@ export function cn(...inputs: ClassValue[]) {
  */
 export function utcToLocal(dateStr: string): Date {
   if (!dateStr) return new Date();
-  // If no timezone info, append Z to mark as UTC
-  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !/\d{2}:\d{2}$/.test(dateStr.slice(-6))) {
+  // If no timezone info, append Z to mark as UTC.
+  // API returns formats like "2026-04-02T19:30:00" or "2026-04-02T19:30:00.123456"
+  // Only skip Z if string already has Z, +HH:MM, or -HH:MM timezone suffix.
+  if (!dateStr.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(dateStr)) {
     return new Date(dateStr + "Z");
   }
   return new Date(dateStr);
