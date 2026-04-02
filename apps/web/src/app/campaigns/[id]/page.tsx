@@ -367,6 +367,7 @@ export default function CampaignDetailPage() {
       });
       setShowAIVideoForm(null);
       setAiVideoPrompt("");
+      setError("AI video is generating in the background (~10 min). Refresh to check progress.");
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI video generation failed");

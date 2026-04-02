@@ -461,6 +461,7 @@ export default function PostsPage() {
                     || uploadedUrls.find((u) => /\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
                     || selectedAssetUrls.find((u) => /\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
                     || "";
+                  // Fire-and-forget: backend generates in background
                   await apiPost("/api/v1/ai/generate-ai-video", {
                     post_id: created.id,
                     prompt: aiVideoPrompt || undefined,
@@ -469,7 +470,8 @@ export default function PostsPage() {
                     aspect_ratio: videoAspect,
                     duration_seconds: videoDuration,
                     num_scenes: aiVideoScenes,
-                  }, 300000);
+                  });
+                  setFetchError("AI video is generating in the background (~10 min). Refresh the page to check progress.");
                 } catch (vidErr) {
                   setFetchError(`Post created as draft, but AI video generation failed: ${vidErr instanceof Error ? vidErr.message : "Unknown error"}`);
                 }

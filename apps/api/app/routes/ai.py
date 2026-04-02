@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1715,6 +1715,7 @@ class GenerateAIVideoRequest(BaseModel):
 
 
 class GenerateAIVideoResponse(BaseModel):
+    status: str = "generating"  # "generating" (accepted) or "complete"
     video_url: str = ""
     asset_id: str | None = None
     approval_status: str = "pending_review"
@@ -1747,6 +1748,7 @@ async def estimate_video_cost(body: EstimateAIVideoCostRequest):
 
 @router.post("/generate-ai-video", response_model=GenerateAIVideoResponse)
 async def generate_ai_video(
+    request: Request,
     body: GenerateAIVideoRequest,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -1755,16 +1757,14 @@ async def generate_ai_video(
 ):
     """Generate AI video clips from prompts, stitch with audio, save to library.
 
-    Generated assets start with approval_status='pending_review' and must be
-    approved before they enter the active asset library.
+    Kicks off generation in the background and returns immediately.
+    The post's engagement.ai_video_status field tracks progress:
+      "generating" → "complete" or "failed"
+    Frontend should poll GET /posts/{id} to check status.
     """
-    import time
-    import tempfile
-    from pathlib import Path
     from sqlalchemy import select
     from app.config import Settings
 
-    start_time = time.time()
     settings = Settings()
 
     if not settings.replicate_api_token:
@@ -1928,129 +1928,213 @@ async def generate_ai_video(
 
     estimated_cost = len(prompts) * ESTIMATED_COST_PER_CLIP
 
+    # Mark post as generating
+    post_id_str = body.post_id
+    if post_id_str:
+        from amplify.db.models.post import PostModel as _StatusPost
+        _sp_r = await db.execute(
+            select(_StatusPost).where(
+                _StatusPost.id == uuid.UUID(post_id_str),
+                _StatusPost.tenant_id == tenant_id,
+            )
+        )
+        _sp = _sp_r.scalar_one_or_none()
+        if _sp:
+            eng = dict(_sp.engagement or {})
+            eng["ai_video_status"] = "generating"
+            eng["ai_video_clips_total"] = len(prompts)
+            eng["ai_video_clips_done"] = 0
+            _sp.engagement = eng
+            await db.flush()
+
+    # Get DB session factory for background task
+    session_factory = request.app.state.async_session
+
+    # Fire off background generation and return immediately
+    import asyncio
+    asyncio.create_task(_run_ai_video_generation(
+        session_factory=session_factory,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        post_id_str=post_id_str,
+        prompts=prompts,
+        audio_url=audio_url,
+        image_url=image_url,
+        total_duration=int(total_duration),
+        aspect_ratio=body.aspect_ratio,
+        replicate_api_token=settings.replicate_api_token,
+        scene_durations=scene_durations,
+        audio_start=audio_start,
+        audio_end=audio_end,
+        estimated_cost=estimated_cost,
+        artist_name=artist_name,
+        track_title=track_title,
+        release_id=body.release_id,
+        s3_bucket=settings.s3_bucket,
+        s3_region=settings.s3_region,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        media_base_url=settings.media_base_url,
+        duration_seconds=body.duration_seconds,
+    ))
+
+    return GenerateAIVideoResponse(
+        status="generating",
+        estimated_cost=estimated_cost,
+        clips_generated=len(prompts),
+    )
+
+
+async def _run_ai_video_generation(
+    *,
+    session_factory,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    post_id_str: str | None,
+    prompts: list[str],
+    audio_url: str,
+    image_url: str | None,
+    total_duration: int,
+    aspect_ratio: str,
+    replicate_api_token: str,
+    scene_durations: list[float] | None,
+    audio_start: float | None,
+    audio_end: float | None,
+    estimated_cost: float,
+    artist_name: str,
+    track_title: str,
+    release_id: str | None,
+    s3_bucket: str,
+    s3_region: str,
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    media_base_url: str,
+    duration_seconds: int,
+) -> None:
+    """Background coroutine: generate AI video, upload to S3, update post."""
+    import time
+    import tempfile
+    from sqlalchemy import select
+
+    from app.services.replicate_video import generate_music_video
+
+    start_time = time.time()
+
+    async def _update_post_status(session, status: str, **extra):
+        """Update the post's ai_video_status in engagement JSON."""
+        if not post_id_str:
+            return
+        from amplify.db.models.post import PostModel
+        r = await session.execute(
+            select(PostModel).where(PostModel.id == uuid.UUID(post_id_str))
+        )
+        post = r.scalar_one_or_none()
+        if post:
+            eng = dict(post.engagement or {})
+            eng["ai_video_status"] = status
+            for k, v in extra.items():
+                eng[k] = v
+            post.engagement = eng
+            if status == "complete" and extra.get("video_url"):
+                post.media_urls = [extra["video_url"]]
+            await session.flush()
+
     try:
-        with tempfile.TemporaryDirectory(prefix="aivid_") as tmp_dir:
-            output_path = await generate_music_video(
-                prompts=prompts,
-                audio_url=audio_url,
-                image_url=image_url,
-                duration_seconds=int(total_duration),
-                aspect_ratio=body.aspect_ratio,
-                replicate_api_token=settings.replicate_api_token,
-                output_dir=tmp_dir,
-                scene_durations=scene_durations,
-                audio_start=audio_start,
-                audio_end=audio_end,
-            )
+        async with session_factory() as db:
+            try:
+                with tempfile.TemporaryDirectory(prefix="aivid_") as tmp_dir:
+                    output_path = await generate_music_video(
+                        prompts=prompts,
+                        audio_url=audio_url,
+                        image_url=image_url,
+                        duration_seconds=total_duration,
+                        aspect_ratio=aspect_ratio,
+                        replicate_api_token=replicate_api_token,
+                        output_dir=tmp_dir,
+                        scene_durations=scene_durations,
+                        audio_start=audio_start,
+                        audio_end=audio_end,
+                    )
 
-            # Upload to S3
-            from app.services.media_service import MediaService
-            media_svc = MediaService(
-                s3_bucket=settings.s3_bucket,
-                s3_region=settings.s3_region,
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-                media_base_url=settings.media_base_url,
-            )
-            with open(output_path, "rb") as f:
-                video_url = await media_svc.upload(
-                    tenant_id, f, f"ai-video-{uuid.uuid4()}.mp4", "video/mp4"
+                    # Upload to S3
+                    from app.services.media_service import MediaService
+                    media_svc = MediaService(
+                        s3_bucket=s3_bucket,
+                        s3_region=s3_region,
+                        aws_access_key_id=aws_access_key_id,
+                        aws_secret_access_key=aws_secret_access_key,
+                        media_base_url=media_base_url,
+                    )
+                    with open(output_path, "rb") as f:
+                        video_url = await media_svc.upload(
+                            tenant_id, f, f"ai-video-{uuid.uuid4()}.mp4", "video/mp4"
+                        )
+
+                # Resolve campaign context for asset linking
+                asset_artist_id = None
+                asset_release_id = None
+                asset_campaign_id = None
+                if post_id_str:
+                    from amplify.db.models.post import PostModel
+                    from amplify.db.models.campaign import CampaignModel
+                    post_q = await db.execute(
+                        select(PostModel).where(PostModel.id == uuid.UUID(post_id_str))
+                    )
+                    linked_post = post_q.scalar_one_or_none()
+                    if linked_post and linked_post.campaign_id:
+                        asset_campaign_id = linked_post.campaign_id
+                        camp_q = await db.execute(
+                            select(CampaignModel).where(CampaignModel.id == linked_post.campaign_id)
+                        )
+                        linked_camp = camp_q.scalar_one_or_none()
+                        if linked_camp:
+                            asset_artist_id = linked_camp.artist_id
+                            asset_release_id = linked_camp.release_id
+
+                # Create asset with pending_review status
+                from amplify.db.models.asset import AssetModel
+                asset = AssetModel(
+                    tenant_id=tenant_id,
+                    artist_id=asset_artist_id,
+                    release_id=asset_release_id,
+                    campaign_id=asset_campaign_id,
+                    asset_type="ai_video",
+                    name=f"AI Video — {track_title or 'Untitled'}",
+                    description=f"AI-generated video for {artist_name} — {track_title}",
+                    file_url=video_url,
+                    mime_type="video/mp4",
+                    tags=["ai_video", "generated", "pending_review"],
+                    source="ai_generated",
+                    approval_status="pending_review",
+                    generation_prompt="\n---\n".join(prompts),
+                    generation_cost=estimated_cost,
                 )
-
-        # Resolve campaign context for asset linking
-        asset_artist_id = None
-        asset_release_id = None
-        asset_campaign_id = None
-        if body.post_id:
-            from amplify.db.models.post import PostModel
-            from amplify.db.models.campaign import CampaignModel
-            post_q = await db.execute(
-                select(PostModel).where(PostModel.id == uuid.UUID(body.post_id))
-            )
-            linked_post = post_q.scalar_one_or_none()
-            if linked_post and linked_post.campaign_id:
-                asset_campaign_id = linked_post.campaign_id
-                camp_q = await db.execute(
-                    select(CampaignModel).where(CampaignModel.id == linked_post.campaign_id)
-                )
-                linked_camp = camp_q.scalar_one_or_none()
-                if linked_camp:
-                    asset_artist_id = linked_camp.artist_id
-                    asset_release_id = linked_camp.release_id
-
-        # Create asset with pending_review status
-        from amplify.db.models.asset import AssetModel
-        asset = AssetModel(
-            tenant_id=tenant_id,
-            artist_id=asset_artist_id,
-            release_id=asset_release_id,
-            campaign_id=asset_campaign_id,
-            asset_type="ai_video",
-            name=f"AI Video — {track_title or 'Untitled'}",
-            description=f"AI-generated video for {artist_name} — {track_title}",
-            file_url=video_url,
-            mime_type="video/mp4",
-            tags=["ai_video", "generated", "pending_review"],
-            source="ai_generated",
-            approval_status="pending_review",
-            generation_prompt="\n---\n".join(prompts),
-            generation_cost=estimated_cost,
-        )
-        db.add(asset)
-        await db.flush()
-        await db.refresh(asset)
-
-        # Auto-attach to post — replaces existing media (upgrade)
-        if body.post_id:
-            from amplify.db.models.post import PostModel
-            post_result = await db.execute(
-                select(PostModel).where(
-                    PostModel.id == uuid.UUID(body.post_id),
-                    PostModel.tenant_id == tenant_id,
-                )
-            )
-            post = post_result.scalar_one_or_none()
-            if post:
-                post.media_urls = [video_url]
+                db.add(asset)
                 await db.flush()
-                logger.info("Replaced media on post %s with AI video", body.post_id)
 
-        # Record usage for billing
-        try:
-            from amplify.billing.metering import MeteringService, METRIC_MEDIA_RENDERS
-            metering = MeteringService()
-            await metering.record_usage(str(tenant_id), METRIC_MEDIA_RENDERS, len(prompts))
-        except Exception:
-            pass
+                # Update post with completed video
+                await _update_post_status(db, "complete", video_url=video_url)
 
-        elapsed = int((time.time() - start_time) * 1000)
+                # Record usage for billing
+                try:
+                    from amplify.billing.metering import MeteringService, METRIC_MEDIA_RENDERS
+                    metering = MeteringService()
+                    await metering.record_usage(str(tenant_id), METRIC_MEDIA_RENDERS, len(prompts))
+                except Exception:
+                    pass
 
-        try:
-            await audit.log(
-                action="ai.video_generated",
-                entity_type="asset",
-                entity_id=asset.id,
-                user_id=user_id,
-                changes={
-                    "prompts": len(prompts),
-                    "estimated_cost": estimated_cost,
-                    "duration": body.duration_seconds,
-                },
-            )
-        except Exception:
-            pass
+                elapsed = int((time.time() - start_time) * 1000)
+                logger.info(
+                    "AI video generation complete: post=%s video=%s elapsed=%dms",
+                    post_id_str, video_url, elapsed,
+                )
 
-        return GenerateAIVideoResponse(
-            video_url=video_url,
-            asset_id=str(asset.id),
-            approval_status="pending_review",
-            estimated_cost=estimated_cost,
-            clips_generated=len(prompts),
-            elapsed_ms=elapsed,
-        )
+                await db.commit()
 
-    except HTTPException:
-        raise
+            except Exception as exc:
+                logger.exception("AI video background generation failed: %s", exc)
+                await _update_post_status(db, "failed", ai_video_error=str(exc)[:500])
+                await db.commit()
+
     except Exception as exc:
-        logger.exception("AI video generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"AI video generation failed: {exc}")
+        logger.exception("AI video background task DB error: %s", exc)
