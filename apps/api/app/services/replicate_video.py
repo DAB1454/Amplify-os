@@ -43,20 +43,17 @@ async def generate_video_from_prompt(
     headers = {
         "Authorization": f"Bearer {replicate_api_token}",
         "Content-Type": "application/json",
-        "Prefer": "wait",  # Use sync mode for shorter waits
+        # No "Prefer: wait" — video generation takes minutes, always poll
     }
 
     # All clips use minimax/video-01 text-to-video (official model)
-    # Even when image_url is provided, we use the text prompt — minimax generates
-    # higher quality results from detailed text descriptions than image-to-video models
+    # Do NOT pass first_frame_image — it overrides the text prompt entirely,
+    # producing generic animation of the image instead of the described scene.
     model = "minimax/video-01"
     model_input: dict = {
         "prompt": prompt,
         "prompt_optimizer": True,
     }
-    # If we have a reference image, pass it as first_frame_image (video-01 supports it)
-    if image_url:
-        model_input["first_frame_image"] = image_url
     api_url = f"https://api.replicate.com/v1/models/{model}/predictions"
     body = {
         "input": model_input,
@@ -180,7 +177,9 @@ async def generate_music_video(
     output_path = str(Path(output_dir) / "final.mp4")
     clip_paths: list[str] = []
 
-    # Generate clips (sequential to stay within rate limits)
+    # Generate clips sequentially — aggressive memory cleanup between each
+    import gc
+
     for i, prompt in enumerate(prompts):
         target_dur = scene_durations[i] if scene_durations and i < len(scene_durations) else None
         logger.info(
@@ -190,13 +189,12 @@ async def generate_music_video(
         try:
             clip_url = await generate_video_from_prompt(
                 prompt=prompt,
-                image_url=image_url if i == 0 else None,
                 duration_seconds=4,
                 aspect_ratio=aspect_ratio,
                 replicate_api_token=replicate_api_token,
             )
 
-            # Download clip
+            # Download clip — streamed to disk, not held in memory
             raw_clip_path = str(Path(output_dir) / f"clip_{i:02d}_raw.mp4")
             await download_url_to_file(clip_url, raw_clip_path)
 
@@ -205,11 +203,19 @@ async def generate_music_video(
                 scaled_clip_path = str(Path(output_dir) / f"clip_{i:02d}.mp4")
                 await _scale_clip_to_duration(raw_clip_path, scaled_clip_path, target_dur)
                 clip_paths.append(scaled_clip_path)
+                # Delete raw clip to free disk/memory
+                try:
+                    Path(raw_clip_path).unlink()
+                except OSError:
+                    pass
             else:
                 clip_paths.append(raw_clip_path)
         except Exception as exc:
             logger.warning("Clip %d generation failed: %s", i, exc)
             continue
+        finally:
+            # Force garbage collection between clips to keep memory low
+            gc.collect()
 
     if not clip_paths:
         raise RuntimeError("No video clips were generated successfully")
@@ -276,35 +282,38 @@ async def _poll_prediction(
     api_token: str,
     timeout: int = 300,
 ) -> str:
-    """Poll Replicate for prediction completion."""
+    """Poll Replicate for prediction completion.
+
+    Uses a fresh client per request to avoid holding connections open,
+    and polls every 5s to reduce memory overhead on small instances.
+    """
     import time
     start = time.time()
+    headers = {"Authorization": f"Bearer {api_token}"}
+    url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        while time.time() - start < timeout:
-            resp = await client.get(
-                f"https://api.replicate.com/v1/predictions/{prediction_id}",
-                headers={"Authorization": f"Bearer {api_token}"},
-            )
+    while time.time() - start < timeout:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             data = resp.json()
 
-            status = data.get("status")
-            if status == "succeeded":
-                output = data.get("output")
-                if isinstance(output, list):
-                    return output[0]  # First output URL
-                if isinstance(output, str):
-                    return output
-                raise RuntimeError(f"Unexpected output format: {output}")
-            elif status == "failed":
-                error = data.get("error", "Unknown error")
-                raise RuntimeError(f"Replicate prediction failed: {error}")
-            elif status == "canceled":
-                raise RuntimeError("Replicate prediction was canceled")
+        status = data.get("status")
+        if status == "succeeded":
+            output = data.get("output")
+            if isinstance(output, list):
+                return output[0]
+            if isinstance(output, str):
+                return output
+            raise RuntimeError(f"Unexpected output format: {output}")
+        elif status == "failed":
+            error = data.get("error", "Unknown error")
+            raise RuntimeError(f"Replicate prediction failed: {error}")
+        elif status == "canceled":
+            raise RuntimeError("Replicate prediction was canceled")
 
-            # Wait before polling again
-            await asyncio.sleep(3)
+        # Poll every 5s — video takes 2-3min so no need for aggressive polling
+        await asyncio.sleep(5)
 
     raise TimeoutError(f"Replicate prediction {prediction_id} timed out after {timeout}s")
 
