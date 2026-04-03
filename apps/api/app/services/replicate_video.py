@@ -227,7 +227,7 @@ async def generate_music_video(
     # Trim audio to range if specified
     trimmed_audio_path = audio_path
     if audio_start is not None or audio_end is not None:
-        trimmed_audio_path = str(Path(output_dir) / "audio_trimmed.mp3")
+        trimmed_audio_path = str(Path(output_dir) / "audio_trimmed.wav")
         await _trim_audio(audio_path, trimmed_audio_path, audio_start or 0, audio_end)
 
     # Stitch clips with audio via FFmpeg
@@ -387,15 +387,15 @@ async def _trim_audio(
     """Trim an audio file to a specific time range using FFmpeg."""
     cmd = [
         "ffmpeg", "-y",
+        "-ss", str(start_seconds),  # seek before input for fast trim
         "-i", input_path,
-        "-ss", str(start_seconds),
     ]
     if end_seconds is not None:
         duration = end_seconds - start_seconds
         cmd.extend(["-t", str(duration)])
 
     cmd.extend([
-        "-c:a", "aac", "-b:a", "192k",
+        "-ac", "2", "-ar", "44100",  # stereo, 44.1kHz
         output_path,
     ])
 
