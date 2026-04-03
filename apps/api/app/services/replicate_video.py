@@ -46,13 +46,14 @@ async def generate_video_from_prompt(
         # No "Prefer: wait" — video generation takes minutes, always poll
     }
 
-    # All clips use minimax/video-01 text-to-video (official model)
-    # Do NOT pass first_frame_image — it overrides the text prompt entirely,
-    # producing generic animation of the image instead of the described scene.
-    model = "minimax/video-01"
+    # Google Veo 3 — highest quality text-to-video, supports 9:16 for reels
+    model = "google/veo-3"
     model_input: dict = {
         "prompt": prompt,
-        "prompt_optimizer": True,
+        "duration": min(duration_seconds, 8),  # Veo 3 supports 4, 6, or 8s
+        "aspect_ratio": aspect_ratio if aspect_ratio in ("16:9", "9:16") else "9:16",
+        "resolution": "720p",  # 720p to keep file size manageable
+        "generate_audio": False,  # we stitch our own audio track
     }
     api_url = f"https://api.replicate.com/v1/models/{model}/predictions"
     body = {
@@ -189,7 +190,7 @@ async def generate_music_video(
         try:
             clip_url = await generate_video_from_prompt(
                 prompt=prompt,
-                duration_seconds=4,
+                duration_seconds=8,  # Veo 3 max — closer to target, less stretching
                 aspect_ratio=aspect_ratio,
                 replicate_api_token=replicate_api_token,
             )
