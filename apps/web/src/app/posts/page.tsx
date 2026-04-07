@@ -36,7 +36,7 @@ const statusColors: Record<string, string> = {
   failed: "bg-red-100 text-red-600",
 };
 
-const tabs = ["all", "draft", "queued", "scheduled", "published", "failed"] as const;
+const tabs = ["all", "draft", "queued", "approved", "scheduled", "published", "failed"] as const;
 
 interface Channel {
   id: string;
