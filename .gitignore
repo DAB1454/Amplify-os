@@ -49,3 +49,4 @@ htmlcov/
 # Secrets (never commit real env files)
 infra/deploy/envs/*.env
 !infra/deploy/envs/*.env.example
+snapshots/

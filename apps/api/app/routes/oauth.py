@@ -134,14 +134,29 @@ async def disconnect_channel(
     except Exception as exc:
         logger.warning("Upstream revocation failed (non-fatal): %s", exc)
 
-    # Detach posts from channel (preserve them) then delete the channel
+    # Detach all child rows from channel (preserve them) then delete the channel.
+    # Anything with an FK to channel_connections.id MUST be nullified here, or
+    # the DELETE will fail with a constraint violation and the user will be
+    # permanently unable to disconnect.
     try:
         from amplify.db.models.channel import ChannelConnectionModel
         from sqlalchemy import select, text
-        # Nullify channel_id so posts survive reconnect
-        await db.execute(
+        # Nullify channel_id on posts (FK is ON DELETE SET NULL, but be explicit
+        # so post counts are accurate the moment we commit).
+        posts_result = await db.execute(
             text("UPDATE posts SET channel_id = NULL WHERE channel_id = :cid"),
             {"cid": str(channel_id)},
+        )
+        # Nullify channel_id on assisted_tasks (FK has no ON DELETE rule —
+        # without this, any row referencing this channel would block the
+        # DELETE below with a FK constraint violation).
+        tasks_result = await db.execute(
+            text("UPDATE assisted_tasks SET channel_id = NULL WHERE channel_id = :cid"),
+            {"cid": str(channel_id)},
+        )
+        logger.info(
+            "Disconnect channel %s: detached %d posts, %d assisted_tasks",
+            channel_id, posts_result.rowcount, tasks_result.rowcount,
         )
         result = await db.execute(
             select(ChannelConnectionModel).where(
@@ -209,7 +224,7 @@ async def oauth_callback(
             channel = await svc.handle_callback(platform, code, state)
 
             # Re-associate orphaned posts (from prior disconnect) with the new channel
-            reassoc_result = await db.execute(
+            posts_reassoc = await db.execute(
                 text(
                     "UPDATE posts SET channel_id = :new_cid "
                     "WHERE channel_id IS NULL AND platform = :plat AND tenant_id = :tid"
@@ -220,9 +235,21 @@ async def oauth_callback(
                     "tid": str(channel.tenant_id),
                 },
             )
+            # Re-associate orphaned assisted_tasks for this platform/tenant.
+            tasks_reassoc = await db.execute(
+                text(
+                    "UPDATE assisted_tasks SET channel_id = :new_cid "
+                    "WHERE channel_id IS NULL AND platform = :plat AND tenant_id = :tid"
+                ),
+                {
+                    "new_cid": str(channel.id),
+                    "plat": platform,
+                    "tid": str(channel.tenant_id),
+                },
+            )
             logger.info(
-                "Re-associated %d orphaned %s posts to channel %s on reconnect",
-                reassoc_result.rowcount, platform, channel.id,
+                "Reconnect %s: re-associated %d posts, %d assisted_tasks to channel %s",
+                platform, posts_reassoc.rowcount, tasks_reassoc.rowcount, channel.id,
             )
 
             await db.commit()
