@@ -117,6 +117,10 @@ class AnalyticsService:
         post_filter = [
             PostModel.tenant_id == self.tenant_id,
             PostModel.status == "published",
+            # Restrict to the requested window. Without this, every range
+            # button (7d/14d/30d) returned the same dataset because the
+            # date filter was computed but never applied to the query.
+            PostModel.published_at >= start,
         ]
         if campaign_id:
             post_filter.append(PostModel.campaign_id == campaign_id)
