@@ -314,8 +314,12 @@ async def _import_youtube(
                         "views": int(stats.get("viewCount", 0)),
                         "likes": int(stats.get("likeCount", 0)),
                         "comments": int(stats.get("commentCount", 0)),
+                        # Title kept here so we don't lose it; the column
+                        # action_type_label is a category enum (VARCHAR(50)),
+                        # not a free-text field — see the IG branch above.
+                        "title": snippet.get("title", ""),
                     },
-                    action_type_label=snippet.get("title", ""),
+                    action_type_label="video",
                 )
                 db.add(post)
                 imported += 1
