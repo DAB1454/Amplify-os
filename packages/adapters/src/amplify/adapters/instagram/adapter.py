@@ -201,6 +201,25 @@ class InstagramAdapter(BaseAdapter):
 
         assert self._publisher is not None
 
+        # Defense in depth: if a previous attempt for this same content
+        # already succeeded on Instagram but the worker died before it
+        # could record the result, return that existing post instead of
+        # publishing a duplicate.
+        existing_id = await self._publisher.find_recent_duplicate(content)
+        if existing_id:
+            logger.warning(
+                "Instagram duplicate detected for caption — returning existing media %s instead of re-publishing",
+                existing_id,
+            )
+            permalink = await self._publisher.get_permalink(existing_id)
+            return PublishResult(
+                platform=self.platform,
+                platform_post_id=existing_id,
+                url=permalink or "https://www.instagram.com/",
+                status="published",
+                metadata={"media_type": media_type, "deduped": True},
+            )
+
         if media_type == "reel" and media_urls:
             post_id = await self._publisher.publish_reel(media_urls[0], content)
         elif media_type == "story" and media_urls:

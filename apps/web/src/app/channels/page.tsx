@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { cn, formatLocalDate } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 
@@ -123,6 +123,10 @@ export default function ChannelsPage() {
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [connectBanner, setConnectBanner] = useState<{ platform: string; status: string; message?: string } | null>(null);
   const [artistId, setArtistId] = useState<string | null>(null);
+  const [artistSocialLinks, setArtistSocialLinks] = useState<Record<string, string>>({});
+  const [streamingDraft, setStreamingDraft] = useState<{ spotify: string; apple_music: string }>({ spotify: "", apple_music: "" });
+  const [savingStreaming, setSavingStreaming] = useState(false);
+  const [streamingSaved, setStreamingSaved] = useState(false);
   const [assistedForm, setAssistedForm] = useState<{ platform: string; url: string; displayName: string } | null>(null);
   const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
   const [addingAssisted, setAddingAssisted] = useState(false);
@@ -134,12 +138,20 @@ export default function ChannelsPage() {
         apiGet<PlatformInfo[]>("/api/v1/channels/platforms"),
         apiGet<Channel[]>("/api/v1/channels"),
         apiGet<AssistedTask[]>("/api/v1/assisted-tasks"),
-        apiGet<{ id: string }[]>("/api/v1/artists"),
+        apiGet<{ id: string; social_links?: Record<string, string> }[]>("/api/v1/artists"),
       ]);
       setPlatforms(plats);
       setChannels(chans);
       setTasks(taskList);
-      if (artists.length > 0) setArtistId(artists[0].id);
+      if (artists.length > 0) {
+        setArtistId(artists[0].id);
+        const links = artists[0].social_links || {};
+        setArtistSocialLinks(links);
+        setStreamingDraft({
+          spotify: links.spotify || "",
+          apple_music: links.apple_music || "",
+        });
+      }
     } catch (err) {
       setConnectBanner({ platform: "system", status: "error", message: err instanceof Error ? err.message : "Failed to load channels" });
     } finally {
@@ -417,6 +429,79 @@ export default function ChannelsPage() {
                 {assistedChannels.map((ch) => (
                   <ChannelCard key={ch.id} channel={ch} onRefresh={fetchAll} onError={(msg) => setConnectBanner({ platform: ch.platform, status: "error", message: msg })} onSuccess={(msg) => setConnectBanner({ platform: ch.platform, status: "success", message: msg })} />
                 ))}
+              </div>
+            </>
+          )}
+
+          {/* Streaming links — Spotify, Apple Music. Stored on the artist's
+              social_links and surfaced as URL options when creating posts. */}
+          {artistId && (
+            <>
+              <h3 className="mt-8 text-sm font-semibold text-[var(--text-primary)]">
+                Streaming Links
+                <span className="ml-2 text-xs font-normal text-[var(--text-secondary)]">
+                  — direct artist URLs that show up in the post URL dropdown
+                </span>
+              </h3>
+              <div className="mt-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    Spotify Artist URL
+                  </label>
+                  <input
+                    type="url"
+                    value={streamingDraft.spotify}
+                    onChange={(e) => { setStreamingDraft({ ...streamingDraft, spotify: e.target.value }); setStreamingSaved(false); }}
+                    placeholder="https://open.spotify.com/artist/..."
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                    Apple Music Artist URL
+                  </label>
+                  <input
+                    type="url"
+                    value={streamingDraft.apple_music}
+                    onChange={(e) => { setStreamingDraft({ ...streamingDraft, apple_music: e.target.value }); setStreamingSaved(false); }}
+                    placeholder="https://music.apple.com/us/artist/..."
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={savingStreaming}
+                    onClick={async () => {
+                      if (!artistId) return;
+                      setSavingStreaming(true);
+                      try {
+                        const merged = {
+                          ...artistSocialLinks,
+                          spotify: streamingDraft.spotify.trim(),
+                          apple_music: streamingDraft.apple_music.trim(),
+                        };
+                        // Drop empty values so we don't store empty strings.
+                        for (const k of Object.keys(merged)) {
+                          if (!merged[k]) delete merged[k];
+                        }
+                        await apiPut(`/api/v1/artists/${artistId}`, { social_links: merged });
+                        setArtistSocialLinks(merged);
+                        setStreamingSaved(true);
+                      } catch (err) {
+                        setConnectBanner({ platform: "streaming", status: "error", message: err instanceof Error ? err.message : "Failed to save streaming links" });
+                      } finally {
+                        setSavingStreaming(false);
+                      }
+                    }}
+                    className="rounded-lg bg-[var(--brand-gold)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {savingStreaming ? <ButtonSpinner label="Saving..." /> : "Save Streaming Links"}
+                  </button>
+                  {streamingSaved && (
+                    <span className="text-xs text-green-600">Saved ✓</span>
+                  )}
+                </div>
               </div>
             </>
           )}

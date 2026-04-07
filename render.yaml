@@ -19,7 +19,7 @@ services:
     dockerfilePath: apps/api/Dockerfile
     dockerContext: .
     region: oregon
-    plan: free
+    plan: standard
     healthCheckPath: /health
     preDeployCommand: "alembic upgrade head"
     envVars:

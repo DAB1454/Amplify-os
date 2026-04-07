@@ -73,10 +73,15 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
                 # Idempotency key includes retry_count so each retry gets a fresh
                 # dedup slot. Without this, a failed publish leaves a 1h dedup
                 # ghost that blocks all subsequent retries.
+                # 10-minute timeout: Instagram container processing can take
+                # 4-5 min on its own; the default 5-min worker timeout was
+                # racing with IG's poll loop and producing duplicate publishes
+                # on retry. Give the job real headroom.
                 job_id = await queue.enqueue(
                     "publish_post",
                     job_payload,
                     idempotency_key=f"publish_{post.id}_{retry_count}",
+                    timeout_seconds=600,
                 )
 
                 # Only flip status to "publishing" if the job was actually

@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 GRAPH_API = "https://graph.instagram.com/v21.0"
 CONTAINER_POLL_INTERVAL = 3  # seconds
-CONTAINER_POLL_MAX = 100  # max attempts (~5 minutes)
+# Cap below the worker job timeout (600s) so we always raise a clean
+# PublishError on slow containers instead of getting killed mid-publish.
+# 80 attempts * 3s = 240s, leaving plenty of margin under 600s.
+CONTAINER_POLL_MAX = 80  # max attempts (~4 minutes)
 
 
 class InstagramPublisher:
@@ -86,6 +89,53 @@ class InstagramPublisher:
             f"Container {container_id} processing timed out",
             platform="instagram",
         )
+
+    async def find_recent_duplicate(
+        self,
+        caption: str,
+        *,
+        within_seconds: int = 600,
+    ) -> str | None:
+        """Return the IG media id of a recent post with an identical caption.
+
+        Used as a defense-in-depth check before publishing: if a previous
+        attempt actually succeeded on Instagram's side but the worker job died
+        (timeout, container race, etc) and the post was re-queued, we'd
+        otherwise post the same caption again. Look back at the most recent
+        media on the account and bail if we find a match within the window.
+        """
+        if not caption:
+            return None
+        try:
+            data = await self._api_get(
+                f"/{self.account_id}/media",
+                params={"fields": "id,caption,timestamp", "limit": "5"},
+            )
+        except Exception as e:
+            # If the lookup itself fails, don't block the publish — just log.
+            logger.warning("Recent-media lookup failed, skipping dedup check: %s", e)
+            return None
+
+        from datetime import datetime, timezone, timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=within_seconds)
+        target = caption.strip()
+
+        for item in data.get("data", []):
+            ts = item.get("timestamp", "")
+            existing_caption = (item.get("caption") or "").strip()
+            if not ts or not existing_caption:
+                continue
+            try:
+                # IG timestamps look like 2026-04-07T22:15:00+0000
+                posted_at = datetime.fromisoformat(ts.replace("+0000", "+00:00"))
+            except ValueError:
+                continue
+            if posted_at < cutoff:
+                continue
+            if existing_caption == target:
+                return item.get("id")
+        return None
 
     async def get_permalink(self, media_id: str) -> str | None:
         """Fetch the permalink for a published media item.

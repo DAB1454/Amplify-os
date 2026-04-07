@@ -396,10 +396,20 @@ export default function PostsPage() {
                 if (active.length > 0) {
                   setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
                 }
-                // Fetch release URLs for destination dropdown
+                // Fetch release URLs + artist streaming links for destination dropdown
                 try {
-                  const releases = await apiGet<{id: string; title: string; linktree_url: string | null; bandcamp_url: string | null; hyperfollow_url: string | null}[]>("/api/v1/releases/");
+                  const [releases, artists] = await Promise.all([
+                    apiGet<{id: string; title: string; linktree_url: string | null; bandcamp_url: string | null; hyperfollow_url: string | null}[]>("/api/v1/releases/"),
+                    apiGet<{id: string; name: string; social_links?: Record<string, string>}[]>("/api/v1/artists").catch(() => []),
+                  ]);
                   const links: ReleaseLink[] = [];
+                  // Per-artist streaming links (from Channels page → Streaming Links)
+                  for (const a of artists) {
+                    const sl = a.social_links || {};
+                    if (sl.spotify) links.push({ label: `${a.name} — Spotify`, url: sl.spotify });
+                    if (sl.apple_music) links.push({ label: `${a.name} — Apple Music`, url: sl.apple_music });
+                  }
+                  // Per-release smart links
                   for (const r of releases) {
                     if (r.linktree_url) links.push({ label: `${r.title} — Linktree`, url: r.linktree_url });
                     if (r.bandcamp_url) links.push({ label: `${r.title} — Bandcamp`, url: r.bandcamp_url });
@@ -535,6 +545,10 @@ export default function PostsPage() {
               setShowAudioLibrary(false);
               setSelectedAssetUrls([]);
               setShowAssetPicker(false);
+              // Jump the user to the Drafts tab so they can see the post they
+              // just created. If they were already on Drafts the activeTab
+              // change is a no-op, so call fetchPosts explicitly too.
+              setActiveTab("draft");
               fetchPosts();
             } catch (err) {
               setMerging(false);
