@@ -1812,7 +1812,7 @@ async def generate_ai_video(
             if not track_title and track.title:
                 track_title = track.title
 
-    # Fall back: check post's own media_urls for image/audio
+    # Fall back: check post's own media_urls and engagement for image/audio
     if body.post_id and (not image_url or not audio_url):
         from amplify.db.models.post import PostModel as _PostModel
         _post_q = await db.execute(
@@ -1822,12 +1822,17 @@ async def generate_ai_video(
             )
         )
         _linked = _post_q.scalar_one_or_none()
-        if _linked and _linked.media_urls:
-            for mu in _linked.media_urls:
-                if not image_url and any(mu.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
-                    image_url = mu
-                if not audio_url and any(mu.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")):
-                    audio_url = mu
+        if _linked:
+            # Check engagement for previously used audio (from prior AI video generation)
+            _eng = _linked.engagement or {}
+            if not audio_url and _eng.get("ai_video_audio_url"):
+                audio_url = _eng["ai_video_audio_url"]
+            if _linked.media_urls:
+                for mu in _linked.media_urls:
+                    if not image_url and any(mu.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                        image_url = mu
+                    if not audio_url and any(mu.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")):
+                        audio_url = mu
 
     if body.release_id and not image_url:
         from amplify.db.models.release import ReleaseModel
@@ -2112,8 +2117,16 @@ async def _run_ai_video_generation(
                 db.add(asset)
                 await db.flush()
 
-                # Update post with completed video
-                await _update_post_status(db, "complete", video_url=video_url)
+                # Update post with completed video. Persist the audio_url
+                # we actually used so an "Edit & regenerate" pass on this same
+                # post will reuse it instead of falling through to the asset-
+                # library matcher (which can pick the wrong song).
+                await _update_post_status(
+                    db,
+                    "complete",
+                    video_url=video_url,
+                    ai_video_audio_url=audio_url,
+                )
 
                 # Record usage for billing
                 try:

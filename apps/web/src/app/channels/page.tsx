@@ -476,7 +476,7 @@ export default function ChannelsPage() {
                       if (!artistId) return;
                       setSavingStreaming(true);
                       try {
-                        const merged = {
+                        const merged: Record<string, string> = {
                           ...artistSocialLinks,
                           spotify: streamingDraft.spotify.trim(),
                           apple_music: streamingDraft.apple_music.trim(),
