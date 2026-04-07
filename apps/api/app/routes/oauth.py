@@ -209,7 +209,7 @@ async def oauth_callback(
             channel = await svc.handle_callback(platform, code, state)
 
             # Re-associate orphaned posts (from prior disconnect) with the new channel
-            await db.execute(
+            reassoc_result = await db.execute(
                 text(
                     "UPDATE posts SET channel_id = :new_cid "
                     "WHERE channel_id IS NULL AND platform = :plat AND tenant_id = :tid"
@@ -219,6 +219,10 @@ async def oauth_callback(
                     "plat": platform,
                     "tid": str(channel.tenant_id),
                 },
+            )
+            logger.info(
+                "Re-associated %d orphaned %s posts to channel %s on reconnect",
+                reassoc_result.rowcount, platform, channel.id,
             )
 
             await db.commit()

@@ -37,6 +37,7 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
             PostModel.status.in_(["scheduled", "approved"]),
             PostModel.scheduled_at <= now,
             PostModel.scheduled_at.isnot(None),
+            PostModel.channel_id.isnot(None),
         )
         result = await db.execute(stmt)
         posts = result.scalars().all()
@@ -54,9 +55,7 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
 
         try:
             for post in posts:
-                # Transition to "publishing" so we don't pick it up again
-                post.status = "publishing"
-
+                retry_count = post.retry_count or 0
                 job_payload = {
                     "post_id": str(post.id),
                     "tenant_id": str(post.tenant_id),
@@ -66,16 +65,31 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
                     "media_urls": post.media_urls or [],
                     "destination_url": post.destination_url or "",
                     "campaign_id": str(post.campaign_id) if post.campaign_id else "",
-                    "retry_count": post.retry_count or 0,
+                    "retry_count": retry_count,
                     "max_retries": post.max_retries or 3,
                     "skip_policy": True,
                 }
 
-                await queue.enqueue(
+                # Idempotency key includes retry_count so each retry gets a fresh
+                # dedup slot. Without this, a failed publish leaves a 1h dedup
+                # ghost that blocks all subsequent retries.
+                job_id = await queue.enqueue(
                     "publish_post",
                     job_payload,
-                    idempotency_key=f"publish_{post.id}",
+                    idempotency_key=f"publish_{post.id}_{retry_count}",
                 )
+
+                # Only flip status to "publishing" if the job was actually
+                # enqueued. If enqueue returned None (dedup hit), leave the post
+                # in its current state so the next scan can try again — never
+                # flip a post into "publishing" without a real job behind it.
+                if job_id is None:
+                    logger.info(
+                        "Skipped post %s — job already in flight (dedup)", post.id
+                    )
+                    continue
+
+                post.status = "publishing"
                 enqueued += 1
                 logger.info("Enqueued publish_post for post %s (%s)", post.id, post.platform)
 

@@ -167,6 +167,23 @@ async def publish_post(payload: dict) -> dict:
             "permalink": adapter_result.get("permalink"),
             "published_at": published_at.isoformat(),
         }
+    except ValueError as exc:
+        # Permanent config/payload error (missing channel_id, channel not found,
+        # no access token, unsupported platform). Retrying won't help — fail now.
+        logger.error("Post %s permanent failure: %s", post_id, exc)
+        await _update_post_status(
+            post_id, tenant_id, "failed",
+            last_error=str(exc)[:1000],
+            retry_count=retry_count,
+        )
+        return {
+            "status": "failed",
+            "post_id": post_id,
+            "published": False,
+            "error": str(exc),
+            "retry_count": retry_count,
+            "alert": True,
+        }
     except Exception as exc:
         retry_count += 1
         if retry_count >= max_retries:
