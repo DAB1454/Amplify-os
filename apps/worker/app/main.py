@@ -26,6 +26,7 @@ from app.jobs.backfill_learning import backfill_learning
 from app.jobs.refresh_tokens import refresh_tokens
 from app.jobs.check_campaigns import check_campaigns
 from app.jobs.backfill_posts import backfill_posts
+from app.jobs.sweep_orphaned_posts import sweep_orphaned_posts
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -59,6 +60,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "check_model_health": check_model_health,
     "check_campaigns": check_campaigns,
     "backfill_posts": backfill_posts,
+    "sweep_orphaned_posts": sweep_orphaned_posts,
 }
 
 
@@ -178,6 +180,12 @@ class Worker:
             await self._queue.enqueue("backfill_posts", {})
 
         self._scheduler.register(scheduled_backfill_posts, 21600)          # 6h
+
+        # ── Sweep for orphaned posts (half-disconnected tenants) — hourly
+        async def scheduled_sweep_orphans() -> None:
+            await self._queue.enqueue("sweep_orphaned_posts", {})
+
+        self._scheduler.register(scheduled_sweep_orphans, 3600)            # 1h
 
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h
