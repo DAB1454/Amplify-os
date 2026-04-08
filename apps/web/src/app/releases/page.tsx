@@ -34,6 +34,9 @@ interface Track {
   audio_url: string | null;
   lyrics: string | null;
   is_single: boolean;
+  spotify_url: string | null;
+  apple_music_url: string | null;
+  bandcamp_url: string | null;
 }
 
 const typeColors: Record<string, string> = {
@@ -409,6 +412,9 @@ function TrackList({
   const [lyricsTrackId, setLyricsTrackId] = useState<string | null>(null);
   const [lyricsText, setLyricsText] = useState("");
   const [lyricsSaving, setLyricsSaving] = useState(false);
+  const [linksTrackId, setLinksTrackId] = useState<string | null>(null);
+  const [linksDraft, setLinksDraft] = useState({ spotify_url: "", apple_music_url: "", bandcamp_url: "" });
+  const [linksSaving, setLinksSaving] = useState(false);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -488,6 +494,23 @@ function TrackList({
       onError(err instanceof Error ? err.message : "Failed to save lyrics");
     } finally {
       setLyricsSaving(false);
+    }
+  };
+
+  const handleSaveLinks = async (trackId: string) => {
+    setLinksSaving(true);
+    try {
+      await apiPut(`/api/v1/releases/${releaseId}/tracks/${trackId}`, {
+        spotify_url: linksDraft.spotify_url || null,
+        apple_music_url: linksDraft.apple_music_url || null,
+        bandcamp_url: linksDraft.bandcamp_url || null,
+      });
+      onRefresh();
+      setLinksTrackId(null);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to save links");
+    } finally {
+      setLinksSaving(false);
     }
   };
 
@@ -843,6 +866,35 @@ function TrackList({
                     {lyricsTrackId === track.id ? "Close Lyrics" : track.lyrics ? "Edit Lyrics" : "+ Lyrics"}
                   </button>
 
+                  {/* Streaming links toggle */}
+                  {(() => {
+                    const linkCount = [track.spotify_url, track.apple_music_url, track.bandcamp_url].filter(Boolean).length;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (linksTrackId === track.id) {
+                            setLinksTrackId(null);
+                          } else {
+                            setLinksTrackId(track.id);
+                            setLinksDraft({
+                              spotify_url: track.spotify_url || "",
+                              apple_music_url: track.apple_music_url || "",
+                              bandcamp_url: track.bandcamp_url || "",
+                            });
+                          }
+                        }}
+                        className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                          linkCount > 0
+                            ? "bg-green-100 text-green-600 hover:bg-green-200"
+                            : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-green-400 hover:text-green-500"
+                        }`}
+                        title="Per-track streaming destinations"
+                      >
+                        {linksTrackId === track.id ? "Close Links" : linkCount > 0 ? `Links (${linkCount})` : "+ Links"}
+                      </button>
+                    );
+                  })()}
+
                   {/* Single toggle */}
                   <button
                     onClick={() => handleToggleSingle(track)}
@@ -893,6 +945,51 @@ function TrackList({
                   </button>
                 </div>
               </div>
+
+              {/* Streaming links editor (expanded) */}
+              {linksTrackId === track.id && (
+                <div className="border-t border-[var(--border-color)] px-3 py-3 bg-[var(--bg-surface)] space-y-2">
+                  <label className="block text-[10px] font-medium text-[var(--text-secondary)]">
+                    Streaming destinations for &ldquo;{track.title}&rdquo;
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://open.spotify.com/track/..."
+                    value={linksDraft.spotify_url}
+                    onChange={(e) => setLinksDraft({ ...linksDraft, spotify_url: e.target.value })}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                  />
+                  <input
+                    type="url"
+                    placeholder="https://music.apple.com/.../song/..."
+                    value={linksDraft.apple_music_url}
+                    onChange={(e) => setLinksDraft({ ...linksDraft, apple_music_url: e.target.value })}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                  />
+                  <input
+                    type="url"
+                    placeholder="https://artist.bandcamp.com/track/..."
+                    value={linksDraft.bandcamp_url}
+                    onChange={(e) => setLinksDraft({ ...linksDraft, bandcamp_url: e.target.value })}
+                    className="w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]"
+                  />
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      onClick={() => setLinksTrackId(null)}
+                      className="rounded px-3 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleSaveLinks(track.id)}
+                      disabled={linksSaving}
+                      className="rounded bg-green-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      {linksSaving ? "Saving..." : "Save Links"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Lyrics editor (expanded) */}
               {lyricsTrackId === track.id && (

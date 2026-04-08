@@ -166,6 +166,9 @@ class TrackCreateRequest(BaseModel):
     audio_url: str | None = None
     lyrics: str | None = None
     is_single: bool = False
+    spotify_url: str | None = None
+    apple_music_url: str | None = None
+    bandcamp_url: str | None = None
 
 class TrackUpdateRequest(BaseModel):
     title: str | None = None
@@ -175,6 +178,9 @@ class TrackUpdateRequest(BaseModel):
     audio_url: str | None = None
     lyrics: str | None = None
     is_single: bool | None = None
+    spotify_url: str | None = None
+    apple_music_url: str | None = None
+    bandcamp_url: str | None = None
 
 class TrackResponse(BaseModel):
     id: uuid.UUID
@@ -187,6 +193,9 @@ class TrackResponse(BaseModel):
     audio_url: str | None
     lyrics: str | None
     is_single: bool
+    spotify_url: str | None = None
+    apple_music_url: str | None = None
+    bandcamp_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -248,6 +257,19 @@ class CampaignPlanResponse(BaseModel):
     campaign: CampaignResponse
     days: list[CampaignPlanDayResponse] = []
     stats: dict = {}
+    # Resolved goal mix (snapshot from last plan generation, stored on
+    # campaign.config). Empty dict if no plan has been generated yet.
+    goal_mix: dict[str, float] = {}
+    # The URL the artist should set as their active IG/TikTok bio link
+    # for this campaign. Computed from the linked release's Linktree /
+    # Hyperfollow URL — null if no release or no aggregator URL is set.
+    # Surfaced so artists know what link to put in their bio when posts
+    # say "🎧 Link in bio".
+    bio_link_hint: str | None = None
+    # Per-platform breakdown of how many posts in this campaign currently
+    # use a "Link in bio" CTA — used to highlight whether the bio link
+    # actually matters for this campaign's mix.
+    bio_link_dependent_counts: dict[str, int] = {}
 
 
 # ── Calendar Item ─────────────────────────────────────────────────
@@ -295,6 +317,7 @@ class PostCreateRequest(BaseModel):
     scheduled_at: datetime | None = None
     destination_url: str | None = None
     action_type_label: str | None = None  # e.g. "reel", "story", "static", "short", "lyric_video"
+    goal: str | None = None  # awareness, follow, engage, save, stream, purchase
 
 class PostUpdateRequest(BaseModel):
     content_text: str | None = None
@@ -306,6 +329,7 @@ class PostUpdateRequest(BaseModel):
     last_error: str | None = None
     published_at: datetime | None = None
     approval_status: str | None = None
+    goal: str | None = None
 
 class PostResponse(BaseModel):
     id: uuid.UUID
@@ -329,6 +353,7 @@ class PostResponse(BaseModel):
     approval_status: str | None
     day_number: int | None
     action_type_label: str | None
+    goal: str | None = None
     created_at: datetime
     updated_at: datetime
 

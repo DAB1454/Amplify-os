@@ -47,6 +47,11 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     day_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     action_type_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
     track_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Marketing intent for this post — drives CTA selection, copy guidance,
+    # and analytics segmentation. One of: awareness, follow, engage, save,
+    # stream, purchase. Nullable so historical posts and manual posts that
+    # don't carry an explicit goal still work.
+    goal: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
     campaign: Mapped[CampaignModel | None] = relationship(back_populates="posts")

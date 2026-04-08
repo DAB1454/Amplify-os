@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +31,169 @@ PLATFORM_DESTINATION_MAP: dict[str, str] = {
     "youtube": "youtube_url",
     "bandcamp": "bandcamp_url",
 }
+
+
+# Phrases that indicate a CTA is already present in the caption — used to
+# avoid double-injection when the planner already wrote one in the brief.
+_BIO_LINK_MARKERS = (
+    "link in bio",
+    "link in my bio",
+    "link in the bio",
+    "bio link",
+    "linkinbio",
+    "link below",
+    "check the bio",
+)
+
+
+def inject_caption_cta(caption: str, url: str, platform: str) -> str:
+    """Embed the campaign CTA into the post caption based on platform mechanics.
+
+    Captions on Instagram and TikTok do NOT render clickable links, so for those
+    platforms we point users at the bio link instead of pasting the URL. YouTube
+    descriptions DO render clickable links, so we paste the URL directly.
+
+    Idempotent: if the caption already contains the URL (YouTube case) or any
+    bio-link phrase (IG/TikTok case), the caption is returned unchanged so the
+    planner's own CTA is preserved.
+    """
+    text = caption or ""
+    if not url:
+        return text
+
+    plat = (platform or "").lower()
+    lowered = text.lower()
+
+    if plat == "youtube":
+        if url in text:
+            return text
+        sep = "\n\n" if text.strip() else ""
+        return f"{text}{sep}🎧 {url}"
+
+    # Instagram, TikTok, and any other "caption is not a hyperlink" platform
+    if any(marker in lowered for marker in _BIO_LINK_MARKERS):
+        return text
+    sep = "\n\n" if text.strip() else ""
+    return f"{text}{sep}🎧 Link in bio"
+
+
+# ── goal-aware CTA selection ─────────────────────────────────────
+
+
+# Recognized marketing goals — keep in sync with PostModel.goal column
+# and DailyAction.goal field. Empty/None means "not specified".
+GOALS = ("awareness", "follow", "engage", "save", "stream", "purchase")
+
+
+@dataclass
+class CTASelection:
+    """Result of CTA resolution for a single post.
+
+    `url` is what we store on `posts.destination_url` (analytics + policy).
+    `caption_snippet` is what gets injected into the caption text — for
+    IG/TikTok this is "🎧 Link in bio" because captions aren't clickable;
+    for YouTube it includes the URL because descriptions are.
+    `bio_link_hint` is the URL the artist should set as their active bio
+    link to make IG/TikTok captions actually convert. Surfaced to the user
+    via the campaign approval UI.
+    """
+
+    url: str
+    caption_snippet: str
+    bio_link_hint: str
+    goal: str
+
+
+def cta_for(
+    *,
+    goal: str | None,
+    platform: str,
+    track: Any | None = None,
+    release: Any | None = None,
+    artist: Any | None = None,
+) -> CTASelection:
+    """Pick the right CTA URL + caption snippet for a (goal, platform, track) combo.
+
+    Resolution rules (in priority order, first non-empty wins):
+
+      stream    → track.spotify_url → track.apple_music_url → release.linktree_url → release.hyperfollow_url
+      save      → release.hyperfollow_url → release.linktree_url
+      purchase  → track.bandcamp_url → release.bandcamp_url → release.linktree_url
+      follow    → artist.social_links[platform] → release platform URL → release.linktree_url
+      engage    → "" (no link — engage posts are about replies/saves/shares, not clickthroughs)
+      awareness → "" (top of funnel — no CTA pressure)
+      None      → release.linktree_url (legacy fallback)
+
+    Caller is responsible for storing `url` on the post and feeding the
+    full caption through `inject_caption_cta(caption, url, platform)` —
+    this function is pure and does no DB I/O.
+    """
+    plat = (platform or "").lower()
+    g = (goal or "").lower().strip()
+
+    def _attr(obj: Any, name: str) -> str:
+        if obj is None:
+            return ""
+        return (getattr(obj, name, "") or "")
+
+    spotify_t = _attr(track, "spotify_url")
+    apple_t = _attr(track, "apple_music_url")
+    bandcamp_t = _attr(track, "bandcamp_url")
+
+    linktree_r = _attr(release, "linktree_url")
+    hyperfollow_r = _attr(release, "hyperfollow_url")
+    bandcamp_r = _attr(release, "bandcamp_url")
+    youtube_r = _attr(release, "youtube_url")
+    tiktok_r = _attr(release, "tiktok_url")
+    instagram_r = _attr(release, "instagram_url")
+
+    social = {}
+    if artist is not None:
+        social = getattr(artist, "social_links", None) or {}
+
+    url = ""
+    if g == "stream":
+        url = spotify_t or apple_t or linktree_r or hyperfollow_r
+    elif g == "save":
+        url = hyperfollow_r or linktree_r
+    elif g == "purchase":
+        url = bandcamp_t or bandcamp_r or linktree_r
+    elif g == "follow":
+        # Prefer the artist's actual platform profile, fall back to release
+        # platform field, then linktree as last resort.
+        platform_field_map = {
+            "instagram": (social.get("instagram", ""), instagram_r),
+            "tiktok": (social.get("tiktok", ""), tiktok_r),
+            "youtube": (social.get("youtube", ""), youtube_r),
+        }
+        first, second = platform_field_map.get(plat, ("", ""))
+        url = first or second or linktree_r
+    elif g in ("engage", "awareness"):
+        url = ""  # intentional — no link pressure
+    else:
+        # Unspecified goal — preserve legacy behaviour
+        url = linktree_r
+
+    # Pick the bio-link hint independently of which DSP we picked.
+    # The bio link should always go to the broadest aggregator so any
+    # viewer can find their preferred service.
+    bio_link_hint = linktree_r or hyperfollow_r or url
+
+    # Build caption snippet based on platform mechanics
+    if not url:
+        snippet = ""
+    elif plat == "youtube":
+        snippet = f"🎧 {url}"
+    else:
+        # IG / TikTok / etc — captions aren't clickable
+        snippet = "🎧 Link in bio"
+
+    return CTASelection(
+        url=url,
+        caption_snippet=snippet,
+        bio_link_hint=bio_link_hint,
+        goal=g,
+    )
 
 
 class DestinationService:

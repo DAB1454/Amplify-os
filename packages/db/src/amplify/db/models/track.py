@@ -31,6 +31,12 @@ class TrackModel(Base, TimestampMixin, TenantMixin):
     audio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     lyrics: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_single: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-track DSP destinations — used by goal-aware CTA selection so a
+    # post about a single track can deep-link straight to that track on
+    # the user's preferred service instead of the release-level Linktree.
+    spotify_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    apple_music_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    bandcamp_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
     release: Mapped[ReleaseModel] = relationship(back_populates="tracks")

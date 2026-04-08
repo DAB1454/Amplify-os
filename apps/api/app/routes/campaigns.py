@@ -191,6 +191,41 @@ async def get_campaign_plan(
     rejected = sum(1 for p in posts if p.approval_status == "rejected")
     published = sum(1 for p in posts if p.status == "published")
 
+    # Resolve the bio-link hint from the linked release. The artist should
+    # point their IG/TikTok bio link at this URL — captions on those
+    # platforms aren't clickable, so any goal=stream/save/purchase post on
+    # IG/TikTok needs the bio link to actually convert.
+    bio_link_hint: str | None = None
+    if campaign.release_id:
+        from amplify.db.models.release import ReleaseModel
+        release_result = await db.execute(
+            select(ReleaseModel).where(
+                ReleaseModel.id == campaign.release_id,
+                ReleaseModel.tenant_id == tenant_id,
+            )
+        )
+        release = release_result.scalar_one_or_none()
+        if release:
+            bio_link_hint = (
+                release.linktree_url
+                or release.hyperfollow_url
+                or release.bandcamp_url
+                or None
+            )
+
+    # Count posts that depend on the bio link to convert — i.e. posts on
+    # platforms where captions aren't clickable AND whose goal needs a
+    # clickthrough. Helps the UI decide how loud to make the warning.
+    _BIO_DEPENDENT_PLATFORMS = {"instagram", "tiktok"}
+    _BIO_DEPENDENT_GOALS = {"stream", "save", "purchase", "follow"}
+    bio_link_dependent_counts: dict[str, int] = {}
+    for p in posts:
+        if (p.platform or "").lower() in _BIO_DEPENDENT_PLATFORMS and (
+            (getattr(p, "goal", None) or "").lower() in _BIO_DEPENDENT_GOALS
+        ):
+            key = (p.platform or "").lower()
+            bio_link_dependent_counts[key] = bio_link_dependent_counts.get(key, 0) + 1
+
     return CampaignPlanResponse(
         campaign=CampaignResponse.model_validate(campaign),
         days=days,
@@ -201,6 +236,9 @@ async def get_campaign_plan(
             "rejected": rejected,
             "published": published,
         },
+        goal_mix=(campaign.config or {}).get("goal_mix", {}) if isinstance(campaign.config, dict) else {},
+        bio_link_hint=bio_link_hint,
+        bio_link_dependent_counts=bio_link_dependent_counts,
     )
 
 

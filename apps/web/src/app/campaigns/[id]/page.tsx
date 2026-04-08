@@ -82,6 +82,9 @@ interface CampaignPlan {
     rejected: number;
     published: number;
   };
+  goal_mix?: Record<string, number>;
+  bio_link_hint?: string | null;
+  bio_link_dependent_counts?: Record<string, number>;
 }
 
 const approvalColors: Record<string, string> = {
@@ -720,6 +723,74 @@ export default function CampaignDetailPage() {
               <div className="text-xs text-[var(--text-secondary)]">{s.label}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Bio Link Hint — only when there are IG/TikTok posts that depend on it */}
+      {(() => {
+        const counts = plan.bio_link_dependent_counts || {};
+        const totalDependent = Object.values(counts).reduce((a, b) => a + b, 0);
+        if (totalDependent === 0) return null;
+        const hint = plan.bio_link_hint;
+        const platformList = Object.entries(counts)
+          .map(([p, n]) => `${n} ${p}`)
+          .join(" + ");
+        if (!hint) {
+          return (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <div className="text-sm font-medium text-red-700">
+                ⚠️ {totalDependent} post{totalDependent !== 1 ? "s" : ""} ({platformList}) say &ldquo;link in bio&rdquo; — but no bio link is set on this release.
+              </div>
+              <div className="mt-1 text-xs text-red-600">
+                Add a Linktree, Hyperfollow, or Bandcamp URL on the linked release so these posts can actually convert.
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-indigo-900">
+                  📌 Set your bio link to: <span className="font-mono text-xs break-all">{hint}</span>
+                </div>
+                <div className="mt-1 text-xs text-indigo-700">
+                  {totalDependent} post{totalDependent !== 1 ? "s" : ""} in this campaign ({platformList}) say &ldquo;link in bio&rdquo;.
+                  Captions on Instagram and TikTok aren&apos;t clickable, so the bio link is the only conversion surface.
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (hint) navigator.clipboard?.writeText(hint);
+                }}
+                className="shrink-0 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Goal Mix snapshot — only when a plan has been generated with goals */}
+      {plan.goal_mix && Object.keys(plan.goal_mix).length > 0 && (
+        <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-4 py-3">
+          <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">
+            Goal mix (target distribution)
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(plan.goal_mix)
+              .filter(([, v]) => v > 0)
+              .sort(([, a], [, b]) => b - a)
+              .map(([goal, weight]) => (
+                <span
+                  key={goal}
+                  className="rounded-full bg-white border border-[var(--border-color)] px-2.5 py-1 text-[11px] text-[var(--text-primary)]"
+                >
+                  {goal} <span className="text-[var(--text-secondary)]">{Math.round(weight * 100)}%</span>
+                </span>
+              ))}
+          </div>
         </div>
       )}
 

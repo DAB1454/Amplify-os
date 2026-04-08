@@ -35,6 +35,15 @@ class DailyAction(BaseModel):
     assets_required: list[str] = Field(default_factory=list, alias="asset_requirements")
     priority: str = "medium"  # critical, high, medium, low
     track_reference: str = ""  # which track this action features, if any
+    # Marketing intent for this action. One of:
+    #   awareness — top of funnel, build reach (no CTA pressure)
+    #   follow    — convert viewer to platform follower
+    #   engage    — likes/comments/shares (drives algo)
+    #   save      — pre-save / add to library (release-day prep)
+    #   stream    — clickthrough to a DSP to listen
+    #   purchase  — clickthrough to Bandcamp / merch
+    # Empty string means "not specified" — system falls back to phase defaults.
+    goal: str = ""
 
     model_config = {"populate_by_name": True}  # accept both field name and alias
 

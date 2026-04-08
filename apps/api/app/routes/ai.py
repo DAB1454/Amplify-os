@@ -57,6 +57,12 @@ class GeneratePlanRequest(BaseModel):
     focus: str = ""  # e.g. "engagement", "awareness", "conversions"
     timezone: str = "America/New_York"  # IANA timezone for scheduling
     youtube_strategy: str = "mixed"  # "shorts_only", "long_only", "mixed", "shorts_heavy"
+    # Optional override for the goal distribution. If omitted, the system
+    # picks a phase-aware default based on the campaign's relationship to
+    # the release date. Keys must be from: awareness, follow, engage,
+    # save, stream, purchase. Values are weights (0.0–1.0) that should
+    # roughly sum to 1.0 — they are normalized either way.
+    goal_mix: dict[str, float] | None = None
 
 
 class DailyActionResponse(BaseModel):
@@ -67,6 +73,7 @@ class DailyActionResponse(BaseModel):
     cta_destination: str = ""
     priority: str = "medium"
     track_reference: str = ""
+    goal: str = ""  # awareness, follow, engage, save, stream, purchase
 
 
 class GeneratePlanResponse(BaseModel):
@@ -79,6 +86,7 @@ class GeneratePlanResponse(BaseModel):
     draft_posts_created: int = 0
     model: str = ""
     elapsed_ms: int = 0
+    goal_mix: dict[str, float] = Field(default_factory=dict)
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -774,8 +782,13 @@ async def generate_plan(
     release_date = ""
     release = None
     track_listing = body.track_listing
+    # tracks_by_title — case-insensitive lookup so the goal-aware CTA helper
+    # can deep-link to the right Spotify/Apple URL when an action references
+    # a specific track. Empty when no release is linked or no tracks exist.
+    tracks_by_title: dict[str, "TrackModel"] = {}
     if campaign.release_id:
         from amplify.db.models.release import ReleaseModel
+        from amplify.db.models.track import TrackModel
         release_result = await db.execute(
             select(ReleaseModel).where(ReleaseModel.id == campaign.release_id)
         )
@@ -783,12 +796,13 @@ async def generate_plan(
         if release:
             release_title = release.title or ""
             release_date = str(release.release_date) if release.release_date else ""
+            tracks_result = await db.execute(
+                select(TrackModel).where(TrackModel.release_id == release.id).order_by(TrackModel.track_number)
+            )
+            _all_tracks = list(tracks_result.scalars().all())
+            tracks_by_title = {(t.title or "").strip().lower(): t for t in _all_tracks if t.title}
             if not track_listing:
-                from amplify.db.models.track import TrackModel
-                tracks_result = await db.execute(
-                    select(TrackModel).where(TrackModel.release_id == release.id).order_by(TrackModel.track_number)
-                )
-                track_listing = [t.title for t in tracks_result.scalars().all() if t.title]
+                track_listing = [t.title for t in _all_tracks if t.title]
 
             # Auto-populate destination_urls from release if not provided
             if not body.destination_urls:
@@ -1082,6 +1096,50 @@ async def generate_plan(
         if total_reassigned:
             logger.info("Per-channel dedup: reassigned %d duplicate-track posts", total_reassigned)
 
+    # ── Goal mix rebalancing ───────────────────────────────────────
+    # The planner LLM is asked to set a `goal` on every action, but it
+    # doesn't always honor the requested distribution. Apply phase-aware
+    # defaults (or the caller's override) and force the labels to match.
+    resolved_goal_mix: dict[str, float] = {}
+    if plan and hasattr(plan, "daily_actions") and plan.daily_actions:
+        from app.services.goal_mix import (
+            default_goal_mix, normalize_mix, rebalance_goals,
+        )
+        from datetime import date as _date_type
+
+        days_to_release: int | None = None
+        if release and getattr(release, "release_date", None):
+            try:
+                days_to_release = (release.release_date - _date_type.today()).days
+            except Exception:
+                days_to_release = None
+
+        if body.goal_mix:
+            resolved_goal_mix = normalize_mix(body.goal_mix)
+        else:
+            resolved_goal_mix = default_goal_mix(
+                phase=campaign.phase,
+                days_to_release=days_to_release,
+            )
+
+        reassigned = rebalance_goals(plan.daily_actions, resolved_goal_mix)
+        if reassigned:
+            logger.info(
+                "Goal rebalanced: %s (target=%s)",
+                dict(reassigned),
+                {k: round(v, 2) for k, v in resolved_goal_mix.items()},
+            )
+
+        # Persist the resolved mix on the campaign so the UI can show it
+        # and so future re-plans default to the same distribution.
+        try:
+            campaign.config = {
+                **(campaign.config or {}),
+                "goal_mix": resolved_goal_mix,
+            }
+        except Exception as exc:
+            logger.warning("Could not persist goal_mix on campaign: %s", exc)
+
     if plan and hasattr(plan, "daily_actions"):
         for day_idx, action in enumerate(plan.daily_actions, 1):
             daily_actions.append(DailyActionResponse(
@@ -1092,6 +1150,7 @@ async def generate_plan(
                 cta_destination=action.cta_destination,
                 priority=action.priority,
                 track_reference=action.track_reference,
+                goal=action.goal,
             ))
 
             # Create calendar item for each action
@@ -1181,20 +1240,50 @@ async def generate_plan(
 
                         # Plan creation only sets caption + channel + date.
                         # Media is generated per-post via the "Generate" button.
+                        # Goal-aware CTA resolution: pick the right URL based on
+                        # the action's marketing intent (stream → DSP, follow →
+                        # platform profile, save → hyperfollow, etc.) then embed
+                        # it visibly into the caption. Platform adapters never
+                        # receive destination_url — only content + media_paths —
+                        # so the URL has to live in the caption text or, for
+                        # IG/TikTok, point at link-in-bio.
+                        from app.services.destination_service import (
+                            cta_for, inject_caption_cta,
+                        )
+                        action_track = None
+                        if action.track_reference:
+                            action_track = tracks_by_title.get(
+                                action.track_reference.strip().lower()
+                            )
+                        cta_pick = cta_for(
+                            goal=action.goal or None,
+                            platform=action.platform,
+                            track=action_track,
+                            release=release,
+                            artist=artist,
+                        )
+                        # Honor an explicit cta_destination from the planner if
+                        # it set one — this lets a smart prompt override the
+                        # goal-based default. Falls back to cta_for() result.
+                        resolved_cta = action.cta_destination or cta_pick.url
+                        caption_with_cta = inject_caption_cta(
+                            action.content_brief, resolved_cta, action.platform
+                        )
                         post = PostModel(
                             tenant_id=tenant_id,
                             campaign_id=campaign.id,
                             channel_id=channel.id,
                             platform=action.platform,
                             status=post_status,
-                            content_text=action.content_brief,
+                            content_text=caption_with_cta,
                             media_urls=[],
-                            destination_url=action.cta_destination or (release.linktree_url if release and hasattr(release, 'linktree_url') and release.linktree_url else ""),
+                            destination_url=resolved_cta,
                             approval_status=post_approval,
                             day_number=day_idx,
                             action_type_label=action.action_type,
                             scheduled_at=scheduled_at,
                             track_reference=action.track_reference or None,
+                            goal=action.goal or None,
                         )
                         db.add(post)
                         draft_posts_created += 1
@@ -1250,6 +1339,7 @@ async def generate_plan(
         draft_posts_created=draft_posts_created,
         model=result.model,
         elapsed_ms=result.elapsed_ms,
+        goal_mix=resolved_goal_mix,
     )
 
 
