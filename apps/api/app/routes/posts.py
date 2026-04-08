@@ -437,7 +437,28 @@ async def generate_media_for_post(
     )
 
     # Step 2a: Try lyric video if requested or action_type is lyric_video
-    if (body.generate_lyric_video or action_lower in ("lyric_video", "lyric video")) and image_urls:
+    lyric_video_requested = (
+        body.generate_lyric_video or action_lower in ("lyric_video", "lyric video")
+    )
+    lyric_video_succeeded = False
+    if lyric_video_requested and image_urls:
+        # Surface whether the track has lyrics so the warning is actionable
+        # — the most common cause of lyric-video fallback is "no lyrics on
+        # this track row", and that's a UX problem, not an FFmpeg bug.
+        track_has_lyrics = False
+        if post.track_reference and release_id:
+            try:
+                from amplify.db.models.track import TrackModel
+                _t = await db.execute(
+                    select(TrackModel).where(
+                        TrackModel.release_id == release_id,
+                        TrackModel.title == post.track_reference,
+                    )
+                )
+                _trow = _t.scalar_one_or_none()
+                track_has_lyrics = bool(_trow and (_trow.lyrics or "").strip())
+            except Exception:
+                pass
         try:
             from app.routes.ai import _generate_lyric_video_for_post
             video_url = await _generate_lyric_video_for_post(
@@ -454,8 +475,18 @@ async def generate_media_for_post(
             if video_url:
                 post.media_urls = [video_url]
                 video_generated = True
+                lyric_video_succeeded = True
         except Exception as exc:
-            logger.warning("Lyric video generation failed for post %s: %s", post_id, exc)
+            logger.warning(
+                "Lyric video generation failed for post %s (track=%r, has_lyrics=%s): %s",
+                post_id, post.track_reference, track_has_lyrics, exc,
+            )
+        if not lyric_video_succeeded and not track_has_lyrics:
+            logger.warning(
+                "Post %s requested lyric_video but track %r has no lyrics — "
+                "label will be downgraded after fallback media is generated",
+                post_id, post.track_reference,
+            )
 
     # Step 2b: Try Replicate AI video if enabled and budget allows
     if not video_generated and should_generate_video and not is_carousel:
@@ -566,6 +597,20 @@ async def generate_media_for_post(
     if not post.media_urls:
         post.media_urls = []
         logger.info("No assets found for post %s — media_urls stays empty", post_id)
+
+    # Truth-in-labeling: if lyric video was requested but the cascade fell
+    # through to a regular short / clip, downgrade the label so the UI
+    # doesn't lie about what the post actually is. Per-platform default:
+    # YouTube → "short", IG/TikTok → "reel".
+    if lyric_video_requested and not lyric_video_succeeded and video_generated:
+        plat = (post.platform or "").lower()
+        downgraded = "short" if plat == "youtube" else "reel"
+        old_label = post.action_type_label
+        post.action_type_label = downgraded
+        logger.info(
+            "Post %s label downgraded %r → %r (lyric video fallback)",
+            post_id, old_label, downgraded,
+        )
 
     await db.flush()
 

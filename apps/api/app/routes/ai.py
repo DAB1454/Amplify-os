@@ -1262,10 +1262,14 @@ async def generate_plan(
                             release=release,
                             artist=artist,
                         )
-                        # Honor an explicit cta_destination from the planner if
-                        # it set one — this lets a smart prompt override the
-                        # goal-based default. Falls back to cta_for() result.
-                        resolved_cta = action.cta_destination or cta_pick.url
+                        # System-resolved CTA always wins. The planner used to
+                        # set cta_destination but it kept emitting bare labels
+                        # like "linktree" instead of URLs (because the prompt
+                        # listed destinations as a label→URL dict). The label
+                        # leaked through as the literal post URL. cta_for() has
+                        # the full goal-aware resolution, including per-track
+                        # DSP deep links, so let it own the answer.
+                        resolved_cta = cta_pick.url
                         caption_with_cta = inject_caption_cta(
                             action.content_brief, resolved_cta, action.platform
                         )
