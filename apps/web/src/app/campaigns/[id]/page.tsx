@@ -726,27 +726,23 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
-      {/* Bio Link Hint — only when there are IG/TikTok posts that depend on it */}
+      {/* Bio Link Hint — only when there are IG/TikTok posts that depend on
+          it AND we have a hint URL from the release to show. We used to
+          surface a red warning when no hint was set, but artists typically
+          manage their bio link directly in the Instagram/TikTok app (e.g.
+          a Linktree they already pasted), which AmplifyMe has no way to
+          verify externally. A warning in that case is always a false
+          positive, so the block is silent unless we have a concrete URL
+          to suggest. */}
       {(() => {
         const counts = plan.bio_link_dependent_counts || {};
         const totalDependent = Object.values(counts).reduce((a, b) => a + b, 0);
         if (totalDependent === 0) return null;
         const hint = plan.bio_link_hint;
+        if (!hint) return null;
         const platformList = Object.entries(counts)
           .map(([p, n]) => `${n} ${p}`)
           .join(" + ");
-        if (!hint) {
-          return (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-              <div className="text-sm font-medium text-red-700">
-                ⚠️ {totalDependent} post{totalDependent !== 1 ? "s" : ""} ({platformList}) say &ldquo;link in bio&rdquo; — but no bio link is set on this release.
-              </div>
-              <div className="mt-1 text-xs text-red-600">
-                Add a Linktree, Hyperfollow, or Bandcamp URL on the linked release so these posts can actually convert.
-              </div>
-            </div>
-          );
-        }
         return (
           <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3">
             <div className="flex items-start gap-3">

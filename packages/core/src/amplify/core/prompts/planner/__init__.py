@@ -244,6 +244,16 @@ Generate a campaign plan for the following release.
   When writing day-specific content (e.g. "Tuesday Vibe", "Weekend energy"),
   use the day of the week as it appears in {timezone}, NOT UTC.
 
+## Weekday calendar (authoritative — use this, do NOT guess)
+{weekday_calendar}
+
+- CRITICAL: If a caption, hook, or hashtag references a specific day of
+  the week ("Wednesday wisdom", "Friday drop", "weekend vibes"), the
+  weekday MUST match the `weekday_calendar` entry for that post's date.
+  Do not infer weekdays from the date string — use the mapping above.
+- If you are not certain which weekday a date falls on, write copy that
+  is not day-specific.
+
 ## Release metadata
 - Artist: {artist_name}
 - Release title: {release_title}

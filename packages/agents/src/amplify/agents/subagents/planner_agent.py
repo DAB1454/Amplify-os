@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -244,12 +244,33 @@ class PlannerAgent:
         if not cs:
             cs = str(date.today())
         if not ce:
-            from datetime import timedelta
             try:
                 start_dt = date.fromisoformat(cs)
             except (ValueError, TypeError):
                 start_dt = date.today()
             ce = str(start_dt + timedelta(days=13))
+
+        # Build an explicit weekday calendar so the LLM stops hallucinating
+        # day-of-week names in copy. Without this, captions for a Thursday
+        # post ended up saying "Wednesday" because the model was guessing
+        # weekdays from the date string. Cap the list so a long campaign
+        # doesn't blow up the prompt — 60 days is plenty for copy writing;
+        # the planner only needs the weekday for days it's writing text
+        # about.
+        try:
+            cs_dt = date.fromisoformat(cs)
+            ce_dt = date.fromisoformat(ce)
+        except (ValueError, TypeError):
+            cs_dt = date.today()
+            ce_dt = cs_dt + timedelta(days=13)
+        span_days = max(0, (ce_dt - cs_dt).days) + 1
+        calendar_lines: list[str] = []
+        for i in range(min(span_days, 60)):
+            d = cs_dt + timedelta(days=i)
+            calendar_lines.append(f"- {d.isoformat()} = {d.strftime('%A')}")
+        if span_days > 60:
+            calendar_lines.append(f"- ... ({span_days - 60} more days — same pattern)")
+        weekday_calendar = "\n".join(calendar_lines) if calendar_lines else "(none)"
 
         # Build YouTube strategy description
         yt_strategies = {
@@ -294,6 +315,7 @@ class PlannerAgent:
             today=str(date.today()),
             campaign_start=cs,
             campaign_end=ce,
+            weekday_calendar=weekday_calendar,
             timezone=timezone,
             youtube_strategy=yt_strategy_str,
         )
