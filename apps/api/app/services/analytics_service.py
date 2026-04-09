@@ -1,19 +1,21 @@
 """Analytics service — queries, scoring, and analyst reports.
 
-Falls back to mock data when the DB has no metrics, so the analyst
-flow can be demonstrated without live API integrations.
+Returns honest empty states when the DB has no metrics yet. The
+old silent mock fallback was removed: if a user publishes zero posts
+we want them to see "no data yet", not fabricated numbers that make
+the dashboard look like it's working. Mock data is still available
+via the explicit ``/api/v1/analytics/demo`` route for local dev.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from amplify.core.analytics.analyst import AnalystRecommendation, weekly_analyst_report
-from amplify.core.analytics.mock_data import generate_campaign_metrics, generate_demo_dataset
+from amplify.core.analytics.analyst import weekly_analyst_report
 from amplify.core.analytics.scoring import PostScore, score_posts
 from amplify.db.models.campaign import CampaignModel
 from amplify.db.models.metric import DailyMetricModel
@@ -84,22 +86,22 @@ class AnalyticsService:
         )
         rows = (await self.db.execute(stmt)).all()
 
-        if rows:
-            series: dict[str, list[dict]] = {}
-            for row_date, metric_name, total in rows:
-                series.setdefault(metric_name, []).append({
-                    "date": row_date.isoformat(),
-                    "value": float(total),
-                })
-            return {
-                "campaign_id": str(campaign_id) if campaign_id else "all",
-                "days": days,
-                "series": series,
-                "source": "database",
-            }
+        series: dict[str, list[dict]] = {}
+        for row_date, metric_name, total in rows:
+            series.setdefault(metric_name, []).append({
+                "date": row_date.isoformat(),
+                "value": float(total),
+            })
 
-        # Fall back to mock data
-        return self._mock_campaign_timeseries(str(campaign_id) if campaign_id else "all", days)
+        return {
+            "campaign_id": str(campaign_id) if campaign_id else "all",
+            "days": days,
+            "series": series,
+            # "empty" is an explicit signal that the query ran but no
+            # DailyMetric rows exist for the window. The UI shows an
+            # empty state instead of an opaque loading spinner.
+            "source": "database" if series else "empty",
+        }
 
     # ── post scores ──────────────────────────────────────────────
 
@@ -139,9 +141,10 @@ class AnalyticsService:
                 })
 
         if not posts_data:
-            # Fall back to mock
-            demo = generate_demo_dataset()
-            posts_data = list(demo["aggregated"].values())
+            # Honest empty state. The previous behavior silently seeded
+            # the dashboard with generate_demo_dataset() which made an
+            # empty tenant look like it had traffic — removed in #23.
+            return []
 
         scores = score_posts(posts_data)
         return [
@@ -167,13 +170,37 @@ class AnalyticsService:
     ) -> dict:
         """Generate a weekly keep/remix/stop analyst report.
 
-        Falls back to mock data when DB is empty.
+        Returns a zero-verdict report when no published posts in window.
         """
         end = date.today()
         start = end - timedelta(days=days)
 
         # Get scored posts
         score_dicts = await self.get_post_scores(campaign_id=campaign_id, days=days)
+
+        cid = str(campaign_id) if campaign_id else "all"
+
+        # Honest empty state: no published posts with engagement means
+        # there's nothing for the analyst to reason about. Return a
+        # zero-verdict report with a user-facing explanation instead
+        # of running the analyst on fabricated mock data.
+        if not score_dicts:
+            return {
+                "campaign_id": cid,
+                "period_start": start.isoformat(),
+                "period_end": end.isoformat(),
+                "total_posts": 0,
+                "keep_count": 0,
+                "remix_count": 0,
+                "stop_count": 0,
+                "summary": (
+                    f"No published posts with engagement in the last {days} day(s). "
+                    "Publish some content and wait for metrics to land to see "
+                    "keep/remix/stop verdicts here."
+                ),
+                "generated_at": datetime.utcnow().isoformat(),
+                "verdicts": [],
+            }
 
         # Convert to PostScore objects for the analyst
         scores = [
@@ -190,7 +217,6 @@ class AnalyticsService:
             for d in score_dicts
         ]
 
-        cid = str(campaign_id) if campaign_id else "all"
         report = weekly_analyst_report(
             campaign_id=cid,
             period_start=start.isoformat(),
@@ -250,33 +276,3 @@ class AnalyticsService:
             "winner_variant": experiment.winner_variant,
         }
 
-    # ── internal helpers ──────────────────────────────────────────
-
-    @staticmethod
-    def _mock_campaign_timeseries(campaign_id: str, days: int) -> dict:
-        """Generate mock time-series data for demo purposes."""
-        demo = generate_demo_dataset()
-        daily = demo["daily_metrics"]
-
-        # Aggregate by date
-        by_date: dict[str, dict[str, int]] = {}
-        for m in daily:
-            d = m["date"]
-            if d not in by_date:
-                by_date[d] = {"impressions": 0, "engagement": 0, "clicks": 0}
-            by_date[d]["impressions"] += m["impressions"]
-            by_date[d]["engagement"] += m["likes"] + m["comments"] + m["shares"] + m["saves"]
-            by_date[d]["clicks"] += m["clicks"]
-
-        series = {
-            "impressions": [{"date": d, "value": v["impressions"]} for d, v in sorted(by_date.items())],
-            "engagement": [{"date": d, "value": v["engagement"]} for d, v in sorted(by_date.items())],
-            "clicks": [{"date": d, "value": v["clicks"]} for d, v in sorted(by_date.items())],
-        }
-
-        return {
-            "campaign_id": campaign_id,
-            "days": days,
-            "series": series,
-            "source": "mock",
-        }

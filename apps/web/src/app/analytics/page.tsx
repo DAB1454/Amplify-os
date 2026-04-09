@@ -166,12 +166,17 @@ export default function AnalyticsPage() {
             {r}
           </button>
         ))}
-        {timeseries?.source === "mock" && (
-          <span className="ml-auto self-center rounded bg-purple-100 px-2 py-1 text-xs text-purple-600">
-            Mock data
-          </span>
-        )}
       </div>
+
+      {/* Empty-state banner shown when DB has nothing yet. Previously
+          the dashboard silently filled with mock data; now we tell the
+          user the truth and point them to what will populate it. */}
+      {!loading && timeseries?.source === "empty" && (
+        <div className="mt-4 rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          No analytics yet. Publish posts and wait for platform metrics
+          to sync — charts and scores will populate automatically.
+        </div>
+      )}
 
       {error && (
         <div className="mt-4 rounded-lg border border-red-500/30 bg-red-50 px-4 py-3 text-sm text-red-600 break-words overflow-hidden">
@@ -204,8 +209,8 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {/* Time-series charts */}
-          {timeseries && (
+          {/* Time-series charts — hidden when the window is empty */}
+          {timeseries && Object.keys(timeseries.series).length > 0 && (
             <div className="mt-6 grid grid-cols-3 gap-4">
               {Object.entries(timeseries.series).map(([metric, points]) => (
                 <div
