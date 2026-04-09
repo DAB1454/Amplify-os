@@ -208,64 +208,12 @@ class PublishingService:
                 },
             }
 
+        # ── Step 1: call the platform ─────────────────────────────
+        # Only actual platform failures should trigger the retry path.
+        # Bookkeeping errors after a successful API call must NOT flip
+        # the post back to scheduled — it's already live on the platform.
         try:
             result = await self._do_publish(post)
-
-            if result.get("pending_approval"):
-                # Inbox flow (e.g. unaudited TikTok) — video uploaded but
-                # creator must approve in the platform app before it goes live.
-                post = await self._transition(
-                    post,
-                    PostStatus.PENDING_APPROVAL,
-                    platform_post_id=result.get("platform_post_id"),
-                    last_error=None,
-                    retry_count=0,
-                )
-                return {
-                    "post_id": str(post_id),
-                    "status": post.status,
-                    "platform_post_id": post.platform_post_id,
-                    "message": "Video uploaded — check your TikTok app to approve and publish.",
-                }
-
-            post = await self._transition(
-                post,
-                PostStatus.PUBLISHED,
-                published_at=datetime.utcnow(),
-                platform_post_id=result.get("platform_post_id"),
-                permalink=result.get("permalink"),
-                last_error=None,
-                retry_count=0,
-            )
-
-            await self._emit_learning(post_published(
-                post_id=post_id,
-                tenant_id=self.tenant_id,
-                platform=post.platform or "",
-                platform_post_id=result.get("platform_post_id"),
-                permalink=result.get("permalink"),
-                published_at=post.published_at,
-                campaign_id=post.campaign_id,
-            ))
-
-            # Record asset usage so the library can learn which assets are
-            # trusted. Errors here must never block a successful publish —
-            # usage stats are a learning signal, not a correctness concern.
-            try:
-                from app.services.asset_usage_service import record_asset_usage_for_post
-                await record_asset_usage_for_post(
-                    self.db, tenant_id=self.tenant_id, post=post
-                )
-            except Exception as exc:
-                logger.warning("Failed to record asset usage for post %s: %s", post_id, exc)
-
-            return {
-                "post_id": str(post_id),
-                "status": post.status,
-                "published_at": post.published_at.isoformat() if post.published_at else None,
-                "permalink": post.permalink,
-                "platform_post_id": post.platform_post_id,
-            }
         except Exception as exc:
             post.retry_count = (post.retry_count or 0) + 1
             post.last_error = str(exc)[:1000]
@@ -327,6 +275,102 @@ class PublishingService:
                     "retry_delay_seconds": delay,
                     "error": str(exc),
                 }
+
+        # ── Step 2: platform accepted it — record success ─────────
+        # Past this point the post is LIVE on the platform. Any error
+        # in bookkeeping (state flush, learning events, asset usage)
+        # must be degraded to a warning and the post forced to
+        # PUBLISHED — never rolled back to scheduled, never counted
+        # as a retry.
+        if result.get("pending_approval"):
+            # Inbox flow (e.g. unaudited TikTok) — media uploaded but
+            # creator must approve in the platform app before it goes live.
+            try:
+                post = await self._transition(
+                    post,
+                    PostStatus.PENDING_APPROVAL,
+                    platform_post_id=result.get("platform_post_id"),
+                    last_error=None,
+                    retry_count=0,
+                )
+            except Exception as bk_exc:
+                logger.exception(
+                    "Post %s uploaded to platform but pending_approval transition failed: %s",
+                    post_id, bk_exc,
+                )
+                post.status = PostStatus.PENDING_APPROVAL.value
+                post.platform_post_id = result.get("platform_post_id")
+                post.last_error = f"Upload OK, bookkeeping failed: {bk_exc}"[:1000]
+                try:
+                    await self.db.flush()
+                except Exception:
+                    pass
+            return {
+                "post_id": str(post_id),
+                "status": post.status,
+                "platform_post_id": post.platform_post_id,
+                "message": "Video uploaded — check your TikTok app to approve and publish.",
+            }
+
+        try:
+            post = await self._transition(
+                post,
+                PostStatus.PUBLISHED,
+                published_at=datetime.utcnow(),
+                platform_post_id=result.get("platform_post_id"),
+                permalink=result.get("permalink"),
+                last_error=None,
+                retry_count=0,
+            )
+        except Exception as bk_exc:
+            # State transition failed (e.g. flush conflict). The post is
+            # still live on the platform — force the fields directly so
+            # the DB reflects reality instead of claiming "scheduled".
+            logger.exception(
+                "Post %s published on platform but state transition failed: %s",
+                post_id, bk_exc,
+            )
+            post.status = PostStatus.PUBLISHED.value
+            post.published_at = datetime.utcnow()
+            post.platform_post_id = result.get("platform_post_id")
+            post.permalink = result.get("permalink")
+            post.last_error = f"Published, bookkeeping failed: {bk_exc}"[:1000]
+            post.retry_count = 0
+            try:
+                await self.db.flush()
+            except Exception:
+                logger.exception("Post %s flush also failed", post_id)
+
+        # Learning events and asset usage are pure side-channels — their
+        # failures must never contaminate the publish result.
+        try:
+            await self._emit_learning(post_published(
+                post_id=post_id,
+                tenant_id=self.tenant_id,
+                platform=post.platform or "",
+                platform_post_id=result.get("platform_post_id"),
+                permalink=result.get("permalink"),
+                published_at=post.published_at,
+                campaign_id=post.campaign_id,
+            ))
+        except Exception as exc:
+            logger.warning("post_published learning event failed for %s: %s", post_id, exc)
+
+        try:
+            from app.services.asset_usage_service import record_asset_usage_for_post
+            await record_asset_usage_for_post(
+                self.db, tenant_id=self.tenant_id, post=post
+            )
+        except Exception as exc:
+            logger.warning("Failed to record asset usage for post %s: %s", post_id, exc)
+
+        return {
+            "post_id": str(post_id),
+            "status": post.status,
+            "published_at": post.published_at.isoformat() if post.published_at else None,
+            "permalink": post.permalink,
+            "platform_post_id": post.platform_post_id,
+        }
 
     async def retry_post(self, post_id: uuid.UUID) -> dict:
         """Re-queue a failed post for another publish attempt."""
