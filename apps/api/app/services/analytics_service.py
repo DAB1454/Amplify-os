@@ -132,13 +132,33 @@ class AnalyticsService:
 
         posts_data = []
         for post_id, platform, engagement in rows:
-            if engagement and any(engagement.get(k, 0) > 0 for k in ("impressions", "likes")):
-                posts_data.append({
-                    "post_id": str(post_id),
-                    "platform": platform,
-                    **{k: engagement.get(k, 0) for k in
-                       ("impressions", "likes", "comments", "shares", "saves", "clicks")},
-                })
+            if not engagement:
+                continue
+            # Normalize platform-specific metric names into a common shape.
+            # YouTube reports `views` instead of `impressions`; TikTok
+            # likewise often only carries `views`. Treat views as the
+            # reach denominator so those posts actually get scored.
+            impressions = (
+                engagement.get("impressions", 0)
+                or engagement.get("views", 0)
+                or engagement.get("reach", 0)
+                or 0
+            )
+            likes = engagement.get("likes", 0) or 0
+            if impressions <= 0 and likes <= 0 and not any(
+                engagement.get(k, 0) for k in ("comments", "shares", "saves")
+            ):
+                continue
+            posts_data.append({
+                "post_id": str(post_id),
+                "platform": platform,
+                "impressions": impressions,
+                "likes": likes,
+                "comments": engagement.get("comments", 0) or 0,
+                "shares": engagement.get("shares", 0) or 0,
+                "saves": engagement.get("saves", 0) or 0,
+                "clicks": engagement.get("clicks", 0) or 0,
+            })
 
         if not posts_data:
             # Honest empty state. The previous behavior silently seeded

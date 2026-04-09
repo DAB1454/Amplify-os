@@ -312,6 +312,11 @@ async def _import_youtube(
                     published_at=published_at,
                     engagement={
                         "views": int(stats.get("viewCount", 0)),
+                        # Mirror views into impressions so the scoring
+                        # path (which uses impressions as its reach
+                        # denominator) includes YouTube posts without
+                        # platform-specific normalization.
+                        "impressions": int(stats.get("viewCount", 0)),
                         "likes": int(stats.get("likeCount", 0)),
                         "comments": int(stats.get("commentCount", 0)),
                         # Title kept here so we don't lose it; the column

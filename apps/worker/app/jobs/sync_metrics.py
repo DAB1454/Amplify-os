@@ -86,12 +86,42 @@ async def sync_metrics(payload: dict | None = None) -> dict:
 
         logger.info("Syncing metrics for %d published posts", len(posts))
 
-        # Group posts by channel_id so we can reuse adapter connections
+        # Group posts by channel_id so we can reuse adapter connections.
+        # Posts whose channel_id was nulled (e.g. during a disconnect/
+        # reconnect cycle) need to be re-stitched to the current active
+        # channel for the same tenant+platform so their metrics still sync.
         channel_posts: dict[str, list] = {}
+        orphaned = 0
+        rescued = 0
+        # Cache (tenant_id, platform) -> active channel id
+        active_channel_cache: dict[tuple[uuid.UUID, str], uuid.UUID | None] = {}
         for post in posts:
             if post.channel_id:
-                key = str(post.channel_id)
-                channel_posts.setdefault(key, []).append(post)
+                channel_posts.setdefault(str(post.channel_id), []).append(post)
+                continue
+            cache_key = (post.tenant_id, post.platform)
+            if cache_key not in active_channel_cache:
+                ch_lookup = await db.execute(
+                    select(ChannelConnectionModel.id)
+                    .where(
+                        ChannelConnectionModel.tenant_id == post.tenant_id,
+                        ChannelConnectionModel.platform == post.platform,
+                        ChannelConnectionModel.is_active.is_(True),
+                    )
+                    .limit(1)
+                )
+                active_channel_cache[cache_key] = ch_lookup.scalar_one_or_none()
+            active_id = active_channel_cache[cache_key]
+            if active_id is None:
+                orphaned += 1
+                continue
+            post.channel_id = active_id
+            rescued += 1
+            channel_posts.setdefault(str(active_id), []).append(post)
+        if orphaned:
+            logger.warning("sync_metrics: %d posts have no active channel, skipped", orphaned)
+        if rescued:
+            logger.info("sync_metrics: re-stitched %d orphaned posts to active channels", rescued)
 
         encryptor = TokenEncryptor(
             primary_key=settings.token_encryption_key,
