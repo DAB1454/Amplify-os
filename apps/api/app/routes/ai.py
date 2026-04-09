@@ -561,6 +561,55 @@ async def _generate_lyric_video_for_post(
         if artist:
             artist_name = artist.name
 
+    # Prefer track-specific album art over whatever the caller passed in.
+    # The caller's image_url comes from a caption-based asset match, which
+    # often picks the wrong cover when a library has multiple artworks —
+    # the lyrics + audio end up right but the visual is wrong. If we can
+    # find an album_art asset whose name/tags mention the matched track
+    # title, use that instead. Fall back to the release artwork, then
+    # finally to the caller's pick.
+    if matched_track and track_title:
+        try:
+            title_clean = _normalize_for_match(track_title.lower())
+            art_q = select(AssetModel).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.release_id == release_id,
+                AssetModel.asset_type.in_(["album_art", "image", "promo_photo"]),
+                or_(
+                    AssetModel.approval_status != "rejected",
+                    AssetModel.approval_status.is_(None),
+                ),
+            )
+            art_rows = list((await db.execute(art_q)).scalars().all())
+            track_specific = None
+            for a in art_rows:
+                name_clean = _normalize_for_match((a.name or "").lower())
+                if title_clean and title_clean in name_clean:
+                    track_specific = a
+                    break
+                # also check tags
+                tags = a.tags or []
+                if any(title_clean in _normalize_for_match(str(t).lower()) for t in tags):
+                    track_specific = a
+                    break
+            if track_specific:
+                logger.info(
+                    "Lyric video: overriding image with track-specific art for '%s' (%s)",
+                    track_title, track_specific.id,
+                )
+                image_url = track_specific.file_url
+            elif release_id:
+                rel_q = select(ReleaseModel).where(ReleaseModel.id == release_id)
+                rel = (await db.execute(rel_q)).scalar_one_or_none()
+                if rel and rel.artwork_url:
+                    logger.info(
+                        "Lyric video: falling back to release artwork for '%s'",
+                        track_title,
+                    )
+                    image_url = rel.artwork_url
+        except Exception as exc:
+            logger.warning("Lyric video art lookup failed: %s", exc)
+
     # Pick audio offset — use smart section detection from lyrics
     audio_start = await _smart_audio_offset(
         db=db,

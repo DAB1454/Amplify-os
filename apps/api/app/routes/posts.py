@@ -323,12 +323,33 @@ async def review_reject_post(
 
 
 class GenerateMediaRequest(BaseModel):
-    duration_seconds: int = 15
+    # None = derive from the post's action_type_label. Clients can still
+    # pin an exact duration (e.g. the "Regenerate" dropdown) by passing an
+    # int, but the default used to be 15 which meant every YouTube "video"
+    # post came out as a 15-second clip instead of a full-length video.
+    duration_seconds: int | None = None
     aspect_ratio: str = "9:16"
     generate_video: bool = True  # Auto-generate video for TikTok/YouTube posts
     force_image_url: str | None = None  # User-selected image override
     force_audio_url: str | None = None  # User-selected audio override
     generate_lyric_video: bool = False  # Generate lyric overlay video
+
+
+def _default_duration_for_action(action_type_label: str | None) -> int:
+    """Pick a sensible video length based on what the post is supposed to be.
+
+    Full-length YouTube videos were getting the 15s short treatment
+    because the request default was hardcoded. Shorts/reels still want
+    ~15s, but "video" and "lyric_video" need real length or they don't
+    match the label on the card.
+    """
+    lbl = (action_type_label or "").lower().strip()
+    if lbl in ("video", "long_video", "full_video", "official_video"):
+        return 60
+    if lbl in ("lyric_video", "lyric video"):
+        return 30
+    # short / reel / story / tiktok / default
+    return 15
 
 
 class GenerateMediaResponse(BaseModel):
@@ -378,6 +399,15 @@ async def generate_media_for_post(
     # Step 1: Resolve image — user override, existing post media, or auto-match from library
     action_lower = (post.action_type_label or "").lower()
     content_lower = (post.content_text or "").lower()
+
+    # Resolve effective video duration: honor an explicit client value, or
+    # derive from the post's action_type_label so a "video" post doesn't
+    # silently become a 15-second short.
+    effective_duration = (
+        body.duration_seconds
+        if body.duration_seconds is not None
+        else _default_duration_for_action(post.action_type_label)
+    )
 
     is_carousel = (
         "carousel" in action_lower
@@ -470,7 +500,7 @@ async def generate_media_for_post(
                 artist_id=artist_id,
                 release_id=release_id,
                 settings=settings_obj,
-                duration=min(max(body.duration_seconds, 10), 90),
+                duration=min(max(effective_duration, 10), 90),
             )
             if video_url:
                 post.media_urls = [video_url]
@@ -558,7 +588,7 @@ async def generate_media_for_post(
                             content_hint=video_content_hint,
                             day_number=(post.day_number or 1) + img_idx,
                             settings=settings_obj,
-                            duration=min(max(body.duration_seconds, 10), 60),
+                            duration=min(max(effective_duration, 10), 180),
                             force_audio_url=body.force_audio_url,
                             carousel_index=img_idx,
                         )
@@ -580,7 +610,7 @@ async def generate_media_for_post(
                     content_hint=video_content_hint,
                     day_number=post.day_number or 1,
                     settings=settings_obj,
-                    duration=min(max(body.duration_seconds, 10), 60),
+                    duration=min(max(effective_duration, 10), 180),
                     force_audio_url=body.force_audio_url,
                 )
                 if video_url:
