@@ -228,26 +228,107 @@ async def _execute_decision(db, tenant_id, decision) -> tuple[str, str | None]:
         if limit <= 0:
             return "skipped", None
 
+        # Pull more candidates than the limit so the confidence gate
+        # has room to reject some without starving the tick.
+        over_fetch = max(limit * 2, limit + 5)
         stmt = (
             select(ApprovalModel)
             .where(
                 ApprovalModel.tenant_id == tenant_id,
                 ApprovalModel.status == "pending",
+                ApprovalModel.post_id.isnot(None),
             )
-            .limit(limit)
+            .order_by(ApprovalModel.created_at.asc())
+            .limit(over_fetch)
         )
         approvals = list((await db.execute(stmt)).scalars().all())
         if not approvals:
             return "skipped", None
 
-        now = datetime.utcnow()
+        # Confidence gate — score each post and drop any below threshold.
+        # The threshold is env-configurable via AMPLIFY_AUTO_APPROVE_MIN_SCORE.
+        from amplify.db.models.post import PostModel
+        from amplify.core.autonomy import default_min_score, score_post
+        from sqlalchemy.orm import selectinload
+
+        threshold = default_min_score()
+        post_ids = [ap.post_id for ap in approvals if ap.post_id]
+        posts_by_id: dict = {}
+        if post_ids:
+            post_rows = (
+                await db.execute(
+                    select(PostModel)
+                    .options(selectinload(PostModel.campaign))
+                    .where(PostModel.id.in_(post_ids))
+                )
+            ).scalars().all()
+            posts_by_id = {p.id: p for p in post_rows}
+
+        approved: list = []
+        filtered: list[dict] = []
         for ap in approvals:
+            if len(approved) >= limit:
+                break
+            post = posts_by_id.get(ap.post_id) if ap.post_id else None
+            if post is None:
+                # No post to score — be conservative and skip.
+                filtered.append(
+                    {"approval_id": str(ap.id), "reason": "post_missing"}
+                )
+                continue
+            result = await score_post(db, tenant_id, post)
+            if result.score < threshold:
+                filtered.append(
+                    {
+                        "approval_id": str(ap.id),
+                        "post_id": str(post.id),
+                        "score": round(result.score, 4),
+                        "factors": result.top_factors,
+                    }
+                )
+                continue
+            approved.append((ap, result))
+
+        if not approved:
+            # Every candidate failed the gate. Record what we saw in the
+            # snapshot so the user can see *why* the agent did nothing,
+            # then bail out. Outcome is "skipped" not "failed" — a
+            # blocked approval isn't a bug, it's the gate working.
+            if isinstance(decision.snapshot, dict):
+                decision.snapshot["confidence_gate"] = {
+                    "threshold": threshold,
+                    "filtered": filtered[:20],
+                    "approved_count": 0,
+                }
+            return "skipped", None
+
+        now = datetime.utcnow()
+        for ap, _ in approved:
             ap.status = ApprovalStatus.APPROVED.value
             ap.reviewed_at = now
             # reviewed_by stays NULL — that's how we mark "agent did it"
             # vs a human reviewer. The UI can show "auto-approved" when
             # reviewed_by is null but status is approved.
         await db.flush()
+
+        # Fold the gate result into the snapshot so the audit row
+        # shows how many passed, how many were filtered, and the score
+        # distribution. Bounded to 20 filtered entries to keep rows small.
+        if isinstance(decision.snapshot, dict):
+            decision.snapshot["confidence_gate"] = {
+                "threshold": threshold,
+                "approved_count": len(approved),
+                "filtered_count": len(filtered),
+                "filtered": filtered[:20],
+                "approved_scores": [
+                    {
+                        "approval_id": str(ap.id),
+                        "score": round(r.score, 4),
+                        "profile": r.profile,
+                    }
+                    for ap, r in approved[:20]
+                ],
+            }
         return "success", None
 
     if action == "plan":
