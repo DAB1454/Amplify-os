@@ -3,16 +3,16 @@
 In-app bell-icon feed, per user per tenant. Distinct from audit_logs
 (compliance) and automation_audits (agent decision trail).
 
-Revision ID: b2c3d4e5f678
-Revises: a1b2c3d4e567
+Revision ID: c7a9e1b2f302
+Revises: c7a9e1b2f301
 Create Date: 2026-04-09
 """
 from alembic import op
 import sqlalchemy as sa
 
 
-revision = "b2c3d4e5f678"
-down_revision = "a1b2c3d4e567"
+revision = "c7a9e1b2f302"
+down_revision = "c7a9e1b2f301"
 branch_labels = None
 depends_on = None
 

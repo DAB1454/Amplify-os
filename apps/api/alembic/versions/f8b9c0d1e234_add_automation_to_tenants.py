@@ -4,14 +4,14 @@ Foundation column for the autonomy graduation ladder. Default 'manual'
 so existing tenants are unaffected; the worker tick skips them entirely.
 
 Revision ID: f8b9c0d1e234
-Revises: f7a8b9c0d123
+Revises: e2f3a4b5c678
 Create Date: 2026-04-08
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "f8b9c0d1e234"
-down_revision = "f7a8b9c0d123"
+down_revision = "e2f3a4b5c678"
 branch_labels = None
 depends_on = None
 
