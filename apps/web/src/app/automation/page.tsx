@@ -167,7 +167,10 @@ export default function AutomationPage() {
 
   return (
     <>
-      <Header title="Automation" subtitle="Agent decision trail — what the autonomous worker has been doing for you" />
+      <Header title="Automation" />
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">
+        Agent decision trail — what the autonomous worker has been doing for you.
+      </p>
 
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         {/* Status banner */}
