@@ -696,6 +696,96 @@ async def retry_stuck_post(
     return {"post_id": str(post_id), "status": "scheduled", "message": "Post reset — will retry on next scheduler run"}
 
 
+# ── Manual Publish Override ──────────────────────────────────────
+#
+# Rarely-used admin escape hatch for posts that are LIVE on a platform
+# but whose AmplifyMe row never made it to the 'published' state — e.g.
+# bookkeeping raised after the platform API already accepted the post.
+# Forces the state regardless of the current status so metrics ingestion
+# can find it.
+
+
+class MarkPublishedRequest(BaseModel):
+    platform_post_id: str | None = None
+    permalink: str | None = None
+    published_at: str | None = None  # ISO8601; defaults to now
+
+
+@router.post("/{post_id}/mark-published")
+async def mark_post_published(
+    post_id: uuid.UUID,
+    body: MarkPublishedRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Force a post to PUBLISHED with the given platform IDs.
+
+    Bypasses the state machine — intended only for recovering posts
+    that went live externally but weren't recorded correctly (e.g.
+    after a bookkeeping crash). Emits the learning event so metrics
+    ingestion picks the post up on the next sync.
+    """
+    from datetime import datetime
+    from amplify.core.domain.post import PostStatus
+
+    repo = BaseRepository(db, PostModel, tenant_id)
+    post = await repo.get(post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if body.published_at:
+        try:
+            pub_at = datetime.fromisoformat(body.published_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid published_at: {body.published_at}")
+    else:
+        pub_at = datetime.utcnow()
+
+    previous_status = post.status
+    post.status = PostStatus.PUBLISHED.value
+    post.published_at = pub_at
+    if body.platform_post_id:
+        post.platform_post_id = body.platform_post_id
+    if body.permalink:
+        post.permalink = body.permalink
+    post.last_error = None
+    post.retry_count = 0
+    await db.flush()
+
+    # Emit post_published so analytics/metrics backfill can pick it up.
+    try:
+        from amplify.learning.capture import post_published
+        svc = LearningEventService(db, tenant_id)
+        await svc.emit(**{
+            k: v for k, v in post_published(
+                post_id=post_id,
+                tenant_id=tenant_id,
+                platform=post.platform or "",
+                platform_post_id=post.platform_post_id,
+                permalink=post.permalink,
+                published_at=post.published_at,
+                campaign_id=post.campaign_id,
+            ).items()
+            if k != "tenant_id"
+        })
+    except Exception as exc:
+        logger.warning("mark-published learning event failed for %s: %s", post_id, exc)
+
+    logger.info(
+        "Post %s force-marked published (was %s) — platform_post_id=%s permalink=%s",
+        post_id, previous_status, post.platform_post_id, post.permalink,
+    )
+
+    return {
+        "post_id": str(post_id),
+        "status": post.status,
+        "previous_status": previous_status,
+        "published_at": post.published_at.isoformat() if post.published_at else None,
+        "platform_post_id": post.platform_post_id,
+        "permalink": post.permalink,
+    }
+
+
 # ── Publishing Workflow ────────────────────────────────────────────
 
 
