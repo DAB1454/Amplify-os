@@ -118,6 +118,16 @@ You output a JSON document containing:
       the winning hour (±1 hour) on that platform.
     - Look at `platform_avg_scores` — if a platform is significantly
       underperforming, reduce post volume there and shift to better ones.
+    - Look at `winning_patterns` — these are persistent learned rules
+      about this tenant (e.g. "question hooks perform 40% above average",
+      "Reels at 7pm win on Instagram"). Each entry has a `title`,
+      `explanation`, `feature`, `value`, and `confidence` (0-1). When a
+      winning pattern's confidence is ≥ 0.7, apply it to at least 40%
+      of new actions on the matching platform/surface. Pinned patterns
+      (`pinned: true`) are admin-locked — treat those as non-negotiable.
+    - Look at `losing_patterns` — avoid the feature/value combinations
+      listed. Do not schedule a single action that matches a pinned
+      losing pattern.
     - When prior_metrics is empty (`{}`), use the phase-aware defaults
       from rule 12 instead.
     Cite the data implicitly through your choices — do not paste numbers

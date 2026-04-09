@@ -39,6 +39,14 @@ from amplify.db.models.post import PostModel
 TOP_N = 5
 BOTTOM_N = 5
 
+# Max winning + losing tenant patterns to surface. Kept tight so the
+# prompt stays readable — the LLM only needs a handful of strong signals.
+WINNING_PATTERNS_N = 8
+LOSING_PATTERNS_N = 4
+# Only surface patterns that clear this confidence floor. Below this the
+# sample is too weak to justify biasing a whole plan.
+MIN_PATTERN_CONFIDENCE = 0.55
+
 # Below this many scored posts in the window we don't bother — the
 # stats are too noisy to be worth feeding to the LLM.
 MIN_SCORED_POSTS = 3
@@ -122,8 +130,20 @@ async def build_prior_metrics_for_planner(
         })
         posts_with_engagement.append((p, eng))
 
+    # Even if we don't have enough scored posts to build the numeric
+    # rollups, we still want the planner to see tenant patterns
+    # (including global_prior seeds), so fetch those first and fall
+    # through with a patterns-only payload when the posts are sparse.
     if len(scoring_input) < MIN_SCORED_POSTS:
-        return {}
+        winning_only, losing_only = await _fetch_tenant_patterns(db, tenant_id)
+        if not winning_only and not losing_only:
+            return {}
+        return {
+            "lookback_days": lookback_days,
+            "total_scored_posts": len(scoring_input),
+            "winning_patterns": winning_only,
+            "losing_patterns": losing_only,
+        }
 
     scores = score_posts(scoring_input)
     score_by_id = {s.post_id: s for s in scores}
@@ -191,6 +211,12 @@ async def build_prior_metrics_for_planner(
                 "n": len(vs),
             }
 
+    # Winning/losing patterns from the learning loop — persistent
+    # tenant-level hints the planner should honor when picking hours,
+    # formats, hook families, etc. We fetch these lazily so a brand-new
+    # tenant with no patterns still gets a plan.
+    winning_patterns, losing_patterns = await _fetch_tenant_patterns(db, tenant_id)
+
     return {
         "lookback_days": lookback_days,
         "total_scored_posts": len(paired),
@@ -199,4 +225,59 @@ async def build_prior_metrics_for_planner(
         "best_hour_per_platform": best_hour_per_platform,
         "top_posts": top,
         "bottom_posts": bottom,
+        "winning_patterns": winning_patterns,
+        "losing_patterns": losing_patterns,
     }
+
+
+async def _fetch_tenant_patterns(
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (winning, losing) pattern summaries for the planner prompt.
+
+    Pulls from TenantPatternModel, filters to active + above-threshold
+    confidence, sorts by confidence desc, and trims to the per-direction
+    cap. Returns plain dicts so the prompt template can render them
+    without ORM knowledge.
+    """
+    from amplify.db.models.learning import TenantPatternModel
+
+    async def _load(direction: str, limit: int) -> list[dict[str, Any]]:
+        stmt = (
+            select(TenantPatternModel)
+            .where(
+                TenantPatternModel.tenant_id == tenant_id,
+                TenantPatternModel.is_active.is_(True),
+                TenantPatternModel.direction == direction,
+                TenantPatternModel.confidence >= MIN_PATTERN_CONFIDENCE,
+            )
+            .order_by(
+                TenantPatternModel.is_pinned.desc(),
+                TenantPatternModel.confidence.desc(),
+            )
+            .limit(limit)
+        )
+        rows = list((await db.execute(stmt)).scalars().all())
+        out: list[dict[str, Any]] = []
+        for p in rows:
+            out.append(
+                {
+                    "title": p.title,
+                    "explanation": p.explanation,
+                    "feature": p.subject_feature or "",
+                    "value": p.subject_value or "",
+                    "type": p.pattern_type,
+                    "confidence": round(float(p.confidence or 0.0), 2),
+                    "observations": int(p.supporting_observation_count or 0),
+                    "pinned": bool(p.is_pinned),
+                }
+            )
+        return out
+
+    try:
+        winning = await _load("winning", WINNING_PATTERNS_N)
+        losing = await _load("losing", LOSING_PATTERNS_N)
+        return winning, losing
+    except Exception:  # pragma: no cover — learning tables might be absent on old DBs
+        return [], []
