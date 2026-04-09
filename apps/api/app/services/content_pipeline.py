@@ -9,6 +9,7 @@ When a post is approved, this service:
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 
 from sqlalchemy import select
@@ -398,6 +399,15 @@ async def _find_matching_assets(
         if campaign_id and asset.campaign_id == campaign_id:
             score += 6
 
+        # ── Proven vs untested bonus (Task #20) ──────────────────────
+        # Assets that have been used in published posts with good
+        # engagement get a scoring boost, so the library drifts toward
+        # "use what works" over time. Untested assets don't get
+        # penalized here — the experiment slot below gives them their
+        # chance.
+        if getattr(asset, "test_status", "untested") == "proven":
+            score += 15
+
         scored.append((score, asset))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -419,6 +429,32 @@ async def _find_matching_assets(
             if len(urls) >= max_results:
                 break
         return urls
+
+    # ── Experiment slot (Task #20) ──────────────────────────────
+    # Roughly 1 in EXPERIMENT_EVERY posts, if there's an untested
+    # asset in the candidate pool, override the top pick with the
+    # best untested asset so the library keeps learning. Keyed off
+    # day_number for determinism: re-running the planner on the same
+    # day picks the same experiment slot, which makes debugging sane.
+    EXPERIMENT_EVERY = int(os.environ.get("AMPLIFY_EXPERIMENT_EVERY", "7") or 7)
+    is_experiment_day = (
+        day_number is not None
+        and EXPERIMENT_EVERY > 0
+        and day_number % EXPERIMENT_EVERY == 0
+    )
+    if is_experiment_day:
+        untested = [
+            (s, a)
+            for s, a in scored
+            if getattr(a, "test_status", "untested") == "untested" and s > 0
+        ]
+        if untested:
+            pick = untested[0][1]
+            logger.info(
+                "Experiment slot (day=%s): picking untested asset %s (%s) score=%s",
+                day_number, pick.id, pick.name, untested[0][0],
+            )
+            return [pick.file_url]
 
     # Always use the highest-scored asset.
     # Only rotate among truly tied candidates (within 5 pts) for variety.

@@ -248,6 +248,17 @@ class PublishingService:
                 campaign_id=post.campaign_id,
             ))
 
+            # Record asset usage so the library can learn which assets are
+            # trusted. Errors here must never block a successful publish —
+            # usage stats are a learning signal, not a correctness concern.
+            try:
+                from app.services.asset_usage_service import record_asset_usage_for_post
+                await record_asset_usage_for_post(
+                    self.db, tenant_id=self.tenant_id, post=post
+                )
+            except Exception as exc:
+                logger.warning("Failed to record asset usage for post %s: %s", post_id, exc)
+
             return {
                 "post_id": str(post_id),
                 "status": post.status,

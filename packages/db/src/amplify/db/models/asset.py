@@ -5,7 +5,9 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Float, ForeignKey, Integer, JSON, String, Text
+from datetime import datetime
+
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -48,6 +50,23 @@ class AssetModel(Base, TimestampMixin, TenantMixin):
     generation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     generation_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+    # ── Learning: untested / proven lifecycle ──────────────────────
+    # "untested" = never used in a published post that got metrics, or used
+    #              too few times to trust. "proven" = used enough times to
+    #              believe the average engagement is real. The planner
+    #              prefers proven assets most of the time but occasionally
+    #              schedules an untested asset as an experiment so the
+    #              tenant's library keeps learning instead of stagnating
+    #              around a handful of known winners.
+    test_status: Mapped[str] = mapped_column(
+        String(20), default="untested", server_default="untested", nullable=False
+    )
+    uses_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    avg_engagement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     artist: Mapped[ArtistModel | None] = relationship()
