@@ -15,6 +15,7 @@ import {
   CheckCircle,
   BarChart3,
   BrainCircuit,
+  Bot,
   CreditCard,
   Shield,
   Settings,
@@ -38,6 +39,7 @@ const navItems = [
   { href: "/approvals", label: "Approvals", icon: CheckCircle },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/intelligence", label: "Intelligence", icon: BrainCircuit },
+  { href: "/automation", label: "Automation", icon: Bot },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/admin", label: "Admin", icon: Shield },
 ];

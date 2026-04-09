@@ -27,6 +27,11 @@ from amplify.db.models.audit_log import AuditLogModel
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
+# Allowed values for tenant.automation_level. Order matters: each rung is
+# strictly more autonomous than the previous one. The pause flag is the
+# kill switch and is independent of level.
+ALLOWED_AUTOMATION_LEVELS = ("manual", "assisted", "auto_campaigns", "autonomous")
+
 
 @router.get("/me", response_model=TenantResponse)
 async def get_current_tenant(
@@ -62,6 +67,20 @@ async def update_current_tenant(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     updates = body.model_dump(exclude_unset=True)
+
+    # Validate automation_level — guard against typos / hostile input
+    # before they end up in the DB and break the worker decider.
+    if "automation_level" in updates:
+        new_level = updates["automation_level"]
+        if new_level not in ALLOWED_AUTOMATION_LEVELS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"automation_level must be one of {ALLOWED_AUTOMATION_LEVELS}, "
+                    f"got {new_level!r}"
+                ),
+            )
+
     for field, value in updates.items():
         setattr(tenant, field, value)
 

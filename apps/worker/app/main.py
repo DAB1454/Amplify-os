@@ -27,6 +27,7 @@ from app.jobs.refresh_tokens import refresh_tokens
 from app.jobs.check_campaigns import check_campaigns
 from app.jobs.backfill_posts import backfill_posts
 from app.jobs.sweep_orphaned_posts import sweep_orphaned_posts
+from app.jobs.automation_tick import automation_tick
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -61,6 +62,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "check_campaigns": check_campaigns,
     "backfill_posts": backfill_posts,
     "sweep_orphaned_posts": sweep_orphaned_posts,
+    "automation_tick": automation_tick,
 }
 
 
@@ -186,6 +188,15 @@ class Worker:
             await self._queue.enqueue("sweep_orphaned_posts", {})
 
         self._scheduler.register(scheduled_sweep_orphans, 3600)            # 1h
+
+        # ── Autonomy tick — every 60 seconds ──────────────────────────
+        # Runs the autonomy_decider for every non-manual non-paused
+        # tenant. The decider is pure; this scheduled enqueue is the
+        # only thing that turns intent into action.
+        async def scheduled_automation_tick() -> None:
+            await self._queue.enqueue("automation_tick", {})
+
+        self._scheduler.register(scheduled_automation_tick, 60)            # 60s
 
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h

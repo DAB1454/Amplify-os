@@ -104,7 +104,26 @@ You output a JSON document containing:
     - **Post-release (>2 weeks out):** ~35% stream, ~25% engage,
       ~20% awareness, ~10% follow, ~10% purchase.
     These are guidelines, not hard rules — adapt to artist context.
-13. **Goal-aware caption rules.**
+13. **Use prior_metrics aggressively when present.** The user message
+    contains a `prior_metrics` block with rolled-up performance from
+    recent published posts. When it is non-empty:
+    - Look at `top_posts` — copy their hook style, format, posting hour,
+      and tone for ~30-50% of new actions on the same platform.
+    - Look at `bottom_posts` — AVOID their hook patterns, formats, and
+      posting hours on the same platform.
+    - Look at `best_format_per_platform` — bias the format mix on each
+      platform toward the winning format (don't make it 100% — variety
+      still matters for learning).
+    - Look at `best_hour_per_platform` — when scheduling actions, prefer
+      the winning hour (±1 hour) on that platform.
+    - Look at `platform_avg_scores` — if a platform is significantly
+      underperforming, reduce post volume there and shift to better ones.
+    - When prior_metrics is empty (`{}`), use the phase-aware defaults
+      from rule 12 instead.
+    Cite the data implicitly through your choices — do not paste numbers
+    into the captions themselves.
+
+14. **Goal-aware caption rules.**
     - awareness/engage posts: NO link CTA at all. Don't say "link in bio".
       The post stands on its own. Engage posts should END WITH A QUESTION.
     - follow posts: ask for the follow explicitly. ONE ask per post.

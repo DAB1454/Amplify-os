@@ -16,6 +16,8 @@ from amplify.db.models.approval import ApprovalModel, ApprovalCommentModel
 from amplify.db.models.experiment import ExperimentModel
 from amplify.db.models.metric import MetricEventModel, DailyMetricModel
 from amplify.db.models.audit_log import AuditLogModel
+from amplify.db.models.automation_audit import AutomationAuditModel
+from amplify.db.models.notification import NotificationModel
 from amplify.db.models.billing import BillingPlanModel, SubscriptionModel
 from amplify.db.models.assisted_task import AssistedTaskModel
 from amplify.db.models.redirect import RedirectModel
@@ -53,6 +55,8 @@ __all__ = [
     "MetricEventModel",
     "DailyMetricModel",
     "AuditLogModel",
+    "AutomationAuditModel",
+    "NotificationModel",
     "BillingPlanModel",
     "SubscriptionModel",
     "AssistedTaskModel",

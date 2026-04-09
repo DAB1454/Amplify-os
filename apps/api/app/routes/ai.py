@@ -740,593 +740,59 @@ async def generate_plan(
     audit: AuditService = Depends(get_audit_service),
     settings_obj: Settings = Depends(get_settings),
 ):
-    """Generate a campaign plan and create calendar items + draft posts."""
-    from amplify.agents.subagents.planner_agent import PlannerAgent
-    from amplify.db.models.campaign import CampaignModel
-    from amplify.db.models.calendar_item import CalendarItemModel
-    from amplify.db.models.post import PostModel
-    from amplify.db.repository import BaseRepository
-    from sqlalchemy import select
+    """Generate a campaign plan and create calendar items + draft posts.
 
-    # Load campaign with artist and release
-    campaign_repo = BaseRepository(db, CampaignModel, tenant_id)
-    campaign = await campaign_repo.get(uuid.UUID(body.campaign_id))
-    if campaign is None:
-        raise HTTPException(status_code=404, detail="Campaign not found")
+    Thin wrapper around ``amplify.core.planner.service.plan_campaign``,
+    which is the same code path the autonomy worker hits when it picks
+    the ``plan`` action. The HTTP layer here only translates the request
+    DTO into ``PlanOverrides``, calls the shared service, writes the
+    human audit log, and shapes the response.
+    """
+    from amplify.core.planner import PlanOverrides, plan_campaign
 
-    campaign_mode = campaign.mode if hasattr(campaign, 'mode') else "manual"
-
-    # Merge campaign config into request (config saved at campaign creation)
-    campaign_config = campaign.config or {}
-    if not body.channels and campaign_config.get("channels"):
-        body.channels = campaign_config["channels"]
-    if not body.posts_per_day and campaign_config.get("posts_per_day"):
-        body.posts_per_day = campaign_config["posts_per_day"]
-    if not body.focus and campaign_config.get("focus"):
-        body.focus = campaign_config["focus"]
-    if not body.content_notes and campaign_config.get("content_notes"):
-        body.content_notes = campaign_config["content_notes"]
-    if not body.genre and campaign_config.get("genre"):
-        body.genre = campaign_config["genre"]
-
-    # Load artist name
-    from amplify.db.models.artist import ArtistModel
-    artist_result = await db.execute(
-        select(ArtistModel).where(ArtistModel.id == campaign.artist_id)
+    overrides = PlanOverrides(
+        channels=body.channels,
+        posts_per_day=body.posts_per_day,
+        focus=body.focus,
+        content_notes=body.content_notes,
+        genre=body.genre,
+        track_listing=body.track_listing,
+        destination_urls=body.destination_urls,
+        budget=body.budget,
+        timezone=body.timezone or "America/New_York",
+        youtube_strategy=body.youtube_strategy,
+        goal_mix=body.goal_mix,
     )
-    artist = artist_result.scalar_one_or_none()
-    artist_name = artist.name if artist else "Unknown Artist"
-
-    # Load release info if linked
-    release_title = ""
-    release_date = ""
-    release = None
-    track_listing = body.track_listing
-    # tracks_by_title — case-insensitive lookup so the goal-aware CTA helper
-    # can deep-link to the right Spotify/Apple URL when an action references
-    # a specific track. Empty when no release is linked or no tracks exist.
-    tracks_by_title: dict[str, "TrackModel"] = {}
-    if campaign.release_id:
-        from amplify.db.models.release import ReleaseModel
-        from amplify.db.models.track import TrackModel
-        release_result = await db.execute(
-            select(ReleaseModel).where(ReleaseModel.id == campaign.release_id)
-        )
-        release = release_result.scalar_one_or_none()
-        if release:
-            release_title = release.title or ""
-            release_date = str(release.release_date) if release.release_date else ""
-            tracks_result = await db.execute(
-                select(TrackModel).where(TrackModel.release_id == release.id).order_by(TrackModel.track_number)
-            )
-            _all_tracks = list(tracks_result.scalars().all())
-            tracks_by_title = {(t.title or "").strip().lower(): t for t in _all_tracks if t.title}
-            if not track_listing:
-                track_listing = [t.title for t in _all_tracks if t.title]
-
-            # Auto-populate destination_urls from release if not provided
-            if not body.destination_urls:
-                dest = {}
-                if release.linktree_url:
-                    dest["linktree"] = release.linktree_url
-                if release.bandcamp_url:
-                    dest["bandcamp"] = release.bandcamp_url
-                if release.hyperfollow_url:
-                    dest["hyperfollow"] = release.hyperfollow_url
-                if release.youtube_url:
-                    dest["youtube"] = release.youtube_url
-                if release.tiktok_url:
-                    dest["tiktok"] = release.tiktok_url
-                if release.instagram_url:
-                    dest["instagram"] = release.instagram_url
-                if dest:
-                    body.destination_urls = dest
-                    logger.info("Auto-populated destination_urls from release: %s", list(dest.keys()))
-
-    # Channels — use provided or default to connected platforms
-    channels = body.channels
-    if not channels:
-        from amplify.db.models.channel import ChannelConnectionModel
-        ch_result = await db.execute(
-            select(ChannelConnectionModel.platform).where(
-                ChannelConnectionModel.tenant_id == tenant_id,
-                ChannelConnectionModel.is_active == True,
-            ).distinct()
-        )
-        channels = [row[0] for row in ch_result.all()]
-
-    if not channels:
-        channels = ["instagram"]
-
-    # Query available assets for this artist/release to inform the planner
-    available_assets: list[dict[str, str]] = []
-    asset_type_summary: dict[str, int] = {}
-    try:
-        from amplify.db.models.asset import AssetModel
-        from sqlalchemy import or_
-        asset_q = select(AssetModel).where(AssetModel.tenant_id == tenant_id)
-        # Exclude rejected assets
-        asset_q = asset_q.where(
-            or_(AssetModel.approval_status != "rejected", AssetModel.approval_status.is_(None))
-        )
-        # Prefer assets linked to this artist or release
-        if campaign.artist_id:
-            asset_q = asset_q.where(
-                or_(
-                    AssetModel.artist_id == campaign.artist_id,
-                    AssetModel.release_id == campaign.release_id,
-                    AssetModel.campaign_id == campaign.id,
-                    AssetModel.artist_id.is_(None),  # unlinked tenant assets
-                )
-            )
-        asset_q = asset_q.order_by(AssetModel.created_at.desc()).limit(50)
-        asset_result = await db.execute(asset_q)
-        for a in asset_result.scalars().all():
-            available_assets.append({
-                "name": a.name,
-                "asset_type": a.asset_type,
-                "tags": ", ".join(a.tags) if a.tags else "",
-                "mime_type": a.mime_type or "",
-            })
-            asset_type_summary[a.asset_type] = asset_type_summary.get(a.asset_type, 0) + 1
-        logger.info(
-            "Planner context: %d available assets — %s",
-            len(available_assets),
-            ", ".join(f"{v} {k}" for k, v in asset_type_summary.items()),
-        )
-    except Exception as exc:
-        logger.warning("Failed to load assets for planner context: %s", exc)
-
-    # Build content notes with asset summary so planner knows what's possible
-    has_video = asset_type_summary.get("video", 0) + asset_type_summary.get("lyric_video", 0) > 0
-    has_audio = asset_type_summary.get("audio", 0) > 0
-    has_images = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo")) > 0
-    auto_notes = []
-    if not has_video:
-        auto_notes.append(
-            "NO VIDEO FILES in library. Do NOT plan video content (reels, shorts, stories with video). "
-            "Use image posts with audio snippets instead."
-        )
-    if has_audio:
-        auto_notes.append(
-            f"HAS {asset_type_summary.get('audio', 0)} AUDIO TRACKS. "
-            "For TikTok and YouTube, the system will auto-generate 15-second videos "
-            "(image + audio clip) from the artist's tracks. Plan TikTok/YouTube posts "
-            "that feature specific tracks — each post will use a different track excerpt."
-        )
-    if has_images:
-        img_count = sum(asset_type_summary.get(t, 0) for t in ("image", "album_art", "promo_photo"))
-        auto_notes.append(f"HAS {img_count} IMAGES (album art, promo photos). Can do carousel posts on Instagram.")
-    # Add posts_per_day and focus as planner directives
-    if body.posts_per_day and body.posts_per_day > 0:
-        auto_notes.append(
-            f"TARGET {body.posts_per_day} POST(S) PER CHANNEL PER DAY. "
-            "Spread them across the day at different times."
-        )
-    if body.focus:
-        focus_map = {
-            "engagement": "Focus on ENGAGEMENT — interactive content, questions, polls, reply-bait, share-worthy posts.",
-            "awareness": "Focus on AWARENESS — maximize reach, use trending formats, hashtag strategy, shareable content.",
-            "conversions": "Focus on CONVERSIONS — strong CTAs, link in bio reminders, pre-save pushes, streaming link drops.",
-            "community": "Focus on COMMUNITY BUILDING — behind-the-scenes, personal stories, fan interaction, user-generated content.",
-        }
-        focus_note = focus_map.get(body.focus, f"Campaign focus: {body.focus}")
-        auto_notes.append(focus_note)
-
-    if auto_notes:
-        combined_notes = "\n".join(auto_notes)
-        if body.content_notes:
-            combined_notes = body.content_notes + "\n\n" + combined_notes
-        body_content_notes = combined_notes
-    else:
-        body_content_notes = body.content_notes
 
     try:
-        runner = _build_runner()
-        agent = PlannerAgent(runner)
-
-        result = await agent.plan_campaign(
+        result = await plan_campaign(
+            db,
             tenant_id=tenant_id,
+            campaign_id=uuid.UUID(body.campaign_id),
             user_id=user_id,
-            artist_name=artist_name,
-            release_title=release_title,
-            release_type="album",
-            release_date=release_date or str(campaign.start_date or ""),
-            genre=body.genre or "general",
-            channels=channels,
-            track_listing=track_listing,
-            destination_urls=body.destination_urls,
-            budget=body.budget or campaign.budget,
-            available_assets=available_assets if available_assets else None,
-            content_notes=body_content_notes,
-            campaign_start=str(campaign.start_date) if campaign.start_date else "",
-            campaign_end=str(campaign.end_date) if campaign.end_date else "",
-            campaign_phase=campaign.phase or "",
-            timezone=body.timezone,
-            youtube_strategy=body.youtube_strategy,
+            overrides=overrides,
+            runner=_build_runner(),
         )
-        logger.info(
-            "Plan generated for campaign %s: start=%s end=%s",
-            campaign.id, campaign.start_date, campaign.end_date,
-        )
+    except ValueError as exc:
+        # Service raises ValueError for "campaign not found" — keep the
+        # public 404 contract the route used to provide.
+        raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         logger.exception("Plan generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"AI plan generation failed: {exc}")
-
-    # Parse the plan output — try structured first, then fall back to raw JSON
-    plan = result.structured
-
-    if not plan and result.text:
-        logger.warning("Structured parse failed, attempting raw JSON fallback from text (%d chars)", len(result.text))
-        import json as _json
-        import re as _re
-        from amplify.agents.subagents.planner_agent import PlannerOutput
-
-        # Try to extract JSON from the raw text
-        raw = result.text
-
-        # Safely extract from markdown fences if present
-        fence_match = _re.search(r"```(?:json)?\s*\n?(.*?)```", raw, _re.DOTALL)
-        if fence_match:
-            raw = fence_match.group(1).strip()
-
-        # Also try finding the outermost { ... }
-        brace_start = raw.find("{")
-        brace_end = raw.rfind("}")
-        if brace_start != -1 and brace_end > brace_start:
-            raw = raw[brace_start:brace_end + 1]
-
-        try:
-            parsed = _json.loads(raw)
-            plan = PlannerOutput.model_validate(parsed)
-            logger.info("Raw JSON fallback succeeded: %d daily actions", len(plan.daily_actions))
-        except Exception as fallback_err:
-            logger.warning("Raw JSON fallback also failed: %s", fallback_err)
-            # Last resort: try to extract just daily_actions
-            try:
-                parsed = _json.loads(raw)
-                if isinstance(parsed, dict) and "daily_actions" in parsed:
-                    from pydantic import TypeAdapter
-                    from amplify.agents.subagents.planner_agent import DailyAction
-                    adapter = TypeAdapter(list[DailyAction])
-                    actions = adapter.validate_python(parsed["daily_actions"])
-                    plan = PlannerOutput(
-                        campaign_name=parsed.get("campaign_name", ""),
-                        plan_start=parsed.get("plan_start", ""),
-                        plan_end=parsed.get("plan_end", ""),
-                        daily_actions=actions,
-                        notes=parsed.get("notes", ""),
-                    )
-                    logger.info("Partial JSON fallback succeeded: %d daily actions", len(plan.daily_actions))
-            except Exception as partial_err:
-                logger.warning("Partial JSON fallback failed: %s — raw text: %s", partial_err, result.text[:500])
-
-    daily_actions = []
-    calendar_items_created = 0
-    draft_posts_created = 0
-
-    # ── Track coverage rebalancing (global + per-channel) ──
-    if plan and hasattr(plan, "daily_actions") and track_listing and len(track_listing) > 1:
-        from collections import Counter, defaultdict
-
-        def _norm(s: str) -> str:
-            return s.lower().strip().replace("'", "").replace("\u2019", "")
-
-        track_names = [_norm(t) for t in track_listing]
-
-        def _match_track(ref: str) -> str | None:
-            ref_n = _norm(ref)
-            if not ref_n:
-                return None
-            for tn in track_names:
-                if tn in ref_n or ref_n in tn:
-                    return tn
-            return None
-
-        # ── Pass 1: Global rebalancing — cover tracks with zero posts ──
-        track_counts: Counter = Counter()
-        for action in plan.daily_actions:
-            tn = _match_track(action.track_reference or "")
-            if tn:
-                track_counts[tn] += 1
-
-        zero_tracks = [t for t in track_names if track_counts[t] == 0]
-        max_track = track_counts.most_common(1)[0] if track_counts else None
-
-        if zero_tracks:
-            logger.info("Track coverage gap: %d/%d tracks have zero posts. Rebalancing...",
-                        len(zero_tracks), len(track_names))
-            zero_idx = 0
-            for action in plan.daily_actions:
-                if zero_idx >= len(zero_tracks):
-                    break
-                ref = _norm(action.track_reference or "")
-                matched = _match_track(ref)
-                reassign = not matched or (max_track and matched == max_track[0] and max_track[1] > 2)
-                if reassign:
-                    original_track = track_listing[track_names.index(zero_tracks[zero_idx])]
-                    action.track_reference = original_track
-                    if action.content_brief and original_track.lower() not in action.content_brief.lower():
-                        action.content_brief = action.content_brief.replace(
-                            release_title or "", original_track
-                        ) if (release_title and release_title.lower() in action.content_brief.lower()) else (
-                            f"{action.content_brief}\n\n\U0001f3b5 Featuring: {original_track}"
-                        )
-                    zero_idx += 1
-            logger.info("Rebalanced %d posts to cover missing tracks", zero_idx)
-
-        # ── Pass 2: Per-channel dedup — no repeated tracks within a channel ──
-        # Group actions by platform
-        channel_actions: dict[str, list] = defaultdict(list)
-        for action in plan.daily_actions:
-            channel_actions[action.platform].append(action)
-
-        total_reassigned = 0
-        for platform, actions in channel_actions.items():
-            seen_tracks: set[str] = set()
-            # Track which tracks haven't been used on this channel yet
-            unused_on_channel = list(track_names)
-
-            for action in actions:
-                matched = _match_track(action.track_reference or "")
-                if matched and matched in seen_tracks:
-                    # This track already has a post on this channel — swap to unused
-                    available = [t for t in unused_on_channel if t not in seen_tracks]
-                    if available:
-                        new_track_norm = available[0]
-                        new_track = track_listing[track_names.index(new_track_norm)]
-                        action.track_reference = new_track
-                        if action.content_brief and new_track.lower() not in action.content_brief.lower():
-                            action.content_brief = action.content_brief.replace(
-                                release_title or "", new_track
-                            ) if (release_title and release_title.lower() in action.content_brief.lower()) else (
-                                f"{action.content_brief}\n\n\U0001f3b5 Featuring: {new_track}"
-                            )
-                        seen_tracks.add(new_track_norm)
-                        total_reassigned += 1
-                    else:
-                        # All tracks used on this channel — allow repeat
-                        if matched:
-                            seen_tracks.add(matched)
-                elif matched:
-                    seen_tracks.add(matched)
-                    if matched in unused_on_channel:
-                        unused_on_channel.remove(matched)
-
-        if total_reassigned:
-            logger.info("Per-channel dedup: reassigned %d duplicate-track posts", total_reassigned)
-
-    # ── Goal mix rebalancing ───────────────────────────────────────
-    # The planner LLM is asked to set a `goal` on every action, but it
-    # doesn't always honor the requested distribution. Apply phase-aware
-    # defaults (or the caller's override) and force the labels to match.
-    resolved_goal_mix: dict[str, float] = {}
-    if plan and hasattr(plan, "daily_actions") and plan.daily_actions:
-        from app.services.goal_mix import (
-            default_goal_mix, normalize_mix, rebalance_goals,
+        raise HTTPException(
+            status_code=500, detail=f"AI plan generation failed: {exc}"
         )
-        from datetime import date as _date_type
-
-        days_to_release: int | None = None
-        if release and getattr(release, "release_date", None):
-            try:
-                days_to_release = (release.release_date - _date_type.today()).days
-            except Exception:
-                days_to_release = None
-
-        if body.goal_mix:
-            resolved_goal_mix = normalize_mix(body.goal_mix)
-        else:
-            resolved_goal_mix = default_goal_mix(
-                phase=campaign.phase,
-                days_to_release=days_to_release,
-            )
-
-        reassigned = rebalance_goals(plan.daily_actions, resolved_goal_mix)
-        if reassigned:
-            logger.info(
-                "Goal rebalanced: %s (target=%s)",
-                dict(reassigned),
-                {k: round(v, 2) for k, v in resolved_goal_mix.items()},
-            )
-
-        # Persist the resolved mix on the campaign so the UI can show it
-        # and so future re-plans default to the same distribution.
-        try:
-            campaign.config = {
-                **(campaign.config or {}),
-                "goal_mix": resolved_goal_mix,
-            }
-        except Exception as exc:
-            logger.warning("Could not persist goal_mix on campaign: %s", exc)
-
-    if plan and hasattr(plan, "daily_actions"):
-        for day_idx, action in enumerate(plan.daily_actions, 1):
-            daily_actions.append(DailyActionResponse(
-                day=action.day,
-                platform=action.platform,
-                action_type=action.action_type,
-                content_brief=action.content_brief,
-                cta_destination=action.cta_destination,
-                priority=action.priority,
-                track_reference=action.track_reference,
-                goal=action.goal,
-            ))
-
-            # Create calendar item for each action
-            # Stagger times throughout the day for variety (local times)
-            from datetime import date as date_type, time as time_type
-            _post_times_local = [
-                time_type(9, 0), time_type(10, 30), time_type(12, 0),
-                time_type(14, 0), time_type(16, 30), time_type(18, 0),
-                time_type(19, 30), time_type(21, 0),
-            ]
-            post_time_local = _post_times_local[day_idx % len(_post_times_local)]
-
-            try:
-                action_date = date_type.fromisoformat(action.day) if action.day else None
-                if action_date:
-                    cal_item = CalendarItemModel(
-                        tenant_id=tenant_id,
-                        campaign_id=campaign.id,
-                        title=f"{action.action_type.replace('_', ' ').title()}: {action.content_brief[:80]}",
-                        description=action.content_brief,
-                        item_type=action.action_type or "post",
-                        scheduled_date=action_date,
-                        scheduled_time=post_time_local,
-                    )
-                    db.add(cal_item)
-                    calendar_items_created += 1
-            except (ValueError, TypeError) as exc:
-                logger.warning("Skipping calendar item for invalid date %s: %s", action.day, exc)
-
-            # Create draft post for all content actions (anything except pure engagement/live)
-            _non_post_types = {"live", "engagement", "email"}
-            action_lower = action.action_type.lower().strip()
-            if action_lower not in _non_post_types:
-                try:
-                    # Find a matching channel
-                    from amplify.db.models.channel import ChannelConnectionModel
-                    ch_result = await db.execute(
-                        select(ChannelConnectionModel).where(
-                            ChannelConnectionModel.tenant_id == tenant_id,
-                            ChannelConnectionModel.platform == action.platform,
-                            ChannelConnectionModel.is_active == True,
-                        ).limit(1)
-                    )
-                    channel = ch_result.scalar_one_or_none()
-                    if channel:
-                        # Determine approval status based on campaign mode
-                        if campaign_mode == "autopilot":
-                            post_approval = "approved"
-                            post_status = "draft"  # will be scheduled later
-                        elif campaign_mode == "ai_plan":
-                            post_approval = "pending_review"
-                            post_status = "draft"
-                        else:
-                            post_approval = None
-                            post_status = "draft"
-
-                        # Set scheduled_at from the action's day with staggered local time,
-                        # then convert to UTC for storage.
-                        # If the time is in the past (today), push to next available slot.
-                        scheduled_at = None
-                        try:
-                            from datetime import datetime as dt_type, timedelta
-                            from zoneinfo import ZoneInfo
-                            action_date = date_type.fromisoformat(action.day) if action.day else None
-                            if action_date:
-                                user_tz = ZoneInfo(body.timezone)
-                                # Build a timezone-aware local datetime, then convert to UTC
-                                local_dt = dt_type.combine(action_date, post_time_local, tzinfo=user_tz)
-                                candidate_utc = local_dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-                                now = dt_type.utcnow()
-                                if candidate_utc < now:
-                                    # Time already passed — find the next future slot today
-                                    future_times = []
-                                    for t in _post_times_local:
-                                        lt = dt_type.combine(action_date, t, tzinfo=user_tz)
-                                        ut = lt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-                                        if ut > now:
-                                            future_times.append(ut)
-                                    if future_times:
-                                        candidate_utc = future_times[0]
-                                    else:
-                                        # All today's slots passed — schedule 5 min from now
-                                        candidate_utc = now + timedelta(minutes=5)
-                                scheduled_at = candidate_utc
-                        except (ValueError, TypeError):
-                            pass
-
-                        # Plan creation only sets caption + channel + date.
-                        # Media is generated per-post via the "Generate" button.
-                        # Goal-aware CTA resolution: pick the right URL based on
-                        # the action's marketing intent (stream → DSP, follow →
-                        # platform profile, save → hyperfollow, etc.) then embed
-                        # it visibly into the caption. Platform adapters never
-                        # receive destination_url — only content + media_paths —
-                        # so the URL has to live in the caption text or, for
-                        # IG/TikTok, point at link-in-bio.
-                        from app.services.destination_service import (
-                            cta_for, inject_caption_cta,
-                        )
-                        action_track = None
-                        if action.track_reference:
-                            action_track = tracks_by_title.get(
-                                action.track_reference.strip().lower()
-                            )
-                        cta_pick = cta_for(
-                            goal=action.goal or None,
-                            platform=action.platform,
-                            track=action_track,
-                            release=release,
-                            artist=artist,
-                        )
-                        # System-resolved CTA always wins. The planner used to
-                        # set cta_destination but it kept emitting bare labels
-                        # like "linktree" instead of URLs (because the prompt
-                        # listed destinations as a label→URL dict). The label
-                        # leaked through as the literal post URL. cta_for() has
-                        # the full goal-aware resolution, including per-track
-                        # DSP deep links, so let it own the answer.
-                        resolved_cta = cta_pick.url
-                        caption_with_cta = inject_caption_cta(
-                            action.content_brief, resolved_cta, action.platform
-                        )
-                        post = PostModel(
-                            tenant_id=tenant_id,
-                            campaign_id=campaign.id,
-                            channel_id=channel.id,
-                            platform=action.platform,
-                            status=post_status,
-                            content_text=caption_with_cta,
-                            media_urls=[],
-                            destination_url=resolved_cta,
-                            approval_status=post_approval,
-                            day_number=day_idx,
-                            action_type_label=action.action_type,
-                            scheduled_at=scheduled_at,
-                            track_reference=action.track_reference or None,
-                            goal=action.goal or None,
-                        )
-                        db.add(post)
-                        draft_posts_created += 1
-                except Exception as exc:
-                    logger.warning("Skipping draft post creation: %s", exc)
-
-        await db.flush()
-
-    # Run bandit in shadow mode on the generated posts for learning
-    try:
-        from app.services.bandit_service import load_bandit, log_decision
-        from amplify.learning.ranking.post_ranker import CandidatePost
-        bandit = await load_bandit(db, tenant_id)
-        # Build candidate posts from the generated actions
-        candidates = []
-        for action in daily_actions:
-            candidates.append(CandidatePost(
-                candidate_id=f"{action.day}_{action.platform}_{action.action_type}",
-                platform=action.platform,
-                content_type=action.action_type,
-                campaign_phase=campaign.phase or "pre_release",
-            ))
-        if len(candidates) >= 2:
-            decision = bandit.select(candidates)
-            await log_decision(db, tenant_id, decision)
-            logger.info("Bandit shadow decision logged for plan: %s", decision.policy_used)
-    except Exception as bandit_exc:
-        logger.debug("Bandit shadow logging skipped: %s", bandit_exc)
 
     try:
         await audit.log(
             action="ai.plan_generated",
             entity_type="campaign",
-            entity_id=campaign.id,
+            entity_id=uuid.UUID(body.campaign_id),
             user_id=user_id,
             changes={
-                "daily_actions": len(daily_actions),
-                "calendar_items_created": calendar_items_created,
-                "draft_posts_created": draft_posts_created,
+                "daily_actions": len(result.daily_actions),
+                "calendar_items_created": result.calendar_items_created,
+                "draft_posts_created": result.draft_posts_created,
                 "model": result.model,
             },
         )
@@ -1334,17 +800,18 @@ async def generate_plan(
         pass
 
     return GeneratePlanResponse(
-        campaign_name=plan.campaign_name if plan else campaign.name,
-        plan_start=plan.plan_start if plan else "",
-        plan_end=plan.plan_end if plan else "",
-        daily_actions=daily_actions,
-        notes=plan.notes if plan else "",
-        calendar_items_created=calendar_items_created,
-        draft_posts_created=draft_posts_created,
+        campaign_name=result.campaign_name,
+        plan_start=result.plan_start,
+        plan_end=result.plan_end,
+        daily_actions=[DailyActionResponse(**a) for a in result.daily_actions],
+        notes=result.notes,
+        calendar_items_created=result.calendar_items_created,
+        draft_posts_created=result.draft_posts_created,
         model=result.model,
         elapsed_ms=result.elapsed_ms,
-        goal_mix=resolved_goal_mix,
+        goal_mix=result.goal_mix,
     )
+
 
 
 # ── Static Video (Tier 1) Generation ──────────────────────────

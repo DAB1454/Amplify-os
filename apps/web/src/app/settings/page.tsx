@@ -48,6 +48,67 @@ interface RollbackResult {
   alerts: AlertItem[];
 }
 
+interface TenantProfile {
+  id: string;
+  name: string;
+  automation_level: "manual" | "assisted" | "auto_campaigns" | "autonomous";
+  automation_paused: boolean;
+}
+
+const AUTOMATION_LEVELS: {
+  key: TenantProfile["automation_level"];
+  title: string;
+  tagline: string;
+  details: string[];
+}[] = [
+  {
+    key: "manual",
+    title: "Manual",
+    tagline: "You drive everything. AI is off.",
+    details: [
+      "You generate plans by clicking Generate Plan",
+      "You approve every post yourself",
+      "You generate media yourself",
+      "You publish on your own schedule",
+    ],
+  },
+  {
+    key: "assisted",
+    title: "AI Assisted",
+    tagline: "AI drafts, you approve.",
+    details: [
+      "AI generates campaign plans automatically",
+      "You review and approve every post before it goes out",
+      "AI generates media after you approve",
+      "You still publish (or schedule) manually",
+    ],
+  },
+  {
+    key: "auto_campaigns",
+    title: "AI Full Campaigns",
+    tagline: "AI runs the campaign end-to-end. You hold the kill switch.",
+    details: [
+      "AI generates AND auto-approves posts within guardrails",
+      "AI generates media and schedules everything",
+      "AI publishes on the calendar automatically",
+      "You kick off each new campaign manually",
+      "Pause button stops everything immediately",
+    ],
+  },
+  {
+    key: "autonomous",
+    title: "Fully Autonomous",
+    tagline: "Set it and walk away. AI replans on its own.",
+    details: [
+      "AI decides when a new campaign is needed",
+      "AI generates, approves, schedules, publishes — all automatic",
+      "AI watches metrics and replans based on what's working",
+      "AI tests new library assets against proven winners",
+      "You only see notifications when something needs your attention",
+    ],
+  },
+];
+
 // ── Component ──────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -55,22 +116,25 @@ export default function SettingsPage() {
   const [stats, setStats] = useState<ExperimentStats | null>(null);
   const [anomalies, setAnomalies] = useState<AlertItem[]>([]);
   const [rollback, setRollback] = useState<RollbackResult | null>(null);
+  const [tenant, setTenant] = useState<TenantProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [tab, setTab] = useState<"controls" | "monitoring">("controls");
+  const [tab, setTab] = useState<"automation" | "controls" | "monitoring">("automation");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [controlsData, statsData, anomalyData] = await Promise.all([
-        apiGet<ExplorationControls>("/api/v1/safety/controls"),
-        apiGet<ExperimentStats>("/api/v1/safety/stats"),
-        apiGet<{ alerts: AlertItem[] }>("/api/v1/safety/anomalies"),
+      const [controlsData, statsData, anomalyData, tenantData] = await Promise.all([
+        apiGet<ExplorationControls>("/api/v1/safety/controls").catch(() => null),
+        apiGet<ExperimentStats>("/api/v1/safety/stats").catch(() => null),
+        apiGet<{ alerts: AlertItem[] }>("/api/v1/safety/anomalies").catch(() => ({ alerts: [] })),
+        apiGet<TenantProfile>("/api/v1/tenants/me"),
       ]);
-      setControls(controlsData);
-      setStats(statsData);
+      if (controlsData) setControls(controlsData);
+      if (statsData) setStats(statsData);
       setAnomalies(anomalyData.alerts);
+      setTenant(tenantData);
     } catch (err) {
       setBanner({ type: "error", message: err instanceof Error ? err.message : "Failed to load settings" });
     } finally {
@@ -96,6 +160,20 @@ export default function SettingsPage() {
     }
   };
 
+  const saveAutomation = async (updates: Partial<TenantProfile>) => {
+    setSaving(true);
+    setBanner(null);
+    try {
+      const updated = await apiPut<TenantProfile>("/api/v1/tenants/me", updates);
+      setTenant(updated);
+      setBanner({ type: "success", message: "Automation settings saved." });
+    } catch (e: any) {
+      setBanner({ type: "error", message: e?.detail || e?.message || "Failed to save." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const checkRollback = async () => {
     try {
       const result = await apiPost<RollbackResult>("/api/v1/safety/rollback-check", {});
@@ -106,6 +184,7 @@ export default function SettingsPage() {
   };
 
   const tabs = [
+    { key: "automation" as const, label: "Automation" },
     { key: "controls" as const, label: "Exploration Controls" },
     { key: "monitoring" as const, label: "Monitoring" },
   ];
@@ -157,6 +236,14 @@ export default function SettingsPage() {
           ))}
         </div>
 
+        {tab === "automation" && tenant && (
+          <AutomationTab
+            tenant={tenant}
+            saving={saving}
+            onSave={saveAutomation}
+          />
+        )}
+
         {tab === "controls" && controls && (
           <ControlsTab
             controls={controls}
@@ -174,6 +261,184 @@ export default function SettingsPage() {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Automation tab ─────────────────────────────────────────────
+
+function AutomationTab({
+  tenant,
+  saving,
+  onSave,
+}: {
+  tenant: TenantProfile;
+  saving: boolean;
+  onSave: (updates: Partial<TenantProfile>) => void;
+}) {
+  const [pendingLevel, setPendingLevel] = useState<TenantProfile["automation_level"] | null>(null);
+
+  const currentIdx = AUTOMATION_LEVELS.findIndex((l) => l.key === tenant.automation_level);
+  const handleSelect = (key: TenantProfile["automation_level"]) => {
+    if (key === tenant.automation_level) return;
+    setPendingLevel(key);
+  };
+
+  const confirmChange = () => {
+    if (pendingLevel) {
+      onSave({ automation_level: pendingLevel });
+      setPendingLevel(null);
+    }
+  };
+
+  const togglePause = () => {
+    onSave({ automation_paused: !tenant.automation_paused });
+  };
+
+  return (
+    <div className="mt-8 space-y-6">
+      {/* Pause banner — always visible if paused */}
+      {tenant.automation_paused && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-red-700">⏸ Agent Paused</p>
+            <p className="text-xs text-red-600 mt-0.5">
+              The autonomy worker is not touching this tenant. Drafts can still be approved manually.
+            </p>
+          </div>
+          <button
+            onClick={togglePause}
+            disabled={saving}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            Resume Agent
+          </button>
+        </div>
+      )}
+
+      {/* Pause button (when not paused) */}
+      {!tenant.automation_paused && tenant.automation_level !== "manual" && (
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Kill switch</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+              Instantly stop the autonomy worker from touching this tenant. Resume any time.
+            </p>
+          </div>
+          <button
+            onClick={togglePause}
+            disabled={saving}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            ⏸ Pause Agent
+          </button>
+        </div>
+      )}
+
+      {/* Ladder header */}
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Automation Level</h3>
+        <p className="text-xs text-[var(--text-secondary)] mt-1">
+          Each rung removes one user click from the campaign loop. Start manual, graduate as you trust the agent.
+        </p>
+      </div>
+
+      {/* Ladder cards */}
+      <div className="space-y-3">
+        {AUTOMATION_LEVELS.map((lvl, idx) => {
+          const isCurrent = lvl.key === tenant.automation_level;
+          const isBelow = idx < currentIdx;
+          return (
+            <button
+              key={lvl.key}
+              onClick={() => handleSelect(lvl.key)}
+              disabled={saving}
+              className={cn(
+                "w-full text-left rounded-xl border-2 p-4 transition-all",
+                isCurrent
+                  ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                  : isBelow
+                  ? "border-[var(--border-color)] bg-[var(--bg-surface)] opacity-60 hover:opacity-100"
+                  : "border-[var(--border-color)] bg-[var(--bg-surface)] hover:border-indigo-300",
+                saving && "cursor-not-allowed opacity-50"
+              )}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold",
+                      isCurrent
+                        ? "bg-indigo-500 text-white"
+                        : "bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-color)]"
+                    )}
+                  >
+                    {idx + 1}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">{lvl.title}</p>
+                    <p className="text-xs text-[var(--text-secondary)]">{lvl.tagline}</p>
+                  </div>
+                </div>
+                {isCurrent && (
+                  <span className="text-[10px] font-medium uppercase tracking-wider bg-indigo-500 text-white px-2 py-0.5 rounded-full">
+                    Current
+                  </span>
+                )}
+              </div>
+              <ul className="ml-10 space-y-0.5">
+                {lvl.details.map((d) => (
+                  <li key={d} className="text-xs text-[var(--text-secondary)] flex gap-2">
+                    <span className="text-indigo-400">•</span>
+                    <span>{d}</span>
+                  </li>
+                ))}
+              </ul>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Confirmation modal */}
+      {pendingLevel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl border border-[var(--border-color)] max-w-md w-full p-6 shadow-xl">
+            <h3 className="text-base font-semibold text-[var(--text-primary)]">
+              Switch to {AUTOMATION_LEVELS.find((l) => l.key === pendingLevel)?.title}?
+            </h3>
+            <p className="text-sm text-[var(--text-secondary)] mt-2">
+              {AUTOMATION_LEVELS.find((l) => l.key === pendingLevel)?.tagline}
+            </p>
+            <ul className="mt-4 space-y-1">
+              {AUTOMATION_LEVELS.find((l) => l.key === pendingLevel)?.details.map((d) => (
+                <li key={d} className="text-xs text-[var(--text-secondary)] flex gap-2">
+                  <span className="text-indigo-400">•</span>
+                  <span>{d}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+              You can switch back to a lower level (or pause) at any time. The agent never publishes anything that
+              would violate budget caps, post-volume limits, or content policy.
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setPendingLevel(null)}
+                className="rounded-lg border border-[var(--border-color)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmChange}
+                disabled={saving}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

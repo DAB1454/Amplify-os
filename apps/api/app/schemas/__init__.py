@@ -51,6 +51,8 @@ class TenantResponse(BaseModel):
     onboarding_completed: bool = False
     settings: dict
     is_active: bool
+    automation_level: str = "manual"
+    automation_paused: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -60,6 +62,8 @@ class TenantUpdateRequest(BaseModel):
     name: str | None = None
     settings: dict | None = None
     onboarding_completed: bool | None = None
+    automation_level: str | None = None
+    automation_paused: bool | None = None
 
 
 # ── Artist ────────────────────────────────────────────────────────
@@ -486,6 +490,44 @@ class AuditLogResponse(BaseModel):
     entity_id: uuid.UUID | None
     changes: dict
     ip_address: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class NotificationResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    user_id: uuid.UUID
+    event_type: str
+    severity: str
+    title: str
+    body: str
+    url: str | None
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    read_at: datetime | None
+    meta: dict | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UnreadCountResponse(BaseModel):
+    unread: int
+
+
+class AutomationAuditResponse(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    action: str
+    reason: str
+    confidence: float | None
+    outcome: str
+    error: str | None
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    snapshot: dict | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

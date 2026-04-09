@@ -30,6 +30,18 @@ class TenantModel(Base, TimestampMixin):
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Automation graduation ladder. Each rung removes one user click from
+    # the campaign loop:
+    #   manual         — user generates and publishes everything by hand
+    #   assisted       — AI generates plans, user approves each post
+    #   auto_campaigns — AI generates AND auto-approves within guardrails
+    #   autonomous     — AI decides when to plan + replans on its own
+    # Defaults to manual so existing tenants are unaffected. The pause
+    # flag is the kill switch — when true the worker tick skips the
+    # tenant entirely regardless of automation_level.
+    automation_level: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
+    automation_paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Relationships
     memberships: Mapped[list[MembershipModel]] = relationship(
         back_populates="tenant", cascade="all, delete-orphan"
