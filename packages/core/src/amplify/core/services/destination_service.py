@@ -66,13 +66,14 @@ def inject_caption_cta(caption: str, url: str, platform: str) -> str:
     plat = (platform or "").lower()
     lowered = text.lower()
 
-    if plat == "youtube":
+    # Platforms where links in the text are clickable
+    if plat in ("youtube", "twitter", "facebook"):
         if url in text:
             return text
         sep = "\n\n" if text.strip() else ""
         return f"{text}{sep}🎧 {url}"
 
-    # Instagram, TikTok, and any other "caption is not a hyperlink" platform
+    # Instagram, TikTok — captions are NOT clickable
     if any(marker in lowered for marker in _BIO_LINK_MARKERS):
         return text
     sep = "\n\n" if text.strip() else ""
@@ -204,10 +205,11 @@ def cta_for(
     # Build caption snippet based on platform mechanics
     if not url:
         snippet = ""
-    elif plat == "youtube":
+    elif plat in ("youtube", "twitter", "facebook"):
+        # These platforms render clickable links in post text
         snippet = f"🎧 {url}"
     else:
-        # IG / TikTok / etc — captions aren't clickable
+        # IG / TikTok — captions aren't clickable
         snippet = "🎧 Link in bio"
 
     return CTASelection(
