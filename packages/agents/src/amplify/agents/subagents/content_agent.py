@@ -26,13 +26,27 @@ class CopyVariant(BaseModel):
     """A single copy variant (A, B, or C)."""
 
     variant_id: str = "A"
+    id: str = ""  # alias the AI sometimes uses for variant_id
     headline: str = ""
     body: str = ""
-    hashtags: list[str] = Field(default_factory=list)
+    copy: str = ""  # alias the AI sometimes uses for body
+    hashtags: list[str] | str = Field(default_factory=list)
     cta: str = ""
+    tone: str = ""
     platform: str = ""
     content_type: str = ""  # caption, hook, script, cta, reply
     char_count: int = 0
+
+    model_config = {"extra": "ignore"}
+
+    @property
+    def resolved_body(self) -> str:
+        """Return body text regardless of which field the AI populated."""
+        return self.body or self.copy or ""
+
+    @property
+    def resolved_id(self) -> str:
+        return self.variant_id or self.id or "A"
 
 
 class ContentOutput(BaseModel):

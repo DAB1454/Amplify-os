@@ -732,11 +732,15 @@ async def generate_caption(
         variants = []
         if result.structured and hasattr(result.structured, "variants"):
             for v in result.structured.variants:
+                # Normalize hashtags — AI may return string or list
+                raw_tags = getattr(v, "hashtags", []) or []
+                if isinstance(raw_tags, str):
+                    raw_tags = [t.strip() for t in raw_tags.replace(",", " ").split() if t.strip()]
                 variants.append(CaptionVariant(
-                    variant_id=v.variant_id,
+                    variant_id=v.resolved_id if hasattr(v, "resolved_id") else (getattr(v, "variant_id", "") or "A"),
                     headline=getattr(v, "headline", "") or "",
-                    body=getattr(v, "body", "") or "",
-                    hashtags=getattr(v, "hashtags", []) or [],
+                    body=v.resolved_body if hasattr(v, "resolved_body") else (getattr(v, "body", "") or ""),
+                    hashtags=raw_tags,
                     cta=getattr(v, "cta", "") or "",
                 ))
 
