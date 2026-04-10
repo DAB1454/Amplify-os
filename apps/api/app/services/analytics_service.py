@@ -127,11 +127,16 @@ class AnalyticsService:
         if campaign_id:
             post_filter.append(PostModel.campaign_id == campaign_id)
 
-        stmt = select(PostModel.id, PostModel.platform, PostModel.engagement).where(*post_filter)
+        stmt = select(
+            PostModel.id, PostModel.platform, PostModel.engagement,
+            PostModel.content_text, PostModel.permalink, PostModel.platform_post_id,
+        ).where(*post_filter)
         rows = (await self.db.execute(stmt)).all()
 
+        # Build a lookup so we can attach human-readable metadata after scoring.
+        post_meta: dict[str, dict] = {}
         posts_data = []
-        for post_id, platform, engagement in rows:
+        for post_id, platform, engagement, content_text, permalink, platform_post_id in rows:
             if not engagement:
                 continue
             # Normalize platform-specific metric names into a common shape.
@@ -149,8 +154,18 @@ class AnalyticsService:
                 engagement.get(k, 0) for k in ("comments", "shares", "saves")
             ):
                 continue
+            pid = str(post_id)
+            # Caption preview: first 80 chars, single line
+            caption = (content_text or "").replace("\n", " ").strip()
+            if len(caption) > 80:
+                caption = caption[:77] + "..."
+            post_meta[pid] = {
+                "caption": caption or "(no caption)",
+                "permalink": permalink or "",
+                "platform_post_id": platform_post_id or "",
+            }
             posts_data.append({
-                "post_id": str(post_id),
+                "post_id": pid,
                 "platform": platform,
                 "impressions": impressions,
                 "likes": likes,
@@ -177,6 +192,7 @@ class AnalyticsService:
                 "engagement_score": s.engagement_score,
                 "click_score": s.click_score,
                 "composite_score": s.composite_score,
+                **post_meta.get(s.post_id, {}),
             }
             for s in scores
         ]
@@ -237,6 +253,11 @@ class AnalyticsService:
             for d in score_dicts
         ]
 
+        # Build a lookup to attach caption/permalink to each verdict
+        meta_lookup = {
+            d["post_id"]: d for d in score_dicts
+        }
+
         report = weekly_analyst_report(
             campaign_id=cid,
             period_start=start.isoformat(),
@@ -263,6 +284,11 @@ class AnalyticsService:
                     "click_score": v.click_score,
                     "verdict": v.verdict.value,
                     "reason": v.reason,
+                    # Attach human-readable metadata from the scores query
+                    **{
+                        k: meta_lookup.get(v.post_id, {}).get(k, "")
+                        for k in ("caption", "permalink", "platform_post_id")
+                    },
                 }
                 for v in report.verdicts
             ],
