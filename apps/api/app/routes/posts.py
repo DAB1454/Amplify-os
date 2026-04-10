@@ -457,7 +457,7 @@ async def generate_media_for_post(
 
     # Step 2: Generate video for video-native platforms/formats
     is_video_post = (
-        post.platform in {"tiktok", "youtube"}
+        post.platform in {"tiktok", "youtube", "twitter"}
         or (post.platform == "instagram" and action_lower in ("reel", "reels", "short", "story"))
     )
     should_generate_video = (
