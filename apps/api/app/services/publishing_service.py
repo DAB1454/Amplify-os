@@ -483,7 +483,23 @@ class PublishingService:
 
         # Build platform-specific kwargs
         publish_kwargs: dict = {}
-        if post.platform == "youtube":
+        if post.platform == "instagram":
+            # Map action_type_label → Instagram media_type so the adapter
+            # publishes the right format (story, carousel, reel, photo).
+            # Without this, the adapter auto-detects from file extension
+            # and never produces stories or carousels.
+            action = (post.action_type_label or "").lower().strip()
+            if "carousel" in action:
+                publish_kwargs["media_type"] = "carousel"
+            elif "story" in action:
+                publish_kwargs["media_type"] = "story"
+            elif action in ("reel", "reels", "lyric_video"):
+                publish_kwargs["media_type"] = "reel"
+            elif action in ("post", "static", "feed"):
+                publish_kwargs["media_type"] = "photo"
+            # else: let adapter auto-detect from file extension
+
+        elif post.platform == "youtube":
             # Use first line of content or track_reference as video title
             content_text = post.content_text or ""
             first_line = content_text.split("\n")[0].strip()
