@@ -499,6 +499,12 @@ class PublishingService:
                 publish_kwargs["media_type"] = "photo"
             # else: let adapter auto-detect from file extension
 
+        elif post.platform == "twitter":
+            # Tweets are text + optional media. Content is truncated at
+            # 280 chars by the adapter. No special kwargs needed unless
+            # we're threading (reply_to_tweet_id).
+            pass
+
         elif post.platform == "youtube":
             # Use first line of content or track_reference as video title
             content_text = post.content_text or ""

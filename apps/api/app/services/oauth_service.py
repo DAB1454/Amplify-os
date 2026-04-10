@@ -39,6 +39,13 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
         "video.publish",
         "video.upload",
     ],
+    "twitter": [
+        "tweet.read",
+        "tweet.write",
+        "users.read",
+        "offline.access",
+        "media.upload",
+    ],
 }
 
 SCOPE_CAPABILITIES: dict[str, dict[str, list[str]]] = {
@@ -56,6 +63,11 @@ SCOPE_CAPABILITIES: dict[str, dict[str, list[str]]] = {
         "can_publish": ["video.publish", "video.upload"],
         "can_fetch_comments": [],
         "can_sync_metrics": [],
+    },
+    "twitter": {
+        "can_publish": ["tweet.write"],
+        "can_fetch_comments": ["tweet.read"],
+        "can_sync_metrics": ["tweet.read"],
     },
 }
 
@@ -162,11 +174,20 @@ class OAuthService:
             redirect_uri=self.settings.tiktok_redirect_uri,
         )
 
+    def _get_twitter_auth(self):
+        from amplify.adapters.twitter.auth import TwitterAuth
+        return TwitterAuth(
+            client_id=self.settings.twitter_client_id,
+            client_secret=self.settings.twitter_client_secret,
+            redirect_uri=self.settings.twitter_redirect_uri,
+        )
+
     def _get_auth_class(self, platform: str):
         factories = {
             "instagram": self._get_instagram_auth,
             "youtube": self._get_youtube_auth,
             "tiktok": self._get_tiktok_auth,
+            "twitter": self._get_twitter_auth,
         }
         factory = factories.get(platform)
         if not factory:
@@ -187,22 +208,16 @@ class OAuthService:
         )
         auth = self._get_auth_class(platform)
 
-        if platform == "youtube":
-            return auth.get_auth_url(
-                code_challenge=challenge,
-                code_challenge_method="S256",
-                state=state,
-            )
-        elif platform == "tiktok":
-            return auth.get_auth_url(
-                code_challenge=challenge,
-                code_challenge_method="S256",
-                state=state,
-            )
-        elif platform == "instagram":
+        if platform == "instagram":
+            # Instagram doesn't use PKCE
             return auth.get_auth_url(state=state)
         else:
-            return auth.get_auth_url(state=state)
+            # YouTube, TikTok, Twitter all use PKCE
+            return auth.get_auth_url(
+                code_challenge=challenge,
+                code_challenge_method="S256",
+                state=state,
+            )
 
     async def handle_callback(
         self,
@@ -385,6 +400,21 @@ class OAuthService:
                             "client_secret": self.settings.tiktok_client_secret,
                             "token": tokens.access_token,
                         },
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    return resp.status_code == 200
+
+            elif channel.platform == "twitter" and tokens.access_token:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        "https://api.twitter.com/2/oauth2/revoke",
+                        data={
+                            "client_id": self.settings.twitter_client_id,
+                            "token": tokens.access_token,
+                            "token_type_hint": "access_token",
+                        },
+                        auth=(self.settings.twitter_client_id, self.settings.twitter_client_secret)
+                        if self.settings.twitter_client_secret else None,
                         headers={"Content-Type": "application/x-www-form-urlencoded"},
                     )
                     return resp.status_code == 200

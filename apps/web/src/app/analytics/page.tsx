@@ -90,6 +90,7 @@ const platformColors: Record<string, string> = {
   tiktok: "#00f2ea",
   youtube: "#FF0000",
   facebook: "#1877F2",
+  twitter: "#000000",
 };
 
 const platformIcons: Record<string, string> = {
@@ -97,6 +98,7 @@ const platformIcons: Record<string, string> = {
   tiktok: "TT",
   youtube: "YT",
   facebook: "FB",
+  twitter: "X",
 };
 
 const FORMAT_OPTIONS = [

@@ -222,6 +222,16 @@ Same for Instagram, TikTok, etc.
   - action_type="story": ephemeral story content
   - action_type="lyric_video": lyric overlay video as Reel
   At least 40% Reels, but vary the rest. Carousels work great for album-level posts.
+- **X (Twitter)**: Text-first platform, 280-character limit.
+  - action_type="post": tweet with optional image. Keep it punchy.
+  - action_type="thread": multi-tweet thread for deeper storytelling (first
+    tweet is the hook, subsequent tweets expand). Great for album breakdowns.
+  - Hashtags matter on X — 2-3 relevant ones per tweet. Genre-specific
+    hashtags (#NewMusic, #CountryMusic, etc.) drive discovery.
+  - Best for: hot takes, countdowns, behind-the-scenes one-liners, polls,
+    direct fan engagement (quote-tweet style CTA: "RT if you agree").
+  - The system attaches an image when available; video clips work too.
+  - **Write SHORT punchy captions.** X rewards brevity and personality.
 - **Facebook**: System attaches images. For regular posts, one image is fine.
 
 Example asset_requirements values:

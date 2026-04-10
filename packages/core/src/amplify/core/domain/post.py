@@ -44,6 +44,7 @@ class Platform(str, Enum):
     INSTAGRAM = "instagram"
     TIKTOK = "tiktok"
     YOUTUBE = "youtube"
+    TWITTER = "twitter"
     BANDCAMP = "bandcamp"
     LINKTREE = "linktree"
     EMAIL = "email"
@@ -55,6 +56,7 @@ PLATFORM_INTEGRATION_MODE: dict[Platform, IntegrationMode] = {
     Platform.INSTAGRAM: IntegrationMode.AUTOMATIC,
     Platform.TIKTOK: IntegrationMode.AUTOMATIC,
     Platform.YOUTUBE: IntegrationMode.AUTOMATIC,
+    Platform.TWITTER: IntegrationMode.AUTOMATIC,
     Platform.BANDCAMP: IntegrationMode.ASSISTED,
     Platform.LINKTREE: IntegrationMode.ASSISTED,
     Platform.EMAIL: IntegrationMode.AUTOMATIC,
@@ -79,6 +81,12 @@ PLATFORM_METADATA: dict[Platform, dict] = {
         "label": "YouTube",
         "mode": "automatic",
         "description": "Auto-upload videos with metadata via Data API v3",
+        "capabilities": ["publish", "comments", "metrics"],
+    },
+    Platform.TWITTER: {
+        "label": "X (Twitter)",
+        "mode": "automatic",
+        "description": "Auto-publish tweets with media via API v2",
         "capabilities": ["publish", "comments", "metrics"],
     },
     Platform.BANDCAMP: {

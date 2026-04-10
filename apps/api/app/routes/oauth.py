@@ -16,7 +16,7 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_PLATFORMS = {"instagram", "youtube", "tiktok"}
+SUPPORTED_PLATFORMS = {"instagram", "youtube", "tiktok", "twitter"}
 
 # ── Tenant-scoped router (under /api/v1) ──────────────────────
 
@@ -282,4 +282,6 @@ def _has_platform_creds(platform: str, settings: Settings) -> bool:
         return bool(settings.youtube_client_id and settings.youtube_client_secret)
     elif platform == "tiktok":
         return bool(settings.tiktok_client_key and settings.tiktok_client_secret)
+    elif platform == "twitter":
+        return bool(settings.twitter_client_id and settings.twitter_client_secret)
     return False

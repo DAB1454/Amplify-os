@@ -20,6 +20,7 @@ ADAPTER_MAP = {
     "instagram": "amplify.adapters.instagram.adapter.InstagramAdapter",
     "youtube": "amplify.adapters.youtube.adapter.YouTubeAdapter",
     "tiktok": "amplify.adapters.tiktok.adapter.TikTokAdapter",
+    "twitter": "amplify.adapters.twitter.adapter.TwitterAdapter",
 }
 
 

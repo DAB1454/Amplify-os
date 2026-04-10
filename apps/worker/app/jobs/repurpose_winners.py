@@ -320,8 +320,14 @@ def _adapt_format(
             return "short"
         return "reel"
 
-    # Static / feed post → same on all platforms
+    # Static / feed post → tweet on X, post elsewhere
     if src in ("post", "static", "feed", ""):
+        return "post"
+
+    # Thread → post on other platforms
+    if src == "thread":
+        if target_platform == "twitter":
+            return "thread"
         return "post"
 
     # Default: keep the source format

@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = ""
 
+    # OAuth — X (Twitter)
+    twitter_client_id: str = ""
+    twitter_client_secret: str = ""
+    twitter_redirect_uri: str = ""
+
     # Storage (S3-compatible)
     s3_bucket: str = ""
     s3_region: str = "us-east-1"
