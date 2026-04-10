@@ -3,16 +3,16 @@
 Artist-level page links and release-level album links for Apple Music
 and Spotify, so the CTA system can auto-resolve destination URLs.
 
-Revision ID: b2c3d4e5f678
-Revises: a1b2c3d4e567
+Revision ID: e3f4a5b6c789
+Revises: d2e3f4a5b678
 Create Date: 2026-04-10 14:00:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "b2c3d4e5f678"
-down_revision = "a1b2c3d4e567"
+revision = "e3f4a5b6c789"
+down_revision = "d2e3f4a5b678"
 branch_labels = None
 depends_on = None
 

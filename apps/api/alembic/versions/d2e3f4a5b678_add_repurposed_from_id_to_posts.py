@@ -3,16 +3,16 @@
 Tracks cross-channel repurposing so the learning layer can compare
 same-content performance across platforms.
 
-Revision ID: a1b2c3d4e567
-Revises: f8b9c0d1e234
+Revision ID: d2e3f4a5b678
+Revises: c7a9e1b2f303
 Create Date: 2026-04-10 12:00:00.000000
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "a1b2c3d4e567"
-down_revision = "f8b9c0d1e234"
+revision = "d2e3f4a5b678"
+down_revision = "c7a9e1b2f303"
 branch_labels = None
 depends_on = None
 
