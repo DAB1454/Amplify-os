@@ -220,6 +220,10 @@ async def plan_campaign(
 
             if not overrides.destination_urls:
                 dest: dict[str, str] = {}
+                if release.apple_music_url:
+                    dest["apple_music"] = release.apple_music_url
+                if release.spotify_url:
+                    dest["spotify"] = release.spotify_url
                 if release.linktree_url:
                     dest["linktree"] = release.linktree_url
                 if release.bandcamp_url:

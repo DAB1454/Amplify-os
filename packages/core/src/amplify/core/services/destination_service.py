@@ -16,6 +16,8 @@ from amplify.db.models.release import ReleaseModel
 
 # Preferred destination priority — first non-null wins as the canonical CTA
 DESTINATION_PRIORITY = [
+    "apple_music_url",
+    "spotify_url",
     "hyperfollow_url",
     "linktree_url",
     "bandcamp_url",
@@ -114,15 +116,22 @@ def cta_for(
 ) -> CTASelection:
     """Pick the right CTA URL + caption snippet for a (goal, platform, track) combo.
 
-    Resolution rules (in priority order, first non-empty wins):
+    Resolution hierarchy — each goal knows what level of specificity matters:
 
-      stream    → track.spotify_url → track.apple_music_url → release.linktree_url → release.hyperfollow_url
-      save      → release.hyperfollow_url → release.linktree_url
-      purchase  → track.bandcamp_url → release.bandcamp_url → release.linktree_url
-      follow    → artist.social_links[platform] → release platform URL → release.linktree_url
-      engage    → "" (no link — engage posts are about replies/saves/shares, not clickthroughs)
-      awareness → "" (top of funnel — no CTA pressure)
-      None      → release.linktree_url (legacy fallback)
+      **Track-level** (post references a specific track via track_reference):
+        stream    → track.spotify_url → track.apple_music_url → release.spotify_url → release.apple_music_url → release.linktree_url
+        purchase  → track.bandcamp_url → release.bandcamp_url → release.linktree_url
+
+      **Album-level** (no specific track, or goal is about the whole release):
+        stream    → release.spotify_url → release.apple_music_url → release.linktree_url → release.hyperfollow_url
+        save      → release.hyperfollow_url → release.apple_music_url → release.spotify_url → release.linktree_url
+        purchase  → release.bandcamp_url → release.linktree_url
+
+      **Artist-level** (follow goals, or fallback when no release URLs):
+        follow    → artist page URL for platform → release.linktree_url
+
+      engage/awareness → "" (no link — algorithm posts, not clickthroughs)
+      None             → release.linktree_url (legacy fallback)
 
     Caller is responsible for storing `url` on the post and feeding the
     full caption through `inject_caption_cta(caption, url, platform)` —
@@ -136,10 +145,14 @@ def cta_for(
             return ""
         return (getattr(obj, name, "") or "")
 
+    # Track-level URLs
     spotify_t = _attr(track, "spotify_url")
     apple_t = _attr(track, "apple_music_url")
     bandcamp_t = _attr(track, "bandcamp_url")
 
+    # Release (album) level URLs
+    spotify_r = _attr(release, "spotify_url")
+    apple_r = _attr(release, "apple_music_url")
     linktree_r = _attr(release, "linktree_url")
     hyperfollow_r = _attr(release, "hyperfollow_url")
     bandcamp_r = _attr(release, "bandcamp_url")
@@ -147,32 +160,41 @@ def cta_for(
     tiktok_r = _attr(release, "tiktok_url")
     instagram_r = _attr(release, "instagram_url")
 
+    # Artist-level URLs
+    apple_a = _attr(artist, "apple_music_url")
+    spotify_a = _attr(artist, "spotify_artist_url")
     social = {}
     if artist is not None:
         social = getattr(artist, "social_links", None) or {}
 
     url = ""
     if g == "stream":
-        url = spotify_t or apple_t or linktree_r or hyperfollow_r
+        # Track-specific link → album link → aggregator
+        url = (spotify_t or apple_t
+               or spotify_r or apple_r
+               or spotify_a or apple_a
+               or linktree_r or hyperfollow_r)
     elif g == "save":
-        url = hyperfollow_r or linktree_r
+        # Pre-save: hyperfollow first, then DSP album pages, then linktree
+        url = hyperfollow_r or apple_r or spotify_r or linktree_r
     elif g == "purchase":
         url = bandcamp_t or bandcamp_r or linktree_r
     elif g == "follow":
         # Prefer the artist's actual platform profile, fall back to release
-        # platform field, then linktree as last resort.
+        # platform field, then artist DSP page, then linktree as last resort.
         platform_field_map = {
             "instagram": (social.get("instagram", ""), instagram_r),
             "tiktok": (social.get("tiktok", ""), tiktok_r),
             "youtube": (social.get("youtube", ""), youtube_r),
+            "twitter": (social.get("twitter", ""), ""),
         }
         first, second = platform_field_map.get(plat, ("", ""))
-        url = first or second or linktree_r
+        url = first or second or spotify_a or apple_a or linktree_r
     elif g in ("engage", "awareness"):
         url = ""  # intentional — no link pressure
     else:
-        # Unspecified goal — preserve legacy behaviour
-        url = linktree_r
+        # Unspecified goal — prefer DSP album links over just linktree
+        url = spotify_r or apple_r or linktree_r
 
     # Pick the bio-link hint independently of which DSP we picked.
     # The bio link should always go to the broadest aggregator so any
