@@ -28,6 +28,7 @@ from app.jobs.check_campaigns import check_campaigns
 from app.jobs.backfill_posts import backfill_posts
 from app.jobs.sweep_orphaned_posts import sweep_orphaned_posts
 from app.jobs.automation_tick import automation_tick
+from app.jobs.repurpose_winners import repurpose_winners
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -63,6 +64,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "backfill_posts": backfill_posts,
     "sweep_orphaned_posts": sweep_orphaned_posts,
     "automation_tick": automation_tick,
+    "repurpose_winners": repurpose_winners,
 }
 
 
@@ -153,6 +155,10 @@ class Worker:
         async def scheduled_health_check() -> None:
             await self._queue.enqueue("check_model_health", {})
 
+        # Auto-repurpose winning posts — daily (runs after pattern updates)
+        async def scheduled_repurpose_winners() -> None:
+            await self._queue.enqueue("repurpose_winners", {})
+
         # ── Scan for scheduled posts — every 60 seconds ──────────────
         async def scheduled_scan_posts() -> None:
             await self._queue.enqueue("scan_scheduled", {})
@@ -201,6 +207,7 @@ class Worker:
         self._scheduler.register(scheduled_extract_features, 86400)       # 24h
         self._scheduler.register(scheduled_compute_rewards, 14400)        # 4h
         self._scheduler.register(scheduled_update_patterns, 86400)        # 24h
+        self._scheduler.register(scheduled_repurpose_winners, 86400)      # 24h
         self._scheduler.register(scheduled_aggregate_cohorts, 604800)     # 7d
         self._scheduler.register(scheduled_health_check, 21600)           # 6h
 
