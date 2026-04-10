@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay } from "@/components/ui/spinner";
 
@@ -60,6 +60,14 @@ interface Overview {
   published_posts: number;
 }
 
+interface Channel {
+  id: string;
+  platform: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_active: boolean;
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 
 const ranges = ["7d", "14d", "30d"] as const;
@@ -90,6 +98,17 @@ const platformIcons: Record<string, string> = {
   youtube: "YT",
   facebook: "FB",
 };
+
+const FORMAT_OPTIONS = [
+  { value: "", label: "Keep original format" },
+  { value: "reel", label: "Reel / Short" },
+  { value: "story", label: "Story" },
+  { value: "post", label: "Feed post" },
+  { value: "carousel", label: "Carousel" },
+  { value: "short", label: "YouTube Short" },
+  { value: "video", label: "Full video" },
+  { value: "lyric_video", label: "Lyric video" },
+];
 
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
@@ -142,6 +161,146 @@ function scoreColor(score: number) {
   return "#ef4444";
 }
 
+// ── Repurpose Popover ─────────────────────────────────────────
+
+function RepurposeButton({
+  postId,
+  sourcePlatform,
+  channels,
+}: {
+  postId: string;
+  sourcePlatform: string;
+  channels: Channel[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [format, setFormat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Only show channels on OTHER platforms
+  const targets = channels.filter((c) => c.platform !== sourcePlatform && c.is_active);
+
+  if (targets.length === 0) return null;
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const submit = async () => {
+    if (selected.size === 0) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await apiPost<{ count: number }>(`/api/v1/posts/${postId}/repurpose`, {
+        channel_ids: Array.from(selected),
+        action_type_label: format || undefined,
+      });
+      setResult(`Created ${res.count} draft${res.count !== 1 ? "s" : ""}`);
+      setSelected(new Set());
+      setTimeout(() => { setOpen(false); setResult(null); }, 1500);
+    } catch (err) {
+      setResult(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className="rounded-md px-2 py-1 text-[11px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors shrink-0"
+        title="Cross-post to other channels"
+      >
+        Repurpose
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50 w-72 rounded-xl border border-[var(--border-color)] bg-white shadow-lg p-3"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-xs font-semibold text-[var(--text-primary)] mb-2">
+            Cross-post to other channels
+          </p>
+
+          {/* Channel checkboxes */}
+          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {targets.map((ch) => (
+              <label
+                key={ch.id}
+                className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(ch.id)}
+                  onChange={() => toggle(ch.id)}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <PlatformBadge platform={ch.platform} />
+                <span className="text-xs text-[var(--text-primary)] truncate">
+                  {ch.display_name || ch.platform}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* Format override */}
+          <div className="mt-2 pt-2 border-t border-[var(--border-color)]">
+            <label className="text-[10px] text-[var(--text-secondary)] uppercase tracking-wider">
+              Format
+            </label>
+            <select
+              value={format}
+              onChange={(e) => setFormat(e.target.value)}
+              className="mt-0.5 w-full rounded-md border border-[var(--border-color)] bg-white px-2 py-1.5 text-xs text-[var(--text-primary)]"
+            >
+              {FORMAT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Submit */}
+          <button
+            onClick={submit}
+            disabled={selected.size === 0 || busy}
+            className={cn(
+              "mt-2 w-full rounded-lg px-3 py-2 text-xs font-medium text-white transition-colors",
+              selected.size === 0 || busy
+                ? "bg-gray-300 cursor-not-allowed"
+                : "bg-indigo-500 hover:bg-indigo-600"
+            )}
+          >
+            {busy ? "Creating..." : result || `Create ${selected.size} draft${selected.size !== 1 ? "s" : ""}`}
+          </button>
+
+          {result && !busy && (
+            <p className="mt-1 text-[11px] text-center text-green-600">{result}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
@@ -150,6 +309,7 @@ export default function AnalyticsPage() {
   const [timeseries, setTimeseries] = useState<TimeseriesData | null>(null);
   const [scores, setScores] = useState<PostScore[]>([]);
   const [report, setReport] = useState<AnalystReport | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<string>("all");
@@ -161,16 +321,18 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, ts, sc, rp] = await Promise.all([
+      const [ov, ts, sc, rp, ch] = await Promise.all([
         apiGet<Overview>("/api/v1/analytics/overview"),
         apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}`),
         apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
         apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
+        apiGet<Channel[]>("/api/v1/channels"),
       ]);
       setOverview(ov);
       setTimeseries(ts);
       setScores(sc);
       setReport(rp);
+      setChannels(ch);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load analytics");
     } finally {
@@ -345,60 +507,61 @@ export default function AnalyticsPage() {
                 </span>
               </div>
               <div className="mt-3 space-y-2">
-                {filteredScores.map((s) => {
-                  const row = (
-                    <div
-                      key={s.post_id}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] px-4 py-3 transition-colors",
-                        s.permalink && "hover:border-indigo-400 cursor-pointer"
-                      )}
-                      onClick={() => s.permalink && window.open(s.permalink, "_blank")}
-                    >
-                      {/* Platform badge */}
-                      <PlatformBadge platform={s.platform} />
+                {filteredScores.map((s) => (
+                  <div
+                    key={s.post_id}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] px-4 py-3 transition-colors",
+                      s.permalink && "hover:border-indigo-400 cursor-pointer"
+                    )}
+                    onClick={() => s.permalink && window.open(s.permalink, "_blank")}
+                  >
+                    <PlatformBadge platform={s.platform} />
 
-                      {/* Caption */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-[var(--text-primary)] truncate">
-                          {s.caption || s.post_id}
-                        </p>
-                        <div className="mt-1.5">
-                          <MiniBar value={s.composite_score} max={maxScore} color={scoreColor(s.composite_score)} />
-                        </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[var(--text-primary)] truncate">
+                        {s.caption || s.post_id}
+                      </p>
+                      <div className="mt-1.5">
+                        <MiniBar value={s.composite_score} max={maxScore} color={scoreColor(s.composite_score)} />
                       </div>
-
-                      {/* Score */}
-                      <span
-                        className="w-10 text-center text-sm font-mono font-bold rounded-md px-1.5 py-0.5"
-                        style={{
-                          color: scoreColor(s.composite_score),
-                          backgroundColor: `${scoreColor(s.composite_score)}15`,
-                        }}
-                      >
-                        {s.composite_score.toFixed(0)}
-                      </span>
-
-                      {/* Metrics */}
-                      <div className="flex flex-col items-end gap-0.5 shrink-0">
-                        <span className="text-[11px] text-[var(--text-secondary)]">
-                          {s.impressions.toLocaleString()} views
-                        </span>
-                        <span className="text-[11px] text-[var(--text-secondary)]">
-                          {(s.engagement_rate * 100).toFixed(1)}% eng
-                        </span>
-                      </div>
-
-                      {/* External link icon */}
-                      {s.permalink && (
-                        <svg className="w-4 h-4 text-[var(--text-secondary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      )}
                     </div>
-                  );
-                  return row;
-                })}
+
+                    <span
+                      className="w-10 text-center text-sm font-mono font-bold rounded-md px-1.5 py-0.5"
+                      style={{
+                        color: scoreColor(s.composite_score),
+                        backgroundColor: `${scoreColor(s.composite_score)}15`,
+                      }}
+                    >
+                      {s.composite_score.toFixed(0)}
+                    </span>
+
+                    <div className="flex flex-col items-end gap-0.5 shrink-0">
+                      <span className="text-[11px] text-[var(--text-secondary)]">
+                        {s.impressions.toLocaleString()} views
+                      </span>
+                      <span className="text-[11px] text-[var(--text-secondary)]">
+                        {(s.engagement_rate * 100).toFixed(1)}% eng
+                      </span>
+                    </div>
+
+                    {/* Repurpose button — only on higher-scoring posts with 2+ channels */}
+                    {channels.length > 1 && s.composite_score >= 40 && (
+                      <RepurposeButton
+                        postId={s.post_id}
+                        sourcePlatform={s.platform}
+                        channels={channels}
+                      />
+                    )}
+
+                    {s.permalink && (
+                      <svg className="w-4 h-4 text-[var(--text-secondary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}

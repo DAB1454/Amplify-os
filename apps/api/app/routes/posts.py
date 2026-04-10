@@ -786,6 +786,112 @@ async def mark_post_published(
     }
 
 
+# ── Repurpose (cross-post to other channels) ─────────────────────
+
+
+class RepurposeRequest(BaseModel):
+    channel_ids: list[uuid.UUID] = Field(
+        ..., min_length=1, max_length=10,
+        description="Target channels to create draft copies on",
+    )
+    action_type_label: str | None = Field(
+        None,
+        description=(
+            "Override format for the new posts (e.g. 'story', 'reel', 'short'). "
+            "If omitted, keeps the original format."
+        ),
+    )
+
+
+@router.post("/{post_id}/repurpose")
+async def repurpose_post(
+    post_id: uuid.UUID,
+    body: RepurposeRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Create draft copies of an existing post on other channels.
+
+    Copies content_text, media_urls, goal, track_reference, and campaign
+    from the source post, targeting the specified channels. Each copy
+    links back via repurposed_from_id so the learning layer can compare
+    same-content performance across channels.
+
+    Optionally override the action_type_label to adapt the format (e.g.
+    push a Reel to an IG Story, or a YouTube Short to TikTok).
+    """
+    from amplify.db.models.channel import ChannelConnectionModel
+    from sqlalchemy import select
+
+    repo = BaseRepository(db, PostModel, tenant_id)
+    source = await repo.get(post_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    # Verify all target channels belong to this tenant and are active
+    ch_stmt = select(ChannelConnectionModel).where(
+        ChannelConnectionModel.id.in_(body.channel_ids),
+        ChannelConnectionModel.tenant_id == tenant_id,
+        ChannelConnectionModel.is_active.is_(True),
+    )
+    channels = list((await db.execute(ch_stmt)).scalars().all())
+    found_ids = {ch.id for ch in channels}
+    missing = [str(cid) for cid in body.channel_ids if cid not in found_ids]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Channels not found or inactive: {', '.join(missing)}",
+        )
+
+    # Don't allow repurposing to the same channel the source is on
+    if source.channel_id:
+        channels = [ch for ch in channels if ch.id != source.channel_id]
+    if not channels:
+        raise HTTPException(
+            status_code=400, detail="All target channels match the source — nothing to repurpose",
+        )
+
+    created = []
+    for ch in channels:
+        new_post = PostModel(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            campaign_id=source.campaign_id,
+            channel_id=ch.id,
+            platform=ch.platform,
+            status="draft",
+            content_text=source.content_text or "",
+            media_urls=list(source.media_urls or []),
+            destination_url=source.destination_url,
+            action_type_label=body.action_type_label or source.action_type_label,
+            goal=source.goal,
+            track_reference=source.track_reference,
+            day_number=source.day_number,
+            repurposed_from_id=source.id,
+        )
+        db.add(new_post)
+        created.append({
+            "post_id": str(new_post.id),
+            "platform": ch.platform,
+            "channel_id": str(ch.id),
+            "channel_name": ch.display_name or ch.platform,
+            "action_type_label": new_post.action_type_label,
+            "status": "draft",
+        })
+
+    await db.flush()
+    logger.info(
+        "Repurposed post %s to %d channels: %s",
+        post_id, len(created), [c["platform"] for c in created],
+    )
+
+    return {
+        "source_post_id": str(post_id),
+        "created": created,
+        "count": len(created),
+    }
+
+
 # ── Publishing Workflow ────────────────────────────────────────────
 
 

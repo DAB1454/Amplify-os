@@ -358,6 +358,7 @@ class PostResponse(BaseModel):
     day_number: int | None
     action_type_label: str | None
     goal: str | None = None
+    repurposed_from_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

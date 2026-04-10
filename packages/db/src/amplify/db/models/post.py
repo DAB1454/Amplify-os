@@ -52,6 +52,11 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     # stream, purchase. Nullable so historical posts and manual posts that
     # don't carry an explicit goal still work.
     goal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Cross-channel repurposing — links back to the original post so the
+    # learning layer can compare same-content performance across platforms.
+    repurposed_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("posts.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
 
     # Relationships
     campaign: Mapped[CampaignModel | None] = relationship(back_populates="posts")
