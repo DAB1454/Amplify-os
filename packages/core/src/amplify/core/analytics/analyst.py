@@ -59,26 +59,26 @@ class AnalystRecommendation:
 
 def _classify(score: PostScore, keep_threshold: float, stop_threshold: float) -> PostVerdict:
     """Map a composite score to a keep/remix/stop verdict."""
+    eng_pct = f"{score.engagement_score:.0f}th"
+    ctr_pct = f"{score.click_score:.0f}th"
+
     if score.composite_score >= keep_threshold:
         verdict = Verdict.KEEP
         reason = (
-            f"High performer (score {score.composite_score:.0f}). "
-            f"Engagement {score.engagement_score:.0f}p, CTR {score.click_score:.0f}p. "
-            "Consider boosting or repeating this format."
+            f"Top performer — engagement {eng_pct} percentile, CTR {ctr_pct} percentile. "
+            "The next campaign will use this style, hook, and format as a template for new posts."
         )
     elif score.composite_score >= stop_threshold:
         verdict = Verdict.REMIX
         reason = (
-            f"Moderate performer (score {score.composite_score:.0f}). "
-            f"Engagement {score.engagement_score:.0f}p, CTR {score.click_score:.0f}p. "
-            "Try changing the hook, visual, or posting time."
+            f"Middle of the pack — engagement {eng_pct} percentile, CTR {ctr_pct} percentile. "
+            "The next campaign will try a different hook, visual, or posting time while keeping the topic."
         )
     else:
         verdict = Verdict.STOP
         reason = (
-            f"Underperformer (score {score.composite_score:.0f}). "
-            f"Engagement {score.engagement_score:.0f}p, CTR {score.click_score:.0f}p. "
-            "Retire this content or rethink the approach."
+            f"Below average — engagement {eng_pct} percentile, CTR {ctr_pct} percentile. "
+            "This format will be deprioritized in future campaigns."
         )
     return PostVerdict(
         post_id=score.post_id,

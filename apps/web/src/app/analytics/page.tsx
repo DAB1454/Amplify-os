@@ -71,6 +71,12 @@ const verdictColors: Record<string, string> = {
   stop: "bg-red-100 text-red-700",
 };
 
+const verdictLabels: Record<string, string> = {
+  keep: "Repeat",
+  remix: "Remix",
+  stop: "Retire",
+};
+
 const platformColors: Record<string, string> = {
   instagram: "#E1306C",
   tiktok: "#00f2ea",
@@ -406,13 +412,16 @@ export default function AnalyticsPage() {
               <p className="mt-1 text-xs text-[var(--text-secondary)]">
                 {report.summary}
               </p>
+              <p className="mt-1 text-[11px] text-[var(--text-secondary)] italic">
+                These verdicts feed into the next campaign — the planner copies winning patterns and avoids losing ones automatically.
+              </p>
 
               {/* Verdict summary — clickable as filters */}
               <div className="mt-4 flex gap-4">
                 {[
-                  { label: "Keep", key: "keep", count: report.keep_count, color: "#22c55e" },
-                  { label: "Remix", key: "remix", count: report.remix_count, color: "#eab308" },
-                  { label: "Stop", key: "stop", count: report.stop_count, color: "#ef4444" },
+                  { label: "Repeat", sublabel: "Use this style again", key: "keep", count: report.keep_count, color: "#22c55e" },
+                  { label: "Remix", sublabel: "Try a different angle", key: "remix", count: report.remix_count, color: "#eab308" },
+                  { label: "Retire", sublabel: "Deprioritize this format", key: "stop", count: report.stop_count, color: "#ef4444" },
                 ].map((v) => (
                   <button
                     key={v.label}
@@ -427,6 +436,7 @@ export default function AnalyticsPage() {
                       {v.count}
                     </p>
                     <p className="text-xs text-[var(--text-secondary)]">{v.label}</p>
+                    <p className="text-[10px] text-[var(--text-secondary)] opacity-60 mt-0.5">{v.sublabel}</p>
                   </button>
                 ))}
               </div>
@@ -446,7 +456,7 @@ export default function AnalyticsPage() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${verdictColors[v.verdict]}`}
                       >
-                        {v.verdict}
+                        {verdictLabels[v.verdict] || v.verdict}
                       </span>
                       <PlatformBadge platform={v.platform} />
                       <span className="flex-1 text-sm text-[var(--text-primary)] truncate">
