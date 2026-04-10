@@ -14,6 +14,8 @@ interface Artist {
   genre: string;
   image_url: string | null;
   spotify_id: string | null;
+  apple_music_url: string | null;
+  spotify_artist_url: string | null;
   social_links: Record<string, string>;
   created_at: string;
 }
@@ -24,7 +26,7 @@ export default function ArtistsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: "", bio: "", genre: "" });
+  const [formData, setFormData] = useState({ name: "", bio: "", genre: "", apple_music_url: "", spotify_artist_url: "" });
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -56,7 +58,7 @@ export default function ArtistsPage() {
       }
       setShowForm(false);
       setEditingId(null);
-      setFormData({ name: "", bio: "", genre: "" });
+      setFormData({ name: "", bio: "", genre: "", apple_music_url: "", spotify_artist_url: "" });
       fetchArtists();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -67,7 +69,13 @@ export default function ArtistsPage() {
 
   const handleEdit = (artist: Artist) => {
     setEditingId(artist.id);
-    setFormData({ name: artist.name, bio: artist.bio, genre: artist.genre });
+    setFormData({
+      name: artist.name,
+      bio: artist.bio,
+      genre: artist.genre,
+      apple_music_url: artist.apple_music_url || "",
+      spotify_artist_url: artist.spotify_artist_url || "",
+    });
     setShowForm(true);
   };
 
@@ -99,7 +107,7 @@ export default function ArtistsPage() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ name: "", bio: "", genre: "" });
+            setFormData({ name: "", bio: "", genre: "", apple_music_url: "", spotify_artist_url: "" });
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
@@ -143,6 +151,28 @@ export default function ArtistsPage() {
                 onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
                 className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
                 placeholder="Short bio"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs text-[var(--text-secondary)]">Apple Music Artist Page</label>
+              <input
+                type="url"
+                value={formData.apple_music_url}
+                onChange={(e) => setFormData({ ...formData, apple_music_url: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                placeholder="https://music.apple.com/us/artist/..."
+              />
+            </div>
+            <div>
+              <label className="text-xs text-[var(--text-secondary)]">Spotify Artist Page</label>
+              <input
+                type="url"
+                value={formData.spotify_artist_url}
+                onChange={(e) => setFormData({ ...formData, spotify_artist_url: e.target.value })}
+                className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                placeholder="https://open.spotify.com/artist/..."
               />
             </div>
           </div>
@@ -193,6 +223,16 @@ export default function ArtistsPage() {
                   </div>
                   {artist.bio && (
                     <p className="text-xs text-[var(--text-secondary)] truncate">{artist.bio}</p>
+                  )}
+                  {(artist.apple_music_url || artist.spotify_artist_url) && (
+                    <div className="flex gap-3 mt-1">
+                      {artist.apple_music_url && (
+                        <a href={artist.apple_music_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-pink-500 hover:underline">Apple Music</a>
+                      )}
+                      {artist.spotify_artist_url && (
+                        <a href={artist.spotify_artist_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-green-500 hover:underline">Spotify</a>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-2 shrink-0">

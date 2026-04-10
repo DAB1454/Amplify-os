@@ -400,16 +400,13 @@ export default function PostsPage() {
                 try {
                   const [releases, artists] = await Promise.all([
                     apiGet<{id: string; title: string; linktree_url: string | null; bandcamp_url: string | null; hyperfollow_url: string | null; apple_music_url: string | null; spotify_url: string | null}[]>("/api/v1/releases/"),
-                    apiGet<{id: string; name: string; apple_music_url?: string | null; spotify_artist_url?: string | null; social_links?: Record<string, string>}[]>("/api/v1/artists").catch(() => []),
+                    apiGet<{id: string; name: string; apple_music_url?: string | null; spotify_artist_url?: string | null}[]>("/api/v1/artists").catch(() => []),
                   ]);
                   const links: ReleaseLink[] = [];
                   // Per-artist streaming page links
                   for (const a of artists) {
                     if (a.apple_music_url) links.push({ label: `${a.name} — Apple Music (Artist)`, url: a.apple_music_url });
                     if (a.spotify_artist_url) links.push({ label: `${a.name} — Spotify (Artist)`, url: a.spotify_artist_url });
-                    const sl = a.social_links || {};
-                    if (sl.spotify) links.push({ label: `${a.name} — Spotify`, url: sl.spotify });
-                    if (sl.apple_music) links.push({ label: `${a.name} — Apple Music`, url: sl.apple_music });
                   }
                   // Per-release album links
                   for (const r of releases) {
