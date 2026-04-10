@@ -32,6 +32,8 @@ class ArtistModel(Base, TimestampMixin, TenantMixin):
     genre: Mapped[str] = mapped_column(String(100), default="")
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     spotify_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    apple_music_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    spotify_artist_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     social_links: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Relationships

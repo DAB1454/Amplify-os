@@ -42,6 +42,8 @@ class ReleaseModel(Base, TimestampMixin, TenantMixin):
     youtube_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tiktok_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     instagram_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    apple_music_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    spotify_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
     artist: Mapped[ArtistModel] = relationship(back_populates="releases")

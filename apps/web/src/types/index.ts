@@ -14,6 +14,8 @@ export interface ReleaseDestinations {
   youtubeUrl?: string;
   tiktokUrl?: string;
   instagramUrl?: string;
+  appleMusicUrl?: string;
+  spotifyUrl?: string;
 }
 
 export interface Release extends ReleaseDestinations {

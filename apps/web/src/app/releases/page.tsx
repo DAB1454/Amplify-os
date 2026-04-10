@@ -21,6 +21,8 @@ interface Release {
   artwork_url: string | null;
   linktree_url: string | null;
   bandcamp_url: string | null;
+  apple_music_url: string | null;
+  spotify_url: string | null;
   created_at: string;
 }
 
@@ -62,6 +64,8 @@ export default function ReleasesPage() {
     release_date: "",
     linktree_url: "",
     bandcamp_url: "",
+    apple_music_url: "",
+    spotify_url: "",
   });
 
   const fetchData = useCallback(async () => {
@@ -116,6 +120,8 @@ export default function ReleasesPage() {
       if (formData.release_date) payload.release_date = formData.release_date;
       if (formData.linktree_url) payload.linktree_url = formData.linktree_url;
       if (formData.bandcamp_url) payload.bandcamp_url = formData.bandcamp_url;
+      if (formData.apple_music_url) payload.apple_music_url = formData.apple_music_url;
+      if (formData.spotify_url) payload.spotify_url = formData.spotify_url;
 
       if (editingId) {
         await apiPut(`/api/v1/releases/${editingId}`, payload);
@@ -124,7 +130,7 @@ export default function ReleasesPage() {
       }
       setShowForm(false);
       setEditingId(null);
-      setFormData({ artist_id: "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "" });
+      setFormData({ artist_id: "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "", apple_music_url: "", spotify_url: "" });
       fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -140,6 +146,8 @@ export default function ReleasesPage() {
       release_date: r.release_date || "",
       linktree_url: r.linktree_url || "",
       bandcamp_url: r.bandcamp_url || "",
+      apple_music_url: r.apple_music_url || "",
+      spotify_url: r.spotify_url || "",
     });
     setShowForm(true);
   };
@@ -169,7 +177,7 @@ export default function ReleasesPage() {
         <button
           onClick={() => {
             setEditingId(null);
-            setFormData({ artist_id: artists[0]?.id || "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "" });
+            setFormData({ artist_id: artists[0]?.id || "", title: "", release_type: "single", release_date: "", linktree_url: "", bandcamp_url: "", apple_music_url: "", spotify_url: "" });
             setShowForm(!showForm);
           }}
           className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 font-medium text-white hover:opacity-90 transition-opacity"
@@ -233,6 +241,28 @@ export default function ReleasesPage() {
                     type="date"
                     value={formData.release_date}
                     onChange={(e) => setFormData({ ...formData, release_date: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Apple Music (Album)</label>
+                  <input
+                    type="url"
+                    placeholder="https://music.apple.com/album/..."
+                    value={formData.apple_music_url}
+                    onChange={(e) => setFormData({ ...formData, apple_music_url: e.target.value })}
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-secondary)]">Spotify (Album)</label>
+                  <input
+                    type="url"
+                    placeholder="https://open.spotify.com/album/..."
+                    value={formData.spotify_url}
+                    onChange={(e) => setFormData({ ...formData, spotify_url: e.target.value })}
                     className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--brand-gold)] focus:outline-none"
                   />
                 </div>
@@ -319,11 +349,12 @@ export default function ReleasesPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-[var(--text-secondary)]">
-                      {artistMap[r.artist_id] || "Unknown artist"}
-                      {r.release_date && ` \u00b7 ${r.release_date}`}
-                      {r.linktree_url && ` \u00b7 `}
-                      {r.linktree_url && <a href={r.linktree_url} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">{"\uD83D\uDD17"} Linktree</a>}
+                    <p className="text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-1">
+                      <span>{artistMap[r.artist_id] || "Unknown artist"}</span>
+                      {r.release_date && <span>{"\u00b7"} {r.release_date}</span>}
+                      {r.apple_music_url && <><span>{"\u00b7"}</span><a href={r.apple_music_url} target="_blank" rel="noopener noreferrer" className="text-pink-500 hover:underline">Apple Music</a></>}
+                      {r.spotify_url && <><span>{"\u00b7"}</span><a href={r.spotify_url} target="_blank" rel="noopener noreferrer" className="text-green-500 hover:underline">Spotify</a></>}
+                      {r.linktree_url && <><span>{"\u00b7"}</span><a href={r.linktree_url} target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">Linktree</a></>}
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">

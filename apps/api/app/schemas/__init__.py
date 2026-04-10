@@ -74,6 +74,8 @@ class ArtistCreateRequest(BaseModel):
     genre: str = ""
     image_url: str | None = None
     spotify_id: str | None = None
+    apple_music_url: str | None = None
+    spotify_artist_url: str | None = None
     social_links: dict = Field(default_factory=dict)
 
 class ArtistUpdateRequest(BaseModel):
@@ -82,6 +84,8 @@ class ArtistUpdateRequest(BaseModel):
     genre: str | None = None
     image_url: str | None = None
     spotify_id: str | None = None
+    apple_music_url: str | None = None
+    spotify_artist_url: str | None = None
     social_links: dict | None = None
 
 class ArtistResponse(BaseModel):
@@ -93,6 +97,8 @@ class ArtistResponse(BaseModel):
     genre: str
     image_url: str | None
     spotify_id: str | None
+    apple_music_url: str | None
+    spotify_artist_url: str | None
     social_links: dict
     created_at: datetime
     updated_at: datetime
@@ -105,6 +111,7 @@ class ArtistResponse(BaseModel):
 DESTINATION_FIELDS = [
     "hyperfollow_url", "linktree_url", "bandcamp_url",
     "youtube_url", "tiktok_url", "instagram_url",
+    "apple_music_url", "spotify_url",
 ]
 
 class ReleaseCreateRequest(BaseModel):
@@ -121,6 +128,8 @@ class ReleaseCreateRequest(BaseModel):
     youtube_url: str | None = None
     tiktok_url: str | None = None
     instagram_url: str | None = None
+    apple_music_url: str | None = None
+    spotify_url: str | None = None
 
 class ReleaseUpdateRequest(BaseModel):
     title: str | None = None
@@ -136,6 +145,8 @@ class ReleaseUpdateRequest(BaseModel):
     youtube_url: str | None = None
     tiktok_url: str | None = None
     instagram_url: str | None = None
+    apple_music_url: str | None = None
+    spotify_url: str | None = None
 
 class ReleaseResponse(BaseModel):
     id: uuid.UUID
@@ -154,6 +165,8 @@ class ReleaseResponse(BaseModel):
     youtube_url: str | None
     tiktok_url: str | None
     instagram_url: str | None
+    apple_music_url: str | None
+    spotify_url: str | None
     created_at: datetime
     updated_at: datetime
 
