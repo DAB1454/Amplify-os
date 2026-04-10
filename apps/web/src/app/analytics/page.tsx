@@ -421,7 +421,7 @@ export default function AnalyticsPage() {
                       "flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-4 text-center transition-all",
                       verdictFilter === v.key && "ring-2"
                     )}
-                    style={verdictFilter === v.key ? { borderColor: v.color, ringColor: v.color } : {}}
+                    style={verdictFilter === v.key ? { borderColor: v.color, boxShadow: `0 0 0 2px ${v.color}33` } : {}}
                   >
                     <p className="text-2xl font-bold" style={{ color: v.color }}>
                       {v.count}
