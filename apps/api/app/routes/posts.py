@@ -675,7 +675,7 @@ async def retry_stuck_post(
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if post.status not in ("publishing", "failed", "published", "pending_approval"):
+    if post.status not in ("publishing", "failed", "published", "pending_approval", "queued", "scheduled"):
         raise HTTPException(status_code=409, detail=f"Post is '{post.status}', cannot retry")
 
     post.status = "scheduled"
