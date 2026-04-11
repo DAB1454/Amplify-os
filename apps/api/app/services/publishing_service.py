@@ -375,6 +375,8 @@ class PublishingService:
     async def retry_post(self, post_id: uuid.UUID) -> dict:
         """Re-queue a failed post for another publish attempt."""
         post = await self._get_post(post_id)
+        post.retry_count = 0
+        post.last_error = None
         post = await self._transition(post, PostStatus.QUEUED)
         return {"post_id": str(post_id), "status": post.status, "retry_count": post.retry_count}
 
