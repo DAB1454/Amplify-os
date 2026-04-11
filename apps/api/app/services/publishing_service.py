@@ -468,11 +468,10 @@ class PublishingService:
 
         channel_id = getattr(post, "channel_id", None)
         if not channel_id:
-            logger.info("No channel_id on post %s — using stub publish", post.id)
-            return {
-                "platform_post_id": f"stub_{post.id}",
-                "permalink": f"https://{post.platform}.com/p/stub_{post.id}",
-            }
+            raise Exception(
+                f"No channel connected for {post.platform}. "
+                "Connect the channel on the Channels page, then retry."
+            )
 
         from app.services.adapter_factory import get_adapter
         from app.config import Settings

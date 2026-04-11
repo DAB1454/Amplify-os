@@ -8,7 +8,7 @@ import uuid
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_settings, get_tenant_id, get_user_id, get_audit_service
@@ -681,6 +681,25 @@ async def retry_stuck_post(
     post.status = "scheduled"
     post.last_error = None
     post.retry_count = 0
+
+    # Re-stitch channel_id if it's missing (e.g. after disconnect/reconnect)
+    if not post.channel_id and post.platform:
+        from amplify.db.models.channel import ChannelConnectionModel
+        ch_result = await db.execute(
+            select(ChannelConnectionModel.id).where(
+                ChannelConnectionModel.tenant_id == tenant_id,
+                ChannelConnectionModel.platform == post.platform,
+                ChannelConnectionModel.is_active.is_(True),
+            ).limit(1)
+        )
+        active_ch = ch_result.scalar_one_or_none()
+        if active_ch:
+            post.channel_id = active_ch
+            logger.info("Re-stitched channel %s to post %s", active_ch, post_id)
+        else:
+            return {"post_id": str(post_id), "status": "failed",
+                    "message": f"No active {post.platform} channel connected. Connect it on the Channels page first."}
+
     await db.flush()
 
     if body.republish:
