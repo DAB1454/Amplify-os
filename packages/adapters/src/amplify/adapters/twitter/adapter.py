@@ -33,6 +33,7 @@ from amplify.adapters.base import (
     MetricSnapshot,
     PublishError,
     PublishResult,
+    TokenExpiredError,
 )
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,11 @@ class TwitterAdapter(BaseAdapter):
                     timeout=30,
                 )
 
+            if resp.status_code in (401, 403):
+                raise TokenExpiredError(
+                    f"Twitter token expired or revoked ({resp.status_code}): {resp.text[:300]}",
+                    platform=self.platform,
+                )
             if resp.status_code not in (200, 201):
                 raise PublishError(
                     f"Tweet creation failed ({resp.status_code}): {resp.text[:300]}",

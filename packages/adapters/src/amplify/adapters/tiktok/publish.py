@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from amplify.adapters.base import PublishError, RateLimitError, ValidationError
+from amplify.adapters.base import PublishError, RateLimitError, TokenExpiredError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,12 @@ class TikTokPublisher:
                 platform="tiktok",
                 retry_after=int(resp.headers.get("Retry-After", "60")),
             )
+        if resp.status_code in (401, 403):
+            raise TokenExpiredError(
+                f"TikTok token expired or revoked during {operation}: {resp.text[:500]}",
+                platform="tiktok",
+                details={"status": resp.status_code},
+            )
         if resp.status_code >= 400:
             raise PublishError(
                 f"TikTok {operation} failed ({resp.status_code}): {resp.text[:500]}",
@@ -94,11 +100,21 @@ class TikTokPublisher:
                 details={"status": resp.status_code},
             )
         data = resp.json()
-        if data.get("error", {}).get("code") not in (None, "ok", 0):
+        error_info = data.get("error", {})
+        error_code = error_info.get("code")
+        if error_code not in (None, "ok", 0):
+            # Detect token/auth errors in the JSON body (TikTok may return 200 with auth error)
+            error_str = str(error_code).lower()
+            if any(kw in error_str for kw in ("access_token", "token_invalid", "token_expired", "unauthorized")):
+                raise TokenExpiredError(
+                    f"TikTok {operation} auth error: {error_info}",
+                    platform="tiktok",
+                    details=error_info,
+                )
             raise PublishError(
-                f"TikTok {operation} error: {data['error']}",
+                f"TikTok {operation} error: {error_info}",
                 platform="tiktok",
-                details=data.get("error", {}),
+                details=error_info,
             )
         return data
 
