@@ -86,8 +86,12 @@ async def get_adapter(
             logger.info("Proactively refreshed %s token for channel %s", platform, channel_id)
         except Exception as exc:
             logger.warning(
-                "Proactive token refresh failed for %s channel %s: %s — proceeding with current token",
+                "Proactive token refresh failed for %s channel %s: %s",
                 platform, channel_id, exc,
+            )
+            raise AuthenticationError(
+                f"Token refresh failed for {platform} — reconnect the channel: {exc}",
+                platform=platform,
             )
 
     # Import and instantiate the adapter
@@ -103,5 +107,32 @@ async def get_adapter(
         "token_expires_at": tokens.expires_at,
         "account_id": tokens.account_id,
     })
+
+    # Validate the token is actually live — catches cases where
+    # expires_at is null/wrong and needs_refresh was skipped
+    health = await adapter.validate_connection()
+    if health.status.value in ("expired", "revoked", "error"):
+        logger.warning("Token validation failed for %s channel %s: %s", platform, channel_id, health.error)
+        # Try refresh once
+        try:
+            from app.services.oauth_service import OAuthService
+            oauth_svc = OAuthService(db, None, settings)
+            await oauth_svc.refresh_channel_token(channel_id, channel.tenant_id)
+            await db.refresh(channel)
+            tokens = TokenStore.from_channel_connection(channel, encryptor)
+            logger.info("Refreshed %s token after validation failure for channel %s", platform, channel_id)
+            # Reconnect adapter with fresh tokens
+            adapter = adapter_class(dry_run=settings.is_local)
+            await adapter.connect({
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+                "token_expires_at": tokens.expires_at,
+                "account_id": tokens.account_id,
+            })
+        except Exception as exc:
+            raise AuthenticationError(
+                f"{platform} token is invalid and refresh failed — reconnect the channel: {exc}",
+                platform=platform,
+            )
 
     return adapter
