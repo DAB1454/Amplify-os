@@ -1070,7 +1070,7 @@ export default function PostsPage() {
       {/* Platform filter */}
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <span className="text-xs font-medium text-[var(--text-secondary)]">Platform:</span>
-        {[null, "instagram", "tiktok", "youtube"].map((p) => (
+        {[null, "instagram", "tiktok", "youtube", "twitter"].map((p) => (
           <button
             key={p ?? "all"}
             onClick={() => setPlatformFilter(p)}
@@ -1080,7 +1080,7 @@ export default function PostsPage() {
                 : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-color)]"
             }`}
           >
-            {p ? p.charAt(0).toUpperCase() + p.slice(1) : "All"}
+            {p ? (p === "twitter" ? "X" : p.charAt(0).toUpperCase() + p.slice(1)) : "All"}
           </button>
         ))}
       </div>
@@ -1101,7 +1101,7 @@ export default function PostsPage() {
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-medium capitalize">{post.platform}</span>
+                    <span className="text-sm font-medium capitalize">{post.platform === "twitter" ? "X" : post.platform}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         statusColors[post.status] || "bg-gray-100 text-gray-500"
