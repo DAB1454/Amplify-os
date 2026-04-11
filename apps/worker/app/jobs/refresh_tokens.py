@@ -23,6 +23,7 @@ AUTH_MAP = {
     "youtube": ("amplify.adapters.youtube.auth", "YouTubeAuth"),
     "instagram": ("amplify.adapters.instagram.auth", "InstagramAuth"),
     "tiktok": ("amplify.adapters.tiktok.auth", "TikTokAuth"),
+    "twitter": ("amplify.adapters.twitter.auth", "TwitterAuth"),
 }
 
 
@@ -102,6 +103,12 @@ async def refresh_tokens(payload: dict) -> dict:
                         client_key=settings.tiktok_client_key,
                         client_secret=settings.tiktok_client_secret,
                         redirect_uri=settings.tiktok_redirect_uri or "",
+                    )
+                elif platform == "twitter":
+                    auth = auth_class(
+                        client_id=settings.twitter_client_id,
+                        client_secret=settings.twitter_client_secret,
+                        redirect_uri=settings.twitter_redirect_uri or "",
                     )
 
                 # Refresh

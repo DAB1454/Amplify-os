@@ -7,7 +7,7 @@ from datetime import datetime
 
 import httpx
 
-from amplify.adapters.base import FetchError, MetricSnapshot, RateLimitError
+from amplify.adapters.base import FetchError, MetricSnapshot, RateLimitError, TokenExpiredError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,11 @@ class TikTokAnalytics:
             )
             if resp.status_code == 429:
                 raise RateLimitError("TikTok rate limit", platform="tiktok")
+            if resp.status_code in (401, 403):
+                raise TokenExpiredError(
+                    f"TikTok token expired or revoked: {resp.text[:500]}",
+                    platform="tiktok",
+                )
             if resp.status_code >= 400:
                 raise FetchError(
                     f"TikTok analytics error: {resp.text[:500]}",
@@ -58,6 +63,11 @@ class TikTokAnalytics:
                     ],
                 },
             )
+            if resp.status_code in (401, 403):
+                raise TokenExpiredError(
+                    f"TikTok token expired or revoked: {resp.text[:500]}",
+                    platform="tiktok",
+                )
             if resp.status_code >= 400:
                 raise FetchError(
                     f"Video query failed: {resp.text[:500]}",

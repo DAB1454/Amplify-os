@@ -22,6 +22,8 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import select, or_
 
+from amplify.adapters.base import TokenExpiredError
+
 logger = logging.getLogger(__name__)
 
 ADAPTER_MAP = {
@@ -152,6 +154,21 @@ async def sync_metrics(payload: dict | None = None) -> dict:
                 if not tokens.access_token:
                     logger.warning("No access token for channel %s, skipping", channel_id_str)
                     continue
+
+                # Proactively refresh if token is expired or expiring soon
+                if tokens.needs_refresh and tokens.refresh_token:
+                    try:
+                        from amplify.adapters.token_store import DatabaseTokenStore
+                        from app.services.oauth_service import OAuthService
+                        oauth_svc = OAuthService(db, None, settings)
+                        await oauth_svc.refresh_channel_token(
+                            uuid.UUID(channel_id_str), channel.tenant_id
+                        )
+                        await db.refresh(channel)
+                        tokens = TokenStore.from_channel_connection(channel, encryptor)
+                        logger.info("Proactively refreshed %s token for channel %s", platform, channel_id_str)
+                    except Exception as ref_exc:
+                        logger.warning("Proactive refresh failed for %s channel %s: %s", platform, channel_id_str, ref_exc)
 
                 # Instantiate adapter
                 module_path, class_name = ADAPTER_MAP[platform].rsplit(".", 1)

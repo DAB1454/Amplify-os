@@ -74,6 +74,22 @@ async def get_adapter(
             platform=platform,
         )
 
+    # Proactively refresh if token is expired or expiring soon
+    if tokens.needs_refresh:
+        try:
+            from app.services.oauth_service import OAuthService
+            oauth_svc = OAuthService(db, None, settings)
+            await oauth_svc.refresh_channel_token(channel_id, channel.tenant_id)
+            # Re-load tokens after refresh
+            await db.refresh(channel)
+            tokens = TokenStore.from_channel_connection(channel, encryptor)
+            logger.info("Proactively refreshed %s token for channel %s", platform, channel_id)
+        except Exception as exc:
+            logger.warning(
+                "Proactive token refresh failed for %s channel %s: %s — proceeding with current token",
+                platform, channel_id, exc,
+            )
+
     # Import and instantiate the adapter
     module_path, class_name = ADAPTER_MAP[platform].rsplit(".", 1)
     import importlib
