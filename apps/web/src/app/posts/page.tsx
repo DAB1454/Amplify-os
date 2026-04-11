@@ -1289,8 +1289,12 @@ export default function PostsPage() {
                         onClick={async () => {
                           setActionLoading(`${post.id}-retry`);
                           try {
-                            await apiPost(`/api/v1/posts/${post.id}/retry`, { republish: true });
-                            setFetchError(null);
+                            const res = await apiPost<{ status?: string; message?: string }>(`/api/v1/posts/${post.id}/retry`, { republish: true });
+                            if (res.message && res.status !== "published" && res.status !== "pending_approval") {
+                              setFetchError(res.message);
+                            } else {
+                              setFetchError(null);
+                            }
                             fetchPosts();
                           } catch (err) {
                             setFetchError(err instanceof Error ? err.message : "Retry failed");
