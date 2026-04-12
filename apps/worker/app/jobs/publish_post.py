@@ -31,6 +31,8 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from amplify.adapters.base import PublishError
+
 logger = logging.getLogger(__name__)
 
 BASE_DELAY = 30  # seconds
@@ -40,6 +42,7 @@ ADAPTER_MAP = {
     "instagram": "amplify.adapters.instagram.adapter.InstagramAdapter",
     "youtube": "amplify.adapters.youtube.adapter.YouTubeAdapter",
     "tiktok": "amplify.adapters.tiktok.adapter.TikTokAdapter",
+    "twitter": "amplify.adapters.twitter.adapter.TwitterAdapter",
 }
 
 
@@ -167,9 +170,24 @@ async def publish_post(payload: dict) -> dict:
             "permalink": adapter_result.get("permalink"),
             "published_at": published_at.isoformat(),
         }
+    except PublishError as exc:
+        if not exc.permanent:
+            raise  # let the generic Exception handler retry it
+        logger.error("Post %s permanent publish failure: %s", post_id, exc)
+        await _update_post_status(
+            post_id, tenant_id, "failed",
+            last_error=str(exc)[:1000],
+            retry_count=retry_count,
+        )
+        return {
+            "status": "failed",
+            "post_id": post_id,
+            "published": False,
+            "error": str(exc),
+            "retry_count": retry_count,
+            "alert": True,
+        }
     except ValueError as exc:
-        # Permanent config/payload error (missing channel_id, channel not found,
-        # no access token, unsupported platform). Retrying won't help — fail now.
         logger.error("Post %s permanent failure: %s", post_id, exc)
         await _update_post_status(
             post_id, tenant_id, "failed",

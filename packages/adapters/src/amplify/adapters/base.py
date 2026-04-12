@@ -56,6 +56,16 @@ class RateLimitError(AdapterError):
 class PublishError(AdapterError):
     """Publishing content to the platform failed."""
 
+    def __init__(
+        self,
+        message: str,
+        platform: str = "",
+        permanent: bool = False,
+        details: dict | None = None,
+    ) -> None:
+        super().__init__(message, platform, details)
+        self.permanent = permanent
+
 
 class FetchError(AdapterError):
     """Fetching data from the platform failed."""

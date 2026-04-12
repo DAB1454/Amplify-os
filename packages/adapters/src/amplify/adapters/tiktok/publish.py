@@ -103,12 +103,19 @@ class TikTokPublisher:
         error_info = data.get("error", {})
         error_code = error_info.get("code")
         if error_code not in (None, "ok", 0):
-            # Detect token/auth errors in the JSON body (TikTok may return 200 with auth error)
             error_str = str(error_code).lower()
+            error_msg = str(error_info.get("message", "")).lower()
             if any(kw in error_str for kw in ("access_token", "token_invalid", "token_expired", "unauthorized")):
                 raise TokenExpiredError(
                     f"TikTok {operation} auth error: {error_info}",
                     platform="tiktok",
+                    details=error_info,
+                )
+            if "spam_risk_too_many_pending" in error_msg:
+                raise PublishError(
+                    f"TikTok has too many pending uploads — wait ~30 minutes for them to expire before retrying. Raw: {error_info}",
+                    platform="tiktok",
+                    permanent=True,
                     details=error_info,
                 )
             raise PublishError(
