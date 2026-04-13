@@ -203,6 +203,14 @@ class TwitterAdapter(BaseAdapter):
                 platform=self.platform,
             ) from exc
 
+    def _check_upload_auth(self, resp: httpx.Response, step: str) -> None:
+        """Raise TokenExpiredError on 401/403 during media upload."""
+        if resp.status_code in (401, 403):
+            raise TokenExpiredError(
+                f"Twitter media {step} failed ({resp.status_code}): token expired or revoked",
+                platform=self.platform,
+            )
+
     async def _upload_media(self, media_url: str) -> str | None:
         """Upload media via Twitter v1.1 chunked media upload.
 
@@ -237,6 +245,7 @@ class TwitterAdapter(BaseAdapter):
                     "media_category": media_category,
                 },
             )
+            self._check_upload_auth(init_resp, "INIT")
             if init_resp.status_code not in (200, 201, 202):
                 logger.warning("Twitter INIT failed: %s %s", init_resp.status_code, init_resp.text[:300])
                 return None
@@ -259,6 +268,7 @@ class TwitterAdapter(BaseAdapter):
                     },
                     files={"media_data": ("chunk", chunk, "application/octet-stream")},
                 )
+                self._check_upload_auth(append_resp, "APPEND")
                 if append_resp.status_code not in (200, 202, 204):
                     logger.warning("Twitter APPEND segment %d failed: %s %s", i, append_resp.status_code, append_resp.text[:300])
                     return None
@@ -269,6 +279,7 @@ class TwitterAdapter(BaseAdapter):
                 headers=auth,
                 data={"command": "FINALIZE", "media_id": media_id},
             )
+            self._check_upload_auth(fin_resp, "FINALIZE")
             if fin_resp.status_code not in (200, 201):
                 logger.warning("Twitter FINALIZE failed: %s %s", fin_resp.status_code, fin_resp.text[:300])
                 return None

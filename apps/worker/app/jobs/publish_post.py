@@ -283,10 +283,12 @@ async def _call_adapter(payload: dict) -> dict:
         if not tokens.access_token:
             raise ValueError(f"No access token for channel {channel_id} — reconnect via OAuth")
 
-        # Preemptive refresh: if token is expired or about to expire (<5 min),
-        # refresh now before even connecting the adapter
+        # Preemptive refresh: if token is expired or about to expire, refresh
+        # now before connecting the adapter. Twitter tokens are short-lived
+        # (2h) so use a wider buffer.
         from datetime import timedelta
-        if tokens.expires_at and datetime.utcnow() >= tokens.expires_at - timedelta(minutes=5):
+        buffer = timedelta(minutes=15) if platform in ("twitter", "tiktok") else timedelta(minutes=5)
+        if tokens.expires_at and datetime.utcnow() >= tokens.expires_at - buffer:
             logger.info("Token expired/expiring for %s channel %s — refreshing before publish", platform, channel_id)
             try:
                 tokens = await _refresh_channel_token(
