@@ -261,6 +261,7 @@ export default function PostsPage() {
 
   const handleEditSave = async (postId: string) => {
     setEditSaving(true);
+    const scrollY = window.scrollY;
     try {
       const updates: Record<string, unknown> = { content_text: editContent };
       if (editMediaUrls.length > 0) updates.media_urls = editMediaUrls;
@@ -269,7 +270,8 @@ export default function PostsPage() {
       setEditContent("");
       setEditMediaUrls([]);
       setFetchError(null);
-      fetchPosts();
+      await fetchPosts();
+      requestAnimationFrame(() => window.scrollTo(0, scrollY));
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Failed to save edit");
     } finally {

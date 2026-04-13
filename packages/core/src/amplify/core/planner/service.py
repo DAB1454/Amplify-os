@@ -505,10 +505,11 @@ async def plan_campaign(
                     ]
                     action.track_reference = original_track
                     if action.content_brief and original_track.lower() not in action.content_brief.lower():
+                        brief = re.sub(r"\n*\U0001f3b5 Featuring:.*", "", action.content_brief).rstrip()
                         action.content_brief = (
-                            action.content_brief.replace(release_title or "", original_track)
-                            if (release_title and release_title.lower() in action.content_brief.lower())
-                            else f"{action.content_brief}\n\n\U0001f3b5 Featuring: {original_track}"
+                            brief.replace(release_title or "", original_track)
+                            if (release_title and release_title.lower() in brief.lower())
+                            else f"{brief}\n\n\U0001f3b5 Featuring: {original_track}"
                         )
                     zero_idx += 1
             logger.info("Rebalanced %d posts to cover missing tracks", zero_idx)
@@ -531,10 +532,11 @@ async def plan_campaign(
                         new_track = track_listing[track_names.index(new_track_norm)]
                         action.track_reference = new_track
                         if action.content_brief and new_track.lower() not in action.content_brief.lower():
+                            brief = re.sub(r"\n*\U0001f3b5 Featuring:.*", "", action.content_brief).rstrip()
                             action.content_brief = (
-                                action.content_brief.replace(release_title or "", new_track)
-                                if (release_title and release_title.lower() in action.content_brief.lower())
-                                else f"{action.content_brief}\n\n\U0001f3b5 Featuring: {new_track}"
+                                brief.replace(release_title or "", new_track)
+                                if (release_title and release_title.lower() in brief.lower())
+                                else f"{brief}\n\n\U0001f3b5 Featuring: {new_track}"
                             )
                         seen_tracks.add(new_track_norm)
                         total_reassigned += 1

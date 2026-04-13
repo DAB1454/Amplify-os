@@ -497,6 +497,14 @@ async def create_post_video(
         await download_url_to_file(image_url, img_path)
         await download_url_to_file(audio_url, audio_path)
 
+        # Validate downloads aren't empty/corrupt
+        img_size = Path(img_path).stat().st_size
+        audio_size = Path(audio_path).stat().st_size
+        if img_size < 1024:
+            raise RuntimeError(f"Downloaded image is too small ({img_size} bytes) — likely corrupt or missing: {image_url}")
+        if audio_size < 1024:
+            raise RuntimeError(f"Downloaded audio is too small ({audio_size} bytes) — likely corrupt or missing: {audio_url}")
+
         # Generate the video
         await generate_static_video(
             image_path=img_path,
@@ -506,6 +514,11 @@ async def create_post_video(
             duration_seconds=duration_seconds,
             audio_start_seconds=audio_start_seconds,
         )
+
+        # Validate output
+        output_size = Path(output_path).stat().st_size
+        if output_size < 10_000:
+            raise RuntimeError(f"Generated video is too small ({output_size} bytes) — likely blank")
 
         # Upload to S3
         with open(output_path, "rb") as f:
