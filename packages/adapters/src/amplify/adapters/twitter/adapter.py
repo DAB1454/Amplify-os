@@ -171,6 +171,12 @@ class TwitterAdapter(BaseAdapter):
                     f"Twitter token expired or revoked ({resp.status_code}): {resp.text[:300]}",
                     platform=self.platform,
                 )
+            if resp.status_code == 402:
+                raise PublishError(
+                    f"X/Twitter API credits depleted — add credits at developer.x.com. Raw: {resp.text[:300]}",
+                    platform=self.platform,
+                    permanent=True,
+                )
             if resp.status_code not in (200, 201):
                 raise PublishError(
                     f"Tweet creation failed ({resp.status_code}): {resp.text[:300]}",

@@ -112,7 +112,14 @@ export default function PostsPage() {
       if (activeTab !== "all") params.set("status", activeTab);
       if (platformFilter) params.set("platform", platformFilter);
       const query = params.toString() ? `?${params.toString()}` : "";
-      const data = await apiGet<Post[]>(`/api/v1/posts/${query}`);
+      let data = await apiGet<Post[]>(`/api/v1/posts/${query}`);
+      if (activeTab === "scheduled") {
+        const pubParams = new URLSearchParams();
+        pubParams.set("status", "publishing");
+        if (platformFilter) pubParams.set("platform", platformFilter);
+        const publishing = await apiGet<Post[]>(`/api/v1/posts/?${pubParams.toString()}`);
+        data = [...data, ...publishing];
+      }
       // Published/failed: newest first. Everything else: oldest first (next-to-publish on top).
       const newestFirst = activeTab === "published" || activeTab === "failed";
       data.sort((a, b) => {

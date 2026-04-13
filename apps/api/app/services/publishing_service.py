@@ -224,7 +224,8 @@ class PublishingService:
                 "access_token_invalid", "scope not authorized",
                 "403", "401", "permission",
             ])
-            is_permanent = is_auth_error or post.retry_count >= post.max_retries
+            is_adapter_permanent = getattr(exc, "permanent", False)
+            is_permanent = is_auth_error or is_adapter_permanent or post.retry_count >= post.max_retries
             if is_permanent:
                 post.status = PostStatus.FAILED.value
                 await self.db.flush()
