@@ -17,6 +17,7 @@ Twitter API v2 endpoints used:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 from datetime import datetime
@@ -136,16 +137,17 @@ class TwitterAdapter(BaseAdapter):
         if self.dry_run:
             return self._dry_result()
 
-        # Upload media if provided
+        # Upload media — fail the publish if media upload fails
         media_ids: list[str] = []
         for path in (media_paths or []):
             if path:
-                try:
-                    mid = await self._upload_media(path)
-                    if mid:
-                        media_ids.append(mid)
-                except Exception as exc:
-                    logger.warning("Twitter media upload failed for %s: %s", path, exc)
+                mid = await self._upload_media(path)
+                if not mid:
+                    raise PublishError(
+                        f"Twitter media upload failed for {path}",
+                        platform=self.platform,
+                    )
+                media_ids.append(mid)
 
         # Build tweet payload
         payload: dict[str, Any] = {"text": content[:280]}
@@ -202,37 +204,97 @@ class TwitterAdapter(BaseAdapter):
             ) from exc
 
     async def _upload_media(self, media_url: str) -> str | None:
-        """Upload media via Twitter v1.1 media upload endpoint.
+        """Upload media via Twitter v1.1 chunked media upload.
 
-        Accepts a URL — downloads then uploads to Twitter.
-        Returns the media_id string or None on failure.
+        Supports images and videos. Uses INIT/APPEND/FINALIZE/STATUS flow
+        for all uploads so videos are handled correctly.
         """
-        async with httpx.AsyncClient() as client:
-            # Download the media
-            dl_resp = await client.get(media_url, timeout=30)
+        auth = {"Authorization": f"Bearer {self._access_token}"}
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            dl_resp = await client.get(media_url, timeout=60)
             if dl_resp.status_code != 200:
-                logger.warning("Failed to download media from %s", media_url)
+                logger.warning("Failed to download media from %s (status %s)", media_url, dl_resp.status_code)
                 return None
 
             media_bytes = dl_resp.content
+            total_bytes = len(media_bytes)
             content_type = dl_resp.headers.get("content-type", "")
             if not content_type:
-                content_type = mimetypes.guess_type(media_url)[0] or "image/jpeg"
+                content_type = mimetypes.guess_type(media_url)[0] or "application/octet-stream"
 
-            # Upload to Twitter
-            # For images < 5MB, simple upload works
-            resp = await client.post(
+            is_video = content_type.startswith("video/")
+            media_category = "tweet_video" if is_video else "tweet_image"
+
+            # INIT
+            init_resp = await client.post(
                 UPLOAD_V1,
-                headers={"Authorization": f"Bearer {self._access_token}"},
-                files={"media": ("media", media_bytes, content_type)},
-                timeout=60,
+                headers=auth,
+                data={
+                    "command": "INIT",
+                    "total_bytes": str(total_bytes),
+                    "media_type": content_type,
+                    "media_category": media_category,
+                },
             )
-
-            if resp.status_code not in (200, 201, 202):
-                logger.warning("Twitter media upload failed: %s %s", resp.status_code, resp.text[:200])
+            if init_resp.status_code not in (200, 201, 202):
+                logger.warning("Twitter INIT failed: %s %s", init_resp.status_code, init_resp.text[:300])
+                return None
+            media_id = init_resp.json().get("media_id_string")
+            if not media_id:
+                logger.warning("Twitter INIT returned no media_id")
                 return None
 
-            return resp.json().get("media_id_string")
+            # APPEND — send in 5MB chunks
+            chunk_size = 5 * 1024 * 1024
+            for i, offset in enumerate(range(0, total_bytes, chunk_size)):
+                chunk = media_bytes[offset : offset + chunk_size]
+                append_resp = await client.post(
+                    UPLOAD_V1,
+                    headers=auth,
+                    data={
+                        "command": "APPEND",
+                        "media_id": media_id,
+                        "segment_index": str(i),
+                    },
+                    files={"media_data": ("chunk", chunk, "application/octet-stream")},
+                )
+                if append_resp.status_code not in (200, 202, 204):
+                    logger.warning("Twitter APPEND segment %d failed: %s %s", i, append_resp.status_code, append_resp.text[:300])
+                    return None
+
+            # FINALIZE
+            fin_resp = await client.post(
+                UPLOAD_V1,
+                headers=auth,
+                data={"command": "FINALIZE", "media_id": media_id},
+            )
+            if fin_resp.status_code not in (200, 201):
+                logger.warning("Twitter FINALIZE failed: %s %s", fin_resp.status_code, fin_resp.text[:300])
+                return None
+
+            # STATUS — poll until processing completes (videos only)
+            processing = fin_resp.json().get("processing_info")
+            while processing:
+                state = processing.get("state", "")
+                if state == "succeeded":
+                    break
+                if state == "failed":
+                    logger.warning("Twitter media processing failed: %s", processing.get("error"))
+                    return None
+                wait = processing.get("check_after_secs", 5)
+                await asyncio.sleep(min(wait, 30))
+                status_resp = await client.get(
+                    UPLOAD_V1,
+                    headers=auth,
+                    params={"command": "STATUS", "media_id": media_id},
+                )
+                if status_resp.status_code != 200:
+                    logger.warning("Twitter STATUS check failed: %s", status_resp.status_code)
+                    return None
+                processing = status_resp.json().get("processing_info")
+
+            return media_id
 
     # ── Fetch ───────────────────────────────────────────────────
 
