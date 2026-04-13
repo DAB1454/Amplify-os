@@ -463,39 +463,42 @@ export default function AnalyticsPage() {
           )}
 
           {/* Time-series charts */}
-          {timeseries && Object.keys(timeseries.series).length > 0 && (
-            <div className="mt-6 grid grid-cols-3 gap-4">
-              {Object.entries(timeseries.series).map(([metric, points]) => (
-                <div
-                  key={metric}
-                  className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5"
-                >
-                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
-                    {metric}
-                  </p>
-                  <p className="mt-1 text-lg font-bold text-[var(--text-primary)]">
-                    {points.reduce((sum, p) => sum + p.value, 0).toLocaleString()}
-                  </p>
-                  <div className="mt-3">
-                    <SparkChart
-                      points={points}
-                      color={
-                        metric === "impressions"
-                          ? "#c9a84c"
-                          : metric === "engagement"
-                            ? "#22c55e"
-                            : "#3b82f6"
-                      }
-                    />
-                  </div>
-                  <div className="mt-1 flex justify-between text-[10px] text-[var(--text-secondary)]">
-                    <span>{points[0]?.date}</span>
-                    <span>{points[points.length - 1]?.date}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          {timeseries && Object.keys(timeseries.series).length > 0 && (() => {
+            const cardOrder = ["views", "engagement"];
+            const cardLabels: Record<string, string> = { views: "Views", engagement: "Engagement" };
+            const cardColors: Record<string, string> = { views: "#c9a84c", engagement: "#22c55e" };
+            const ordered = cardOrder.filter((m) => timeseries.series[m]?.length > 0);
+            return (
+              <div className="mt-6 grid grid-cols-2 gap-4">
+                {ordered.map((metric) => {
+                  const points = timeseries.series[metric];
+                  return (
+                    <div
+                      key={metric}
+                      className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5"
+                    >
+                      <p className="text-xs font-medium uppercase tracking-wider text-[var(--text-secondary)]">
+                        {cardLabels[metric] || metric}
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-[var(--text-primary)]">
+                        {points.reduce((sum: number, p: { value: number }) => sum + p.value, 0).toLocaleString()}
+                      </p>
+                      <div className="mt-3">
+                        <SparkChart
+                          points={points}
+                          color={cardColors[metric] || "#3b82f6"}
+                        />
+                      </div>
+                      <div className="mt-1 flex justify-between text-[10px] text-[var(--text-secondary)]">
+                        <span>{points[0]?.date}</span>
+                        <span>{points[points.length - 1]?.date}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           {/* Post scores */}
           {filteredScores.length > 0 && (
@@ -541,7 +544,7 @@ export default function AnalyticsPage() {
 
                     <div className="flex flex-col items-end gap-0.5 shrink-0">
                       <span className="text-[11px] text-[var(--text-secondary)]">
-                        {s.impressions.toLocaleString()} views
+                        {(s.impressions || s.views || 0).toLocaleString()} views
                       </span>
                       <span className="text-[11px] text-[var(--text-secondary)]">
                         {(s.engagement_rate * 100).toFixed(1)}% eng

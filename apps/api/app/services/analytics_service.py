@@ -59,47 +59,90 @@ class AnalyticsService:
 
     # ── campaign time-series ──────────────────────────────────────
 
+    # Metrics that should be merged into "views"
+    _VIEW_METRICS = {"impressions", "views", "reach"}
+
     async def get_campaign_timeseries(
         self,
         campaign_id: uuid.UUID | None = None,
         days: int = 30,
     ) -> dict:
-        """Daily impressions, engagement, clicks for a campaign.
+        """Daily views and engagement deltas for a campaign.
 
-        Falls back to mock data if no DailyMetric rows exist.
+        Platform APIs report cumulative totals, so we compute daily deltas
+        (today's value minus yesterday's) to show actual daily activity.
+        Impressions, views, and reach are consolidated into a single "Views"
+        metric since they measure the same thing across platforms.
         """
-        # Try real data first
-        start = date.today() - timedelta(days=days)
+        # Fetch one extra day so we can compute a delta for the first visible day
+        start = date.today() - timedelta(days=days + 1)
         stmt = (
             select(
+                DailyMetricModel.entity_id,
                 DailyMetricModel.date,
                 DailyMetricModel.metric_name,
-                func.sum(DailyMetricModel.value),
+                DailyMetricModel.value,
             )
             .where(
                 DailyMetricModel.tenant_id == self.tenant_id,
                 DailyMetricModel.entity_type == "post",
                 DailyMetricModel.date >= start,
             )
-            .group_by(DailyMetricModel.date, DailyMetricModel.metric_name)
-            .order_by(DailyMetricModel.date)
+            .order_by(DailyMetricModel.entity_id, DailyMetricModel.metric_name, DailyMetricModel.date)
         )
         rows = (await self.db.execute(stmt)).all()
 
+        # Group by (entity_id, canonical_metric) → sorted list of (date, value)
+        from collections import defaultdict
+        per_post: dict[tuple, list[tuple]] = defaultdict(list)
+        for entity_id, row_date, metric_name, value in rows:
+            canonical = "views" if metric_name in self._VIEW_METRICS else metric_name
+            per_post[(entity_id, canonical)].append((row_date, float(value)))
+
+        # Compute daily deltas, then aggregate across posts
+        visible_start = date.today() - timedelta(days=days)
+        daily_totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        for (entity_id, metric), points in per_post.items():
+            points.sort(key=lambda p: p[0])
+            # For view metrics, take the max value per day (they overlap)
+            if metric == "views":
+                by_date: dict = {}
+                for d, v in points:
+                    by_date[d] = max(by_date.get(d, 0), v)
+                sorted_dates = sorted(by_date.keys())
+                for i, d in enumerate(sorted_dates):
+                    if d < visible_start:
+                        continue
+                    prev = by_date[sorted_dates[i - 1]] if i > 0 else 0
+                    delta = max(0, by_date[d] - prev)
+                    daily_totals[metric][d.isoformat()] += delta
+            else:
+                # Engagement is already a delta-like value (sum of interactions)
+                # but still stored as cumulative, so compute delta
+                prev_val = 0.0
+                for d, v in points:
+                    if d < visible_start:
+                        prev_val = v
+                        continue
+                    delta = max(0, v - prev_val)
+                    daily_totals[metric][d.isoformat()] += delta
+                    prev_val = v
+
+        # Build ordered series
         series: dict[str, list[dict]] = {}
-        for row_date, metric_name, total in rows:
-            series.setdefault(metric_name, []).append({
-                "date": row_date.isoformat(),
-                "value": float(total),
-            })
+        for metric in ["views", "engagement"]:
+            if metric not in daily_totals:
+                continue
+            dates_vals = daily_totals[metric]
+            series[metric] = [
+                {"date": d, "value": dates_vals.get(d, 0)}
+                for d in sorted(dates_vals.keys())
+            ]
 
         return {
             "campaign_id": str(campaign_id) if campaign_id else "all",
             "days": days,
             "series": series,
-            # "empty" is an explicit signal that the query ran but no
-            # DailyMetric rows exist for the window. The UI shows an
-            # empty state instead of an opaque loading spinner.
             "source": "database" if series else "empty",
         }
 
