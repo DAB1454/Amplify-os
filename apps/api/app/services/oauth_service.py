@@ -43,7 +43,6 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
         "tweet.read",
         "tweet.write",
         "users.read",
-        "media.upload",
         "offline.access",
     ],
 }

@@ -137,17 +137,23 @@ class TwitterAdapter(BaseAdapter):
         if self.dry_run:
             return self._dry_result()
 
-        # Upload media — fail the publish if media upload fails
+        # Upload media — post text-only if media upload is forbidden (Free tier)
         media_ids: list[str] = []
+        media_skipped = False
         for path in (media_paths or []):
             if path:
-                mid = await self._upload_media(path)
-                if not mid:
-                    raise PublishError(
-                        f"Twitter media upload failed for {path}",
-                        platform=self.platform,
-                    )
-                media_ids.append(mid)
+                try:
+                    mid = await self._upload_media(path)
+                    if mid:
+                        media_ids.append(mid)
+                    else:
+                        logger.warning("Twitter media upload returned no ID for %s", path)
+                except PublishError as exc:
+                    if exc.permanent:
+                        logger.warning("Twitter media upload forbidden (API tier) — posting text-only: %s", exc)
+                        media_skipped = True
+                        break
+                    raise
 
         # Build tweet payload
         payload: dict[str, Any] = {"text": content[:280]}
@@ -204,11 +210,18 @@ class TwitterAdapter(BaseAdapter):
             ) from exc
 
     def _check_upload_auth(self, resp: httpx.Response, step: str) -> None:
-        """Raise TokenExpiredError on 401/403 during media upload."""
-        if resp.status_code in (401, 403):
+        """Detect auth errors during media upload."""
+        if resp.status_code == 401:
             raise TokenExpiredError(
-                f"Twitter media {step} failed ({resp.status_code}): token expired or revoked",
+                f"Twitter media {step} failed (401): token expired",
                 platform=self.platform,
+            )
+        if resp.status_code == 403:
+            raise PublishError(
+                f"Twitter media upload forbidden (403) — your X/Twitter API plan may not include media upload. "
+                f"Free tier only supports text tweets. Upgrade at developer.x.com. Raw: {resp.text[:200]}",
+                platform=self.platform,
+                permanent=True,
             )
 
     async def _upload_media(self, media_url: str) -> str | None:
