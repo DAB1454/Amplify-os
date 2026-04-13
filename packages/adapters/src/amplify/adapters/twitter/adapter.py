@@ -137,23 +137,17 @@ class TwitterAdapter(BaseAdapter):
         if self.dry_run:
             return self._dry_result()
 
-        # Upload media — post text-only if media upload is forbidden (Free tier)
+        # Upload media — fail if any media upload fails
         media_ids: list[str] = []
-        media_skipped = False
         for path in (media_paths or []):
             if path:
-                try:
-                    mid = await self._upload_media(path)
-                    if mid:
-                        media_ids.append(mid)
-                    else:
-                        logger.warning("Twitter media upload returned no ID for %s", path)
-                except PublishError as exc:
-                    if exc.permanent:
-                        logger.warning("Twitter media upload forbidden (API tier) — posting text-only: %s", exc)
-                        media_skipped = True
-                        break
-                    raise
+                mid = await self._upload_media(path)
+                if not mid:
+                    raise PublishError(
+                        f"Twitter media upload failed for {path}",
+                        platform=self.platform,
+                    )
+                media_ids.append(mid)
 
         # Build tweet payload
         payload: dict[str, Any] = {"text": content[:280]}
