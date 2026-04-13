@@ -175,6 +175,7 @@ class ContentAgent:
         content_type: str,
         release_title: str,
         key_message: str,
+        track_title: str = "",
         cta_destination: str = "",
         tone: str = "authentic",
         brand_voice: str = "",
@@ -182,6 +183,7 @@ class ContentAgent:
         learning_context: LearningContext | None = None,
     ) -> AgentResult:
         """Generate platform-specific captions with 3 variants."""
+        effective_track = track_title or release_title
         template = _load_template("CAPTION_TEMPLATE")
         if template:
             user_message = template.format(
@@ -189,6 +191,7 @@ class ContentAgent:
                 platform=platform,
                 content_type=content_type,
                 release_title=release_title,
+                track_title=effective_track,
                 key_message=key_message,
                 cta_destination=cta_destination or "link in bio",
                 tone=tone,
@@ -199,6 +202,7 @@ class ContentAgent:
             user_message = (
                 f"Write 3 caption variants for {platform}.\n"
                 f"Artist: {artist_name}\nRelease: {release_title}\n"
+                f"Track: {effective_track}\n"
                 f"Message: {key_message}\nTone: {tone}\n"
                 f"CTA: {cta_destination}\nBrand voice: {brand_voice}\n"
                 f"Respond with JSON matching ContentOutput schema."

@@ -54,9 +54,15 @@ Write social media copy for the following brief.
 - Platform: {platform}
 - Content type: {content_type}
 - Release: {release_title}
+- Featured track: {track_title}
 - Key message: {key_message}
 - CTA destination: {cta_destination}
 - Tone: {tone}
+
+IMPORTANT: This post is specifically about the track "{track_title}".
+Your caption MUST reference this exact track by name — do NOT mention
+other tracks from the album. The media and audio attached to this post
+are for "{track_title}", so the caption must match.
 
 ## Brand voice
 {brand_voice}

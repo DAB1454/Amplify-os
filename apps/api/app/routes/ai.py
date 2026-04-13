@@ -25,6 +25,7 @@ class GenerateCaptionRequest(BaseModel):
     platform: str
     artist_name: str
     release_title: str = ""
+    track_title: str = ""
     key_message: str = ""
     tone: str = "authentic"
     brand_voice: str = ""
@@ -722,6 +723,7 @@ async def generate_caption(
             platform=body.platform,
             content_type="caption",
             release_title=body.release_title,
+            track_title=body.track_title,
             key_message=body.key_message,
             cta_destination="",
             tone=body.tone,

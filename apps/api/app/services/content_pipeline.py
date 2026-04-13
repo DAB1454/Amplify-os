@@ -87,6 +87,7 @@ async def generate_content_for_post(
                 user_id=user_id,
                 artist_name=artist_name,
                 release_title=release_title,
+                track_title=post.track_reference or "",
                 platform=post.platform or "instagram",
                 brief=brief,
             )
@@ -132,6 +133,7 @@ async def _generate_caption(
     user_id: uuid.UUID | None,
     artist_name: str,
     release_title: str,
+    track_title: str = "",
     platform: str,
     brief: str,
 ) -> str | None:
@@ -151,6 +153,7 @@ async def _generate_caption(
         platform=platform,
         content_type="caption",
         release_title=release_title,
+        track_title=track_title,
         key_message=brief,
         cta_destination="link in bio",
         tone="authentic",

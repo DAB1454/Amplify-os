@@ -389,6 +389,7 @@ class TestContentPrompts:
             platform="instagram",
             content_type="teaser",
             release_title="For Love of Country",
+            track_title="Whis(key) to My Heart",
             key_message="Album drops 3/29",
             cta_destination="https://linktr.ee/dbmusic26",
             tone="authentic",
@@ -396,6 +397,7 @@ class TestContentPrompts:
             hashtags="#ForLoveOfCountry, #CountryMusic",
         )
         assert "Drew Baird" in rendered
+        assert "Whis(key) to My Heart" in rendered
 
     def test_hook_template_renders(self):
         from amplify.core.prompts.copywriter import HOOK_TEMPLATE
