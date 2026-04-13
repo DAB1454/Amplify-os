@@ -544,7 +544,7 @@ export default function AnalyticsPage() {
 
                     <div className="flex flex-col items-end gap-0.5 shrink-0">
                       <span className="text-[11px] text-[var(--text-secondary)]">
-                        {(s.impressions || s.views || 0).toLocaleString()} views
+                        {s.impressions.toLocaleString()} views
                       </span>
                       <span className="text-[11px] text-[var(--text-secondary)]">
                         {(s.engagement_rate * 100).toFixed(1)}% eng
