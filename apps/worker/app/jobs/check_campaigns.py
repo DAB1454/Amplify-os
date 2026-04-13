@@ -18,10 +18,9 @@ async def check_campaigns(payload: dict | None = None) -> dict:
 
     A campaign is completed when:
       1. It is currently 'active', AND
-      2. It has at least one post, AND
-      3. All of its posts have reached a terminal status
-         (published, failed, pending_approval), OR
-      4. Its end_date has passed and no posts are still in progress.
+      2. All posts reached a terminal status (published/failed/pending_approval), OR
+      3. Its end_date has passed (regardless of in-progress posts —
+         unpublished posts stay visible on the campaign detail page).
     """
     from amplify.db.session import get_async_session
     from amplify.db.models.campaign import CampaignModel
@@ -35,7 +34,6 @@ async def check_campaigns(payload: dict | None = None) -> dict:
     completed_ids: list[str] = []
 
     async with get_async_session(settings.database_url) as db:
-        # Fetch all active campaigns
         stmt = select(CampaignModel).where(CampaignModel.status == "active")
         result = await db.execute(stmt)
         campaigns = result.scalars().all()
@@ -45,7 +43,6 @@ async def check_campaigns(payload: dict | None = None) -> dict:
             return {"status": "ok", "completed": 0}
 
         for campaign in campaigns:
-            # Count total posts and in-progress posts
             total_stmt = (
                 select(func.count())
                 .select_from(PostModel)
@@ -66,13 +63,11 @@ async def check_campaigns(payload: dict | None = None) -> dict:
             should_complete = False
 
             if total_count > 0 and in_progress_count == 0:
-                # All posts reached a terminal state
                 should_complete = True
                 reason = "all posts finished"
-            elif campaign.end_date and campaign.end_date < today and in_progress_count == 0:
-                # End date passed and nothing still in flight
+            elif campaign.end_date and campaign.end_date < today:
                 should_complete = True
-                reason = f"end_date {campaign.end_date} passed"
+                reason = f"end_date {campaign.end_date} passed ({in_progress_count} posts still pending)"
 
             if should_complete:
                 campaign.status = "completed"

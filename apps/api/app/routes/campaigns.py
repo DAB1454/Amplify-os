@@ -427,11 +427,32 @@ async def launch_campaign(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Set campaign status to active."""
+    """Set campaign status to active and auto-schedule approved posts."""
+    from sqlalchemy import select as sa_select
+    from amplify.db.models.post import PostModel
+
     repo = BaseRepository(db, CampaignModel, tenant_id)
     entity = await repo.update(campaign_id, status="active")
     if entity is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Auto-schedule all approved/draft posts that have a scheduled_at time
+    result = await db.execute(
+        sa_select(PostModel).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+            PostModel.status.in_(("approved", "draft")),
+            PostModel.scheduled_at.isnot(None),
+        )
+    )
+    posts = result.scalars().all()
+    scheduled_count = 0
+    for post in posts:
+        post.status = "scheduled"
+        scheduled_count += 1
+    if scheduled_count:
+        await db.flush()
+        logger.info("Campaign %s launched: auto-scheduled %d posts", campaign_id, scheduled_count)
 
     try:
         await audit.log(
@@ -439,7 +460,7 @@ async def launch_campaign(
             entity_type="campaign",
             entity_id=entity.id,
             user_id=user_id,
-            changes={"status": "active"},
+            changes={"status": "active", "auto_scheduled_posts": scheduled_count},
         )
     except Exception as exc:
         logger.warning("Audit log failed (non-fatal): %s", exc)
