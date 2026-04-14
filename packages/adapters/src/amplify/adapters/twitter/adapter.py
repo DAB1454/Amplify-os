@@ -40,7 +40,7 @@ from amplify.adapters.base import (
 logger = logging.getLogger(__name__)
 
 API_V2 = "https://api.twitter.com/2"
-UPLOAD_V1 = "https://upload.twitter.com/1.1/media/upload.json"
+UPLOAD_V2 = "https://api.x.com/2/media/upload"
 
 
 class TwitterAdapter(BaseAdapter):
@@ -212,17 +212,17 @@ class TwitterAdapter(BaseAdapter):
             )
         if resp.status_code == 403:
             raise PublishError(
-                f"Twitter media upload forbidden (403) — your X/Twitter API plan may not include media upload. "
-                f"Free tier only supports text tweets. Upgrade at developer.x.com. Raw: {resp.text[:200]}",
+                f"Twitter media upload forbidden (403). Check OAuth scopes include media upload, "
+                f"or verify app permissions at developer.x.com. Raw: {resp.text[:200]}",
                 platform=self.platform,
                 permanent=True,
             )
 
     async def _upload_media(self, media_url: str) -> str | None:
-        """Upload media via Twitter v1.1 chunked media upload.
+        """Upload media via Twitter v2 chunked media upload (api.x.com/2/media/upload).
 
-        Supports images and videos. Uses INIT/APPEND/FINALIZE/STATUS flow
-        for all uploads so videos are handled correctly.
+        Supports images and videos. Uses INIT/APPEND/FINALIZE/STATUS flow.
+        V2 endpoint is available under pay-per-use; v1.1 upload is not.
         """
         auth = {"Authorization": f"Bearer {self._access_token}"}
 
@@ -243,7 +243,7 @@ class TwitterAdapter(BaseAdapter):
 
             # INIT
             init_resp = await client.post(
-                UPLOAD_V1,
+                UPLOAD_V2,
                 headers=auth,
                 data={
                     "command": "INIT",
@@ -256,24 +256,25 @@ class TwitterAdapter(BaseAdapter):
             if init_resp.status_code not in (200, 201, 202):
                 logger.warning("Twitter INIT failed: %s %s", init_resp.status_code, init_resp.text[:300])
                 return None
-            media_id = init_resp.json().get("media_id_string")
+            init_data = init_resp.json().get("data", init_resp.json())
+            media_id = init_data.get("id") or init_data.get("media_id_string")
             if not media_id:
-                logger.warning("Twitter INIT returned no media_id")
+                logger.warning("Twitter INIT returned no media_id: %s", init_resp.text[:300])
                 return None
 
-            # APPEND — send in 5MB chunks
-            chunk_size = 5 * 1024 * 1024
+            # APPEND — send in 4MB chunks
+            chunk_size = 4 * 1024 * 1024
             for i, offset in enumerate(range(0, total_bytes, chunk_size)):
                 chunk = media_bytes[offset : offset + chunk_size]
                 append_resp = await client.post(
-                    UPLOAD_V1,
+                    UPLOAD_V2,
                     headers=auth,
                     data={
                         "command": "APPEND",
                         "media_id": media_id,
                         "segment_index": str(i),
                     },
-                    files={"media_data": ("chunk", chunk, "application/octet-stream")},
+                    files={"media": ("chunk", chunk, "application/octet-stream")},
                 )
                 self._check_upload_auth(append_resp, "APPEND")
                 if append_resp.status_code not in (200, 202, 204):
@@ -282,7 +283,7 @@ class TwitterAdapter(BaseAdapter):
 
             # FINALIZE
             fin_resp = await client.post(
-                UPLOAD_V1,
+                UPLOAD_V2,
                 headers=auth,
                 data={"command": "FINALIZE", "media_id": media_id},
             )
@@ -292,7 +293,8 @@ class TwitterAdapter(BaseAdapter):
                 return None
 
             # STATUS — poll until processing completes (videos only)
-            processing = fin_resp.json().get("processing_info")
+            fin_data = fin_resp.json().get("data", fin_resp.json())
+            processing = fin_data.get("processing_info")
             while processing:
                 state = processing.get("state", "")
                 if state == "succeeded":
@@ -303,14 +305,15 @@ class TwitterAdapter(BaseAdapter):
                 wait = processing.get("check_after_secs", 5)
                 await asyncio.sleep(min(wait, 30))
                 status_resp = await client.get(
-                    UPLOAD_V1,
+                    UPLOAD_V2,
                     headers=auth,
                     params={"command": "STATUS", "media_id": media_id},
                 )
                 if status_resp.status_code != 200:
                     logger.warning("Twitter STATUS check failed: %s", status_resp.status_code)
                     return None
-                processing = status_resp.json().get("processing_info")
+                status_data = status_resp.json().get("data", status_resp.json())
+                processing = status_data.get("processing_info")
 
             return media_id
 
