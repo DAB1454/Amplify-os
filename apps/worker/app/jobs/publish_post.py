@@ -297,7 +297,12 @@ async def _call_adapter(payload: dict) -> dict:
                 logger.info("Preemptive refresh succeeded for channel %s", channel_id)
             except Exception as refresh_exc:
                 logger.warning("Preemptive refresh failed for channel %s: %s", channel_id, refresh_exc)
-                # Continue anyway — the adapter will raise TokenExpiredError and we'll retry
+                # If token is already expired, fail fast — no point trying with dead tokens
+                if tokens.expires_at and datetime.utcnow() >= tokens.expires_at:
+                    raise Exception(
+                        f"Token expired for {platform} channel and refresh failed. User needs to reconnect."
+                    ) from refresh_exc
+                # Token not yet expired but close — continue and hope it still works
 
         # Import and instantiate adapter
         module_path, class_name = ADAPTER_MAP[platform].rsplit(".", 1)
@@ -404,6 +409,7 @@ async def _refresh_channel_token(
         "youtube": ("amplify.adapters.youtube.auth", "YouTubeAuth"),
         "instagram": ("amplify.adapters.instagram.auth", "InstagramAuth"),
         "tiktok": ("amplify.adapters.tiktok.auth", "TikTokAuth"),
+        "twitter": ("amplify.adapters.twitter.auth", "TwitterAuth"),
     }
     if platform not in AUTH_MAP:
         raise ValueError(f"No auth handler for platform: {platform}")
@@ -430,6 +436,12 @@ async def _refresh_channel_token(
             client_key=settings.tiktok_client_key,
             client_secret=settings.tiktok_client_secret,
             redirect_uri=settings.tiktok_redirect_uri or "",
+        )
+    elif platform == "twitter":
+        auth = auth_class(
+            client_id=settings.twitter_client_id,
+            client_secret=settings.twitter_client_secret,
+            redirect_uri=settings.twitter_redirect_uri or "",
         )
 
     # Refresh
