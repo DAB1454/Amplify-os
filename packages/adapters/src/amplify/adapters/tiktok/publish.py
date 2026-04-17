@@ -88,6 +88,22 @@ class TikTokPublisher:
                 retry_after=int(resp.headers.get("Retry-After", "60")),
             )
         if resp.status_code in (401, 403):
+            # Check if this is an app-audit issue, not a token issue
+            try:
+                body = resp.json()
+                err_code = body.get("error", {}).get("code", "")
+                if "unaudited_client" in str(err_code):
+                    raise PublishError(
+                        f"TikTok app not yet approved — unaudited apps can only post to private accounts. "
+                        f"Check app review status at developers.tiktok.com. Raw: {resp.text[:300]}",
+                        platform="tiktok",
+                        permanent=True,
+                        details=body.get("error", {}),
+                    )
+            except PublishError:
+                raise
+            except Exception:
+                pass  # JSON parse failed — fall through to token error
             raise TokenExpiredError(
                 f"TikTok token expired or revoked during {operation}: {resp.text[:500]}",
                 platform="tiktok",
