@@ -24,6 +24,7 @@ DEFAULT_SCOPES = [
     "tweet.read",
     "tweet.write",
     "users.read",
+    "media.upload",         # required for v2 media upload
     "offline.access",       # required for refresh tokens
 ]
 
