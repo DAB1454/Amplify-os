@@ -296,11 +296,11 @@ async def _call_adapter(payload: dict) -> dict:
                 )
                 logger.info("Preemptive refresh succeeded for channel %s", channel_id)
             except Exception as refresh_exc:
-                logger.warning("Preemptive refresh failed for channel %s: %s", channel_id, refresh_exc)
+                logger.error("Preemptive refresh failed for channel %s: %s", channel_id, refresh_exc, exc_info=True)
                 # If token is already expired, fail fast — no point trying with dead tokens
                 if tokens.expires_at and datetime.utcnow() >= tokens.expires_at:
                     raise Exception(
-                        f"Token expired for {platform} channel and refresh failed. User needs to reconnect."
+                        f"Token expired for {platform} channel and refresh failed: {refresh_exc}"
                     ) from refresh_exc
                 # Token not yet expired but close — continue and hope it still works
 
@@ -342,9 +342,9 @@ async def _call_adapter(payload: dict) -> dict:
                     media_paths=payload.get("media_urls", []),
                 )
             except Exception as refresh_exc:
-                logger.warning("Token refresh failed for channel %s: %s", channel_id, refresh_exc)
+                logger.error("Token refresh failed for channel %s: %s", channel_id, refresh_exc, exc_info=True)
                 raise Exception(
-                    f"Token expired for {platform} channel and refresh failed. User needs to reconnect."
+                    f"Token expired for {platform} channel and refresh failed: {refresh_exc}"
                 ) from refresh_exc
         except RateLimitError as exc:
             raise Exception(
@@ -419,7 +419,15 @@ async def _refresh_channel_token(
     auth_class = getattr(mod, cls_name)
 
     # Build auth with platform credentials from settings
+    logger.info(
+        "Refreshing %s token for channel %s (has_refresh_token=%s, expires_at=%s)",
+        platform, channel_id,
+        bool(current_tokens.refresh_token),
+        current_tokens.expires_at,
+    )
     if platform == "youtube":
+        if not settings.youtube_client_id:
+            raise ValueError("AMPLIFY_YOUTUBE_CLIENT_ID not set in worker environment")
         auth = auth_class(
             client_id=settings.youtube_client_id,
             client_secret=settings.youtube_client_secret,
@@ -432,12 +440,16 @@ async def _refresh_channel_token(
             redirect_uri=settings.instagram_redirect_uri or "",
         )
     elif platform == "tiktok":
+        if not settings.tiktok_client_key:
+            raise ValueError("AMPLIFY_TIKTOK_CLIENT_KEY not set in worker environment")
         auth = auth_class(
             client_key=settings.tiktok_client_key,
             client_secret=settings.tiktok_client_secret,
             redirect_uri=settings.tiktok_redirect_uri or "",
         )
     elif platform == "twitter":
+        if not settings.twitter_client_id:
+            raise ValueError("AMPLIFY_TWITTER_CLIENT_ID not set in worker environment")
         auth = auth_class(
             client_id=settings.twitter_client_id,
             client_secret=settings.twitter_client_secret,
