@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = ""
+    twitter_client_id: str = ""
+    twitter_client_secret: str = ""
+    twitter_redirect_uri: str = ""
 
     # Queue configuration
     max_retries: int = 3

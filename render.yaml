@@ -64,6 +64,12 @@ services:
         sync: false
       - key: TIKTOK_REDIRECT_URI
         sync: false
+      - key: TWITTER_CLIENT_ID
+        sync: false
+      - key: TWITTER_CLIENT_SECRET
+        sync: false
+      - key: TWITTER_REDIRECT_URI
+        sync: false
 
   - type: worker
     name: amplify-worker
@@ -107,4 +113,10 @@ services:
       - key: AMPLIFY_TIKTOK_CLIENT_SECRET
         sync: false
       - key: AMPLIFY_TIKTOK_REDIRECT_URI
+        sync: false
+      - key: AMPLIFY_TWITTER_CLIENT_ID
+        sync: false
+      - key: AMPLIFY_TWITTER_CLIENT_SECRET
+        sync: false
+      - key: AMPLIFY_TWITTER_REDIRECT_URI
         sync: false
