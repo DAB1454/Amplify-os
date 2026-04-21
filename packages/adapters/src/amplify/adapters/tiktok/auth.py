@@ -58,6 +58,7 @@ class TikTokAuth:
                 "user.info.basic",
                 "video.publish",
                 "video.upload",
+                "video.list",
             ]),
             "response_type": "code",
         }
