@@ -68,6 +68,11 @@ class AssetModel(Base, TimestampMixin, TenantMixin):
     avg_engagement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Video metadata (populated for music_video asset_type)
+    video_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    video_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    video_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Relationships
     artist: Mapped[ArtistModel | None] = relationship()
     release: Mapped[ReleaseModel | None] = relationship(back_populates="assets")

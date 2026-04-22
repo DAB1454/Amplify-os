@@ -53,6 +53,7 @@ from app.routes.media import router as media_router
 from app.routes.ai import router as ai_router
 from app.routes.automation import router as automation_router
 from app.routes.notifications import router as notifications_router
+from app.routes.video_clips import router as video_clips_router
 
 
 @asynccontextmanager
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
     application.include_router(automation_router, prefix=prefix)
     application.include_router(notifications_router, prefix=prefix)
     application.include_router(oauth_router, prefix=prefix)
+    application.include_router(video_clips_router, prefix=prefix)
     application.include_router(redirect_public_router)
     application.include_router(oauth_callback_router)
 

@@ -29,6 +29,7 @@ from app.jobs.backfill_posts import backfill_posts
 from app.jobs.sweep_orphaned_posts import sweep_orphaned_posts
 from app.jobs.automation_tick import automation_tick
 from app.jobs.repurpose_winners import repurpose_winners
+from app.jobs.analyze_video_clips import analyze_video_clips
 from app.jobs.intelligence_jobs import (
     extract_features,
     compute_rewards,
@@ -65,6 +66,7 @@ JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "sweep_orphaned_posts": sweep_orphaned_posts,
     "automation_tick": automation_tick,
     "repurpose_winners": repurpose_winners,
+    "analyze_video_clips": analyze_video_clips,
 }
 
 

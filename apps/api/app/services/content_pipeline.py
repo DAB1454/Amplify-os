@@ -100,7 +100,30 @@ async def generate_content_for_post(
             logger.warning("Caption generation failed for post %s: %s", post_id, exc)
             updates["caption_error"] = str(exc)
 
-    # Step 2: Find and attach matching assets from the library
+    # Step 2: Check clip library first, then fall back to asset matching
+    if not post.media_urls or len(post.media_urls) == 0:
+        # Try clip library for video posts
+        try:
+            from app.routes.ai import _find_clip_for_post
+            # YouTube defaults to landscape, others to vertical
+            _ar = "16:9" if post.platform == "youtube" else "9:16"
+            clip_url = await _find_clip_for_post(
+                db=db,
+                tenant_id=tenant_id,
+                release_id=release_id,
+                track_reference=post.track_reference,
+                platform=post.platform,
+                campaign_id=post.campaign_id,
+                day_number=post.day_number or 0,
+                aspect_ratio=_ar,
+            )
+            if clip_url:
+                post.media_urls = [clip_url]
+                updates["clip_library_used"] = True
+                logger.info("Used clip library for post %s", post_id)
+        except Exception as exc:
+            logger.debug("Clip library lookup failed for post %s: %s", post_id, exc)
+
     if not post.media_urls or len(post.media_urls) == 0:
         try:
             max_media = _desired_media_count(post.platform, post.action_type_label)

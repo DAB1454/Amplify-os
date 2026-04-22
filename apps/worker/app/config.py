@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     twitter_client_secret: str = ""
     twitter_redirect_uri: str = ""
 
+    # S3 storage (needed for clip extraction upload)
+    s3_bucket: str = ""
+    s3_region: str = "us-east-2"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+
     # Queue configuration
     max_retries: int = 3
     backoff_base: int = 2  # seconds — exponential backoff base

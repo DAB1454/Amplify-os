@@ -58,6 +58,11 @@ class PostModel(Base, TimestampMixin, TenantMixin):
         ForeignKey("posts.id", ondelete="SET NULL"), nullable=True, index=True,
     )
 
+    # Video clip from the clip library (music video extracts)
+    clip_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("video_clips.id", ondelete="SET NULL"), nullable=True,
+    )
+
     # Relationships
     campaign: Mapped[CampaignModel | None] = relationship(back_populates="posts")
     channel: Mapped[ChannelConnectionModel] = relationship()

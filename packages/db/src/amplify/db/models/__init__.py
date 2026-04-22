@@ -21,6 +21,7 @@ from amplify.db.models.notification import NotificationModel
 from amplify.db.models.billing import BillingPlanModel, SubscriptionModel
 from amplify.db.models.assisted_task import AssistedTaskModel
 from amplify.db.models.redirect import RedirectModel
+from amplify.db.models.video_clip import VideoClipModel, VideoClipAnalysisJobModel
 from amplify.db.models.learning import (
     LearningEventModel,
     PostFeatureVectorModel,
@@ -72,4 +73,6 @@ __all__ = [
     "EvaluationRunModel",
     "EvaluationResultModel",
     "LearningAuditLogModel",
+    "VideoClipModel",
+    "VideoClipAnalysisJobModel",
 ]

@@ -120,3 +120,11 @@ services:
         sync: false
       - key: AMPLIFY_TWITTER_REDIRECT_URI
         sync: false
+      - key: AMPLIFY_S3_BUCKET
+        sync: false
+      - key: AMPLIFY_S3_REGION
+        value: us-east-2
+      - key: AMPLIFY_AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AMPLIFY_AWS_SECRET_ACCESS_KEY
+        sync: false
