@@ -125,19 +125,31 @@ async def upload_music_video(
     db.add(job)
     await db.flush()
 
-    # Enqueue worker job
-    redis = getattr(request.app.state, "redis", None)
-    if redis:
-        from worker.app.queue import JobQueue
-        q = JobQueue(redis)
-        await q.enqueue("analyze_video_clips", {
-            "source_asset_id": str(asset.id),
-            "track_id": str(track_id) if track_id else None,
-            "release_id": str(release_id) if release_id else None,
-            "artist_id": str(artist_id) if artist_id else None,
-            "tenant_id": str(tenant_id),
-            "job_id": str(job.id),
-        }, timeout_seconds=900)
+    # Enqueue worker job via Redis directly (worker module not on API PYTHONPATH)
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client:
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz
+        _job_id = uuid.uuid4().hex
+        envelope = _json.dumps({
+            "job_id": _job_id,
+            "job_type": "analyze_video_clips",
+            "payload": {
+                "source_asset_id": str(asset.id),
+                "track_id": str(track_id) if track_id else None,
+                "release_id": str(release_id) if release_id else None,
+                "artist_id": str(artist_id) if artist_id else None,
+                "tenant_id": str(tenant_id),
+                "job_id": str(job.id),
+            },
+            "idempotency_key": "",
+            "enqueued_at": _dt.now(_tz.utc).isoformat(),
+            "max_retries": 2,
+            "attempt": 0,
+            "backoff_base": 2,
+            "timeout_seconds": 900,
+        })
+        await redis_client.rpush("amplify:queue", envelope)
         logger.info("Enqueued analyze_video_clips job %s for asset %s", job.id, asset.id)
     else:
         logger.warning("Redis not available — clip analysis job not enqueued")
