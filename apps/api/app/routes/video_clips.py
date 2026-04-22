@@ -63,12 +63,16 @@ class ClipResponse(BaseModel):
 
 class AnalysisJobResponse(BaseModel):
     id: str
+    source_asset_id: str = ""
+    source_asset_name: str = ""
+    track_id: str | None = None
     status: str
     clips_detected: int
     clips_extracted: int
     error_message: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
+    created_at: str | None = None
 
 
 # ── Upload music video ───────────────────────────────────────────
@@ -146,6 +150,54 @@ async def upload_music_video(
 
 # ── Analysis job status ──────────────────────────────────────────
 
+def _job_to_response(job, asset_name: str = "") -> AnalysisJobResponse:
+    return AnalysisJobResponse(
+        id=str(job.id),
+        source_asset_id=str(job.source_asset_id),
+        source_asset_name=asset_name,
+        track_id=str(job.track_id) if job.track_id else None,
+        status=job.status,
+        clips_detected=job.clips_detected,
+        clips_extracted=job.clips_extracted,
+        error_message=job.error_message,
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        created_at=job.created_at.isoformat() if job.created_at else None,
+    )
+
+
+@router.get("/analysis-jobs", response_model=list[AnalysisJobResponse])
+async def list_analysis_jobs(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    track_id: uuid.UUID | None = Query(None),
+    release_id: uuid.UUID | None = Query(None),
+):
+    """List video analysis jobs, optionally filtered by track or release."""
+    from amplify.db.models.video_clip import VideoClipAnalysisJobModel
+    from amplify.db.models.asset import AssetModel
+
+    q = select(VideoClipAnalysisJobModel).where(
+        VideoClipAnalysisJobModel.tenant_id == tenant_id,
+    )
+    if track_id:
+        q = q.where(VideoClipAnalysisJobModel.track_id == track_id)
+    q = q.order_by(VideoClipAnalysisJobModel.created_at.desc()).limit(50)
+    result = await db.execute(q)
+    jobs = result.scalars().all()
+
+    # Batch-fetch asset names
+    asset_ids = {j.source_asset_id for j in jobs}
+    asset_names: dict[uuid.UUID, str] = {}
+    if asset_ids:
+        asset_result = await db.execute(
+            select(AssetModel.id, AssetModel.name).where(AssetModel.id.in_(asset_ids))
+        )
+        asset_names = {row.id: row.name for row in asset_result.all()}
+
+    return [_job_to_response(j, asset_names.get(j.source_asset_id, "")) for j in jobs]
+
+
 @router.get("/analysis/{job_id}", response_model=AnalysisJobResponse)
 async def get_analysis_status(
     job_id: uuid.UUID,
@@ -154,6 +206,7 @@ async def get_analysis_status(
 ):
     """Poll clip analysis job status."""
     from amplify.db.models.video_clip import VideoClipAnalysisJobModel
+    from amplify.db.models.asset import AssetModel
 
     result = await db.execute(
         select(VideoClipAnalysisJobModel).where(
@@ -165,15 +218,12 @@ async def get_analysis_status(
     if not job:
         raise HTTPException(404, "Analysis job not found")
 
-    return AnalysisJobResponse(
-        id=str(job.id),
-        status=job.status,
-        clips_detected=job.clips_detected,
-        clips_extracted=job.clips_extracted,
-        error_message=job.error_message,
-        started_at=job.started_at.isoformat() if job.started_at else None,
-        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+    asset_result = await db.execute(
+        select(AssetModel.name).where(AssetModel.id == job.source_asset_id)
     )
+    asset_name = asset_result.scalar_one_or_none() or ""
+
+    return _job_to_response(job, asset_name)
 
 
 # ── List clips ───────────────────────────────────────────────────

@@ -378,6 +378,7 @@ export default function ReleasesPage() {
                   <div className="border-t border-[var(--border-color)] px-5 py-4">
                     <TrackList
                       releaseId={r.id}
+                      artistId={r.artist_id}
                       tracks={tracks[r.id] || []}
                       onRefresh={() => fetchTracks(r.id)}
                       onError={(msg) => setError(msg)}
@@ -425,13 +426,27 @@ interface UploadProgress {
   status: "uploading" | "processing" | "done" | "error";
 }
 
+interface VideoJob {
+  id: string;
+  source_asset_id: string;
+  source_asset_name: string;
+  track_id: string | null;
+  status: string;
+  clips_detected: number;
+  clips_extracted: number;
+  error_message: string | null;
+  created_at: string | null;
+}
+
 function TrackList({
   releaseId,
+  artistId,
   tracks,
   onRefresh,
   onError,
 }: {
   releaseId: string;
+  artistId: string;
   tracks: Track[];
   onRefresh: () => void;
   onError: (msg: string) => void;
@@ -450,6 +465,69 @@ function TrackList({
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [pendingTrackId, setPendingTrackId] = useState<string | null>(null);
+
+  // Video uploads
+  const [videosTrackId, setVideosTrackId] = useState<string | null>(null);
+  const [videoJobs, setVideoJobs] = useState<Record<string, VideoJob[]>>({});
+  const [videoUploading, setVideoUploading] = useState<Record<string, UploadProgress>>({});
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const [pendingVideoTrackId, setPendingVideoTrackId] = useState<string | null>(null);
+
+  const fetchVideoJobs = async (trackId: string) => {
+    try {
+      const jobs = await apiGet<VideoJob[]>(`/api/v1/video-clips/analysis-jobs?track_id=${trackId}`);
+      setVideoJobs((prev) => ({ ...prev, [trackId]: jobs }));
+    } catch {
+      // non-fatal
+    }
+  };
+
+  const handleVideoUpload = async (trackId: string, files: FileList) => {
+    const fileArray = Array.from(files);
+
+    for (const file of fileArray) {
+      const key = `${trackId}:${file.name}`;
+      setVideoUploading((prev) => ({
+        ...prev,
+        [key]: { filename: file.name, progress: 0, status: "uploading" },
+      }));
+
+      try {
+        const qs = `?track_id=${trackId}&release_id=${releaseId}&artist_id=${artistId}`;
+        await apiUploadWithProgress<{ asset_id: string; analysis_job_id: string }>(
+          `/api/v1/video-clips/upload-video${qs}`,
+          file,
+          (pct) => {
+            setVideoUploading((prev) => ({
+              ...prev,
+              [key]: { ...prev[key], progress: pct },
+            }));
+          },
+        );
+        setVideoUploading((prev) => ({
+          ...prev,
+          [key]: { ...prev[key], progress: 100, status: "done" },
+        }));
+        // Refresh jobs list
+        fetchVideoJobs(trackId);
+      } catch (err) {
+        setVideoUploading((prev) => ({
+          ...prev,
+          [key]: { ...prev[key], status: "error", progress: 0 },
+        }));
+        onError(err instanceof Error ? err.message : "Video upload failed");
+      }
+    }
+
+    // Clear progress after a moment
+    setTimeout(() => {
+      setVideoUploading((prev) => {
+        const next = { ...prev };
+        fileArray.forEach((f) => delete next[`${trackId}:${f.name}`]);
+        return next;
+      });
+    }, 4000);
+  };
 
   // Bulk upload progress tracking
   const [bulkUploads, setBulkUploads] = useState<Record<string, UploadProgress>>({});
@@ -760,6 +838,22 @@ function TrackList({
         }}
       />
 
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0 && pendingVideoTrackId) {
+            handleVideoUpload(pendingVideoTrackId, files);
+          }
+          if (videoInputRef.current) videoInputRef.current.value = "";
+          setPendingVideoTrackId(null);
+        }}
+      />
+
       {/* Close import menu on outside click */}
       {showImportMenu && (
         <div className="fixed inset-0 z-10" onClick={() => setShowImportMenu(false)} />
@@ -926,6 +1020,31 @@ function TrackList({
                     );
                   })()}
 
+                  {/* Videos toggle */}
+                  {(() => {
+                    const jobCount = videoJobs[track.id]?.length || 0;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (videosTrackId === track.id) {
+                            setVideosTrackId(null);
+                          } else {
+                            setVideosTrackId(track.id);
+                            if (!videoJobs[track.id]) fetchVideoJobs(track.id);
+                          }
+                        }}
+                        className={`rounded px-2 py-0.5 text-[10px] transition-colors ${
+                          jobCount > 0
+                            ? "bg-indigo-100 text-indigo-600 hover:bg-indigo-200"
+                            : "border border-dashed border-[var(--border-color)] text-[var(--text-secondary)] hover:border-indigo-400 hover:text-indigo-500"
+                        }`}
+                        title="Music videos for clip extraction"
+                      >
+                        {videosTrackId === track.id ? "Close Videos" : jobCount > 0 ? `Videos (${jobCount})` : "+ Videos"}
+                      </button>
+                    );
+                  })()}
+
                   {/* Single toggle */}
                   <button
                     onClick={() => handleToggleSingle(track)}
@@ -1019,6 +1138,97 @@ function TrackList({
                       {linksSaving ? "Saving..." : "Save Links"}
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* Videos section (expanded) */}
+              {videosTrackId === track.id && (
+                <div className="border-t border-[var(--border-color)] px-3 py-3 bg-[var(--bg-surface)] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] font-medium text-[var(--text-secondary)]">
+                      Music videos for &ldquo;{track.title}&rdquo;
+                    </label>
+                    <button
+                      onClick={() => {
+                        setPendingVideoTrackId(track.id);
+                        videoInputRef.current?.click();
+                      }}
+                      className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+                    >
+                      Upload Video
+                    </button>
+                  </div>
+
+                  {/* Upload progress */}
+                  {Object.entries(videoUploading)
+                    .filter(([key]) => key.startsWith(`${track.id}:`))
+                    .map(([key, u]) => (
+                      <ProgressBar key={key} filename={u.filename} progress={u.progress} status={u.status} />
+                    ))}
+
+                  {/* List of uploaded videos / analysis jobs */}
+                  {(videoJobs[track.id] || []).length === 0 ? (
+                    <div
+                      className="rounded-lg border-2 border-dashed border-[var(--border-color)] p-4 text-center cursor-pointer hover:border-indigo-400 transition-colors"
+                      onClick={() => {
+                        setPendingVideoTrackId(track.id);
+                        videoInputRef.current?.click();
+                      }}
+                    >
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        No music videos yet. Upload a lyric video, cinematic video, or performance video.
+                      </p>
+                      <p className="text-[10px] text-[var(--text-secondary)] mt-1">
+                        Videos are auto-analyzed and split into short clips for Reels, Shorts &amp; TikTok.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(videoJobs[track.id] || []).map((job) => (
+                        <div key={job.id} className="flex items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-[var(--text-primary)] truncate">
+                              {job.source_asset_name || "Music Video"}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                job.status === "complete"
+                                  ? "bg-green-100 text-green-600"
+                                  : job.status === "failed"
+                                  ? "bg-red-100 text-red-600"
+                                  : "bg-amber-100 text-amber-600"
+                              }`}>
+                                {job.status === "complete" ? "Analyzed" : job.status === "failed" ? "Failed" : "Processing..."}
+                              </span>
+                              {job.clips_extracted > 0 && (
+                                <span className="text-[10px] text-[var(--text-secondary)]">
+                                  {job.clips_extracted} clip{job.clips_extracted !== 1 ? "s" : ""} extracted
+                                </span>
+                              )}
+                              {job.status !== "complete" && job.status !== "failed" && job.clips_detected > 0 && (
+                                <span className="text-[10px] text-[var(--text-secondary)]">
+                                  {job.clips_detected} segments detected
+                                </span>
+                              )}
+                              {job.error_message && (
+                                <span className="text-[10px] text-red-500 truncate max-w-[200px]" title={job.error_message}>
+                                  {job.error_message}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {(job.status !== "complete" && job.status !== "failed") && (
+                            <button
+                              onClick={() => fetchVideoJobs(track.id)}
+                              className="text-[10px] text-indigo-500 hover:underline shrink-0"
+                            >
+                              Refresh
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
