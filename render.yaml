@@ -2,7 +2,7 @@ databases:
   - name: amplify-db
     databaseName: amplify_os
     user: amplify
-    plan: free
+    plan: basic-256mb
     region: oregon
 
 services:
