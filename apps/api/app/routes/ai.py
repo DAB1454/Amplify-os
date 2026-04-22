@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -224,6 +225,12 @@ async def _auto_generate_post_video(
 
             scored_audio.append((score, asset))
 
+        # ── Usage-aware penalty: penalize tracks already used in this
+        # campaign so we don't always pick the same song ──────────────
+        for i, (score, asset) in enumerate(scored_audio):
+            asset_uses = getattr(asset, "uses_count", 0) or 0
+            scored_audio[i] = (score - min(asset_uses * 8, 40), asset)
+
         scored_audio.sort(key=lambda x: x[0], reverse=True)
         logger.info("Audio matching top 3: %s",
                      [(s, a.name) for s, a in scored_audio[:3]])
@@ -235,8 +242,19 @@ async def _auto_generate_post_video(
             logger.info("Carousel index %d → using track %d: %s",
                         carousel_index, pick_idx, audio.name)
         else:
-            # Single post: use highest-scored audio
-            audio = scored_audio[0][1] if scored_audio else audio_assets[0]
+            # Rotate among top candidates using day_number for variety
+            # instead of always picking the single highest scorer
+            top = scored_audio[0][0]
+            close = [(s, a) for s, a in scored_audio if s >= top - 20 and top > 0]
+            if len(close) > 1 and day_number:
+                audio = close[day_number % len(close)][1]
+            else:
+                audio = scored_audio[0][1] if scored_audio else audio_assets[0]
+
+    # Track audio usage for future dedup
+    if hasattr(audio, "uses_count"):
+        audio.uses_count = (audio.uses_count or 0) + 1
+        audio.last_used_at = datetime.utcnow()
 
     # Smart clip selection: use lyrics to find verse/chorus boundaries
     audio_start = await _smart_audio_offset(
@@ -295,11 +313,18 @@ async def _smart_audio_offset(
     """Pick an audio start offset using lyrics to target verse/chorus sections.
 
     If lyrics are available, identifies section breaks (verse, chorus, bridge)
-    and rotates through them. Falls back to varied offset if no lyrics.
+    and rotates through them. Uses a hash of (track_name, day_number) to select
+    the section, so different tracks on the same day get different offsets,
+    and the same track on different days gets different offsets.
+
+    Falls back to proportional offset within the track duration if no lyrics.
     """
     from amplify.db.models.track import TrackModel
     from sqlalchemy import select
     from app.services.content_pipeline import _normalize_for_match
+    import hashlib
+
+    track_duration = None
 
     # Try to find the matching track with lyrics
     if release_id and audio_name:
@@ -318,21 +343,36 @@ async def _smart_audio_offset(
                     matched = t
                     break
 
+            if matched:
+                track_duration = matched.duration_seconds
+
             if matched and matched.lyrics and matched.duration_seconds:
                 sections = _find_lyric_sections(matched.lyrics, matched.duration_seconds)
                 if sections:
-                    # Rotate through sections using day_number
-                    section_start = sections[day_number % len(sections)]
-                    # Ensure we don't go past the end
+                    # Hash track name + day_number for varied but deterministic selection.
+                    # This ensures: same track on different days → different section,
+                    # different tracks on the same day → different section.
+                    seed = hashlib.md5(f"{audio_name}:{day_number}".encode()).digest()
+                    idx = int.from_bytes(seed[:4], "little") % len(sections)
+                    section_start = sections[idx]
                     max_start = max(0, matched.duration_seconds - duration)
                     return min(section_start, max_start)
         except Exception:
             pass
 
-    # Fallback: varied offset that avoids intros
-    # Cycle through: verse1 (~20s), chorus (~45s), verse2 (~75s), bridge (~120s)
-    offsets = [20, 45, 75, 120, 30, 60, 90, 105]
-    return offsets[day_number % len(offsets)]
+    # Fallback: use track duration if known, otherwise assume 210s (3:30)
+    total = track_duration or 210
+    max_start = max(0, total - duration)
+
+    # Generate a pseudo-random offset using hash of track + day for variety.
+    # Avoids the first 10s (intros) and last `duration` seconds.
+    import hashlib
+    seed = hashlib.md5(f"{audio_name}:{day_number}:offset".encode()).digest()
+    raw = int.from_bytes(seed[:4], "little")
+    safe_start = 10  # skip intros
+    if max_start > safe_start:
+        return safe_start + (raw % (max_start - safe_start))
+    return safe_start
 
 
 def _find_lyric_sections(lyrics: str, duration_seconds: int) -> list[int]:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -411,6 +412,14 @@ async def _find_matching_assets(
         if getattr(asset, "test_status", "untested") == "proven":
             score += 15
 
+        # ── Usage-aware penalty ──────────────────────────────────────
+        # Penalize heavily-used assets so the same image/video doesn't
+        # dominate every post. Each prior use costs 8 points (capped
+        # at -40). This ensures that after ~5 uses, even a strong
+        # keyword match loses to a fresh alternative.
+        asset_uses = getattr(asset, "uses_count", 0) or 0
+        score -= min(asset_uses * 8, 40)
+
         scored.append((score, asset))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -457,16 +466,24 @@ async def _find_matching_assets(
                 "Experiment slot (day=%s): picking untested asset %s (%s) score=%s",
                 day_number, pick.id, pick.name, untested[0][0],
             )
+            pick.uses_count = (pick.uses_count or 0) + 1
+            pick.last_used_at = datetime.utcnow()
             return [pick.file_url]
 
-    # Always use the highest-scored asset.
-    # Only rotate among truly tied candidates (within 5 pts) for variety.
+    # Rotate among close candidates (within 20 pts) for variety.
+    # The wider window ensures different assets surface across a campaign
+    # instead of the same top-scorer winning every day.
     top_score = scored[0][0]
-    close_candidates = [a for s, a in scored if s >= top_score - 5 and top_score > 0]
+    close_candidates = [a for s, a in scored if s >= top_score - 20 and top_score > 0]
     if len(close_candidates) > 1 and day_number is not None:
         pick = close_candidates[day_number % len(close_candidates)]
-        return [pick.file_url]
-    return [scored[0][1].file_url]
+    else:
+        pick = scored[0][1]
+
+    # Track usage so future calls penalize this asset
+    pick.uses_count = (pick.uses_count or 0) + 1
+    pick.last_used_at = datetime.utcnow()
+    return [pick.file_url]
 
 
 def _normalize_for_match(text: str) -> str:
