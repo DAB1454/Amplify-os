@@ -24,7 +24,8 @@ RUN pip install --no-cache-dir --prefix=/install \
     "redis>=5.0" \
     "sqlalchemy[asyncio]>=2.0" \
     "asyncpg>=0.30" \
-    "pydantic-settings>=2.0"
+    "pydantic-settings>=2.0" \
+    "boto3>=1.35"
 
 # Stage 2: Runtime
 FROM python:3.12-slim
