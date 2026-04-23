@@ -77,7 +77,7 @@ services:
     dockerfilePath: apps/worker/Dockerfile
     dockerContext: .
     region: oregon
-    plan: starter
+    plan: standard
     envVars:
       - key: AMPLIFY_DATABASE_URL
         fromDatabase:

@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = {
     "min_clip_seconds": 15,
     "max_clip_seconds": 60,
-    "target_clip_count": 8,
+    "target_clip_count": 6,
     "aspect_ratios": ["9:16", "16:9"],
 }
 
@@ -101,13 +101,15 @@ async def analyze_video_clips(payload: dict) -> dict:
             tmpdir = Path(tmpdir)
             video_path = tmpdir / "source.mp4"
 
-            # Download source video
+            # Download source video — stream to disk to avoid loading into memory
             logger.info("Downloading source video from %s", video_url)
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.get(video_url, follow_redirects=True)
-                if resp.status_code != 200:
-                    raise ValueError(f"Failed to download video: {resp.status_code}")
-                video_path.write_bytes(resp.content)
+            async with httpx.AsyncClient(timeout=300) as client:
+                async with client.stream("GET", video_url, follow_redirects=True) as resp:
+                    if resp.status_code != 200:
+                        raise ValueError(f"Failed to download video: {resp.status_code}")
+                    with open(video_path, "wb") as f:
+                        async for chunk in resp.aiter_bytes(chunk_size=1024 * 256):
+                            f.write(chunk)
 
             video_size = video_path.stat().st_size
             logger.info("Downloaded %d bytes to %s", video_size, video_path)
@@ -224,6 +226,10 @@ async def analyze_video_clips(payload: dict) -> dict:
                     db.add(clip)
                     clips_created += 1
 
+                    # Clean up extracted files immediately to free disk
+                    import shutil
+                    shutil.rmtree(clip_dir, ignore_errors=True)
+
                 except Exception as exc:
                     logger.warning("Failed to extract clip at %.1f-%.1f: %s",
                                    seg["start"], seg["end"], exc)
@@ -280,7 +286,8 @@ async def _extract_energy_curve(video_path: Path, tmpdir: Path) -> list[dict]:
     energy_file = tmpdir / "energy.txt"
 
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-i", str(video_path),
+        "ffmpeg", "-y", "-threads", "1",
+        "-i", str(video_path),
         "-filter_complex",
         "[0:a]astats=metadata=1:reset=24,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=" + str(energy_file),
         "-f", "null", "-",
@@ -337,7 +344,8 @@ async def _detect_scene_changes(video_path: Path) -> list[float]:
     Returns list of timestamps in seconds.
     """
     proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-i", str(video_path),
+        "ffmpeg", "-threads", "1",
+        "-i", str(video_path),
         "-vf", "select='gt(scene,0.3)',showinfo",
         "-f", "null", "-",
         stdout=asyncio.subprocess.PIPE,
@@ -514,37 +522,39 @@ async def _extract_clip(
     """Extract a clip from the source video with aspect ratio conversion."""
     # Build video filter for aspect ratio
     vf_parts = []
+    # Use 720p-class output to keep memory low on small instances
     if target_ratio == "9:16" and source_width >= source_height:
         # Landscape → vertical: center crop
         vf_parts.append("crop=ih*9/16:ih")
-        vf_parts.append("scale=1080:1920")
+        vf_parts.append("scale=720:1280")
     elif target_ratio == "16:9" and source_height > source_width:
         # Vertical → landscape: center crop
         vf_parts.append("crop=iw:iw*9/16")
-        vf_parts.append("scale=1920:1080")
+        vf_parts.append("scale=1280:720")
     elif target_ratio == "1:1":
         # Square: crop to center square
         vf_parts.append("crop=min(iw\\,ih):min(iw\\,ih)")
-        vf_parts.append("scale=1080:1080")
+        vf_parts.append("scale=720:720")
     elif target_ratio == "9:16":
         # Already vertical, just scale
-        vf_parts.append("scale=1080:1920:force_original_aspect_ratio=decrease")
-        vf_parts.append("pad=1080:1920:(ow-iw)/2:(oh-ih)/2")
+        vf_parts.append("scale=720:1280:force_original_aspect_ratio=decrease")
+        vf_parts.append("pad=720:1280:(ow-iw)/2:(oh-ih)/2")
     else:
-        # Already landscape or matching, scale to 1080p
-        vf_parts.append("scale=1920:1080:force_original_aspect_ratio=decrease")
-        vf_parts.append("pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+        # Already landscape or matching, scale to 720p
+        vf_parts.append("scale=1280:720:force_original_aspect_ratio=decrease")
+        vf_parts.append("pad=1280:720:(ow-iw)/2:(oh-ih)/2")
 
     vf = ",".join(vf_parts)
 
     cmd = [
         "ffmpeg", "-y",
-        "-ss", str(start),
+        "-ss", str(start),       # seek before input (fast seek)
         "-t", str(duration),
         "-i", str(video_path),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+        "-threads", "1",         # limit threads to save memory
+        "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         str(out_path),
     ]
