@@ -58,6 +58,10 @@ interface Overview {
   total_campaigns: number;
   total_posts: number;
   published_posts: number;
+  total_views: number;
+  total_likes: number;
+  total_comments: number;
+  total_shares: number;
 }
 
 interface Channel {
@@ -445,11 +449,15 @@ export default function AnalyticsPage() {
         <>
           {/* Overview cards */}
           {overview && (
-            <div className="mt-6 grid grid-cols-3 gap-4">
+            <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
               {[
                 { label: "Campaigns", value: overview.total_campaigns },
                 { label: "Total Posts", value: overview.total_posts },
                 { label: "Published", value: overview.published_posts },
+                { label: "Total Views", value: overview.total_views?.toLocaleString() || "0" },
+                { label: "Likes", value: overview.total_likes?.toLocaleString() || "0" },
+                { label: "Comments", value: overview.total_comments?.toLocaleString() || "0" },
+                { label: "Shares", value: overview.total_shares?.toLocaleString() || "0" },
               ].map((card) => (
                 <div
                   key={card.label}

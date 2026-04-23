@@ -50,11 +50,36 @@ class AnalyticsService:
             )
         )
 
+        # Aggregate total views/likes/comments from published posts' engagement JSON
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        pub_posts = await self.db.execute(
+            select(PostModel.engagement).where(
+                PostModel.tenant_id == self.tenant_id,
+                PostModel.status == "published",
+                PostModel.engagement.isnot(None),
+            )
+        )
+        total_views = 0
+        total_likes = 0
+        total_comments = 0
+        total_shares = 0
+        for (engagement,) in pub_posts.all():
+            if not engagement:
+                continue
+            total_views += int(engagement.get("views", 0) or engagement.get("impressions", 0) or 0)
+            total_likes += int(engagement.get("likes", 0) or 0)
+            total_comments += int(engagement.get("comments", 0) or 0)
+            total_shares += int(engagement.get("shares", 0) or 0)
+
         return {
             "tenant_id": str(self.tenant_id),
             "total_campaigns": campaigns.scalar_one(),
             "total_posts": posts.scalar_one(),
             "published_posts": published.scalar_one(),
+            "total_views": total_views,
+            "total_likes": total_likes,
+            "total_comments": total_comments,
+            "total_shares": total_shares,
         }
 
     # ── campaign time-series ──────────────────────────────────────

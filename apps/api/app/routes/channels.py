@@ -656,6 +656,9 @@ async def force_sync_metrics(
 
         await adapter.connect(creds)
 
+        from amplify.db.models.metric import DailyMetricModel
+        today = datetime.utcnow().date()
+
         for post in posts:
             try:
                 snapshot = await adapter.sync_metrics(post.platform_post_id)
@@ -670,6 +673,42 @@ async def force_sync_metrics(
                     "clicks": snapshot.clicks,
                     "synced_at": datetime.utcnow().isoformat(),
                 }
+
+                # Write DailyMetricModel rows so timeseries charts reflect the data
+                metric_pairs = [
+                    ("impressions", snapshot.impressions),
+                    ("engagement", snapshot.likes + snapshot.comments + snapshot.shares + snapshot.saves),
+                    ("views", snapshot.views),
+                    ("reach", snapshot.reach),
+                ]
+                for metric_name, value in metric_pairs:
+                    if value <= 0:
+                        continue
+                    existing = await db.execute(
+                        select(DailyMetricModel).where(
+                            DailyMetricModel.tenant_id == tenant_id,
+                            DailyMetricModel.source == platform,
+                            DailyMetricModel.metric_name == metric_name,
+                            DailyMetricModel.entity_type == "post",
+                            DailyMetricModel.entity_id == post.id,
+                            DailyMetricModel.date == today,
+                        )
+                    )
+                    row = existing.scalar_one_or_none()
+                    if row:
+                        row.previous_value = row.value
+                        row.value = float(value)
+                    else:
+                        db.add(DailyMetricModel(
+                            tenant_id=tenant_id,
+                            source=platform,
+                            metric_name=metric_name,
+                            entity_type="post",
+                            entity_id=post.id,
+                            date=today,
+                            value=float(value),
+                        ))
+
                 synced += 1
             except Exception as exc:
                 logger.warning("Metrics sync failed for post %s: %s", post.id, exc)
