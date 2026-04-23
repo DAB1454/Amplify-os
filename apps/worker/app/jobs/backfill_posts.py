@@ -85,7 +85,11 @@ async def backfill_posts(payload: dict | None = None) -> dict:
                         db, tokens.access_token,
                         channel, channel.tenant_id,
                     )
-                # TikTok: skip until video.list scope is approved
+                elif platform == "tiktok":
+                    imported, skipped, errors = await _import_tiktok(
+                        db, tokens.access_token,
+                        channel, channel.tenant_id,
+                    )
 
                 total_imported += imported
                 total_skipped += skipped
@@ -328,5 +332,94 @@ async def _import_youtube(
                 )
                 db.add(post)
                 imported += 1
+
+    return imported, skipped, errors
+
+
+async def _import_tiktok(
+    db, access_token: str, channel, tenant_id: uuid.UUID,
+) -> tuple[int, int, list[str]]:
+    """Fetch published videos from TikTok and create post records."""
+    from amplify.db.models.post import PostModel
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+    TT_API = "https://open.tiktokapis.com/v2"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        cursor = None
+        has_more = True
+
+        while has_more:
+            body: dict = {"max_count": 20}
+            if cursor:
+                body["cursor"] = cursor
+
+            resp = await client.post(
+                f"{TT_API}/video/list/",
+                headers=headers,
+                json=body,
+                params={"fields": "id,title,video_description,create_time,share_url,like_count,comment_count,share_count,view_count,duration"},
+            )
+            if resp.status_code >= 400:
+                errors.append(f"TikTok video/list error ({resp.status_code}): {resp.text[:200]}")
+                break
+
+            data = resp.json().get("data", {})
+            videos = data.get("videos", [])
+
+            for v in videos:
+                video_id = v.get("id", "")
+                if not video_id:
+                    continue
+
+                existing = await db.execute(
+                    select(PostModel.id).where(
+                        PostModel.platform_post_id == video_id,
+                        PostModel.tenant_id == tenant_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    skipped += 1
+                    continue
+
+                published_at = None
+                if v.get("create_time"):
+                    try:
+                        published_at = datetime.utcfromtimestamp(v["create_time"])
+                    except Exception:
+                        pass
+
+                post = PostModel(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    channel_id=channel.id,
+                    platform="tiktok",
+                    status="published",
+                    content_text=v.get("video_description") or v.get("title") or "",
+                    media_urls=[],
+                    platform_post_id=video_id,
+                    permalink=v.get("share_url", ""),
+                    published_at=published_at,
+                    engagement={
+                        "views": v.get("view_count", 0),
+                        "likes": v.get("like_count", 0),
+                        "comments": v.get("comment_count", 0),
+                        "shares": v.get("share_count", 0),
+                    },
+                    action_type_label="video",
+                )
+                db.add(post)
+                imported += 1
+
+            has_more = data.get("has_more", False)
+            cursor = data.get("cursor")
+            if not videos:
+                break
 
     return imported, skipped, errors
