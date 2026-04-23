@@ -327,9 +327,10 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
+      const platformParam = platformFilter !== "all" ? `&platform=${platformFilter}` : "";
       const [ov, ts, sc, rp, ch] = await Promise.all([
         apiGet<Overview>("/api/v1/analytics/overview"),
-        apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}`),
+        apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}${platformParam}`),
         apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
         apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
         apiGet<Channel[]>("/api/v1/channels"),
@@ -344,7 +345,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [days]);
+  }, [days, platformFilter]);
 
   useEffect(() => {
     fetchAll();

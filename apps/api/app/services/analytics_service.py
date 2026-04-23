@@ -51,20 +51,19 @@ class AnalyticsService:
         )
 
         # Aggregate total views/likes/comments from published posts' engagement JSON
-        cutoff = datetime.utcnow() - timedelta(days=30)
         pub_posts = await self.db.execute(
-            select(PostModel.engagement).where(
+            select(PostModel.engagement, PostModel.platform).where(
                 PostModel.tenant_id == self.tenant_id,
                 PostModel.status == "published",
-                PostModel.engagement.isnot(None),
             )
         )
         total_views = 0
         total_likes = 0
         total_comments = 0
         total_shares = 0
-        for (engagement,) in pub_posts.all():
-            if not engagement:
+        for row in pub_posts.all():
+            engagement = row[0]
+            if not engagement or not isinstance(engagement, dict):
                 continue
             total_views += int(engagement.get("views", 0) or engagement.get("impressions", 0) or 0)
             total_likes += int(engagement.get("likes", 0) or 0)
@@ -91,6 +90,7 @@ class AnalyticsService:
         self,
         campaign_id: uuid.UUID | None = None,
         days: int = 30,
+        platform: str | None = None,
     ) -> dict:
         """Daily views and engagement deltas for a campaign.
 
@@ -115,6 +115,8 @@ class AnalyticsService:
             )
             .order_by(DailyMetricModel.entity_id, DailyMetricModel.metric_name, DailyMetricModel.date)
         )
+        if platform:
+            stmt = stmt.where(DailyMetricModel.source == platform)
         rows = (await self.db.execute(stmt)).all()
 
         # Group by (entity_id, canonical_metric) → sorted list of (date, value)
