@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -206,10 +206,8 @@ async def import_posts_from_platform(
                 db, tokens.access_token, channel, tenant_id,
             )
         elif platform == "tiktok":
-            raise HTTPException(
-                status_code=400,
-                detail="TikTok import requires video.list scope which is not currently enabled. "
-                       "Import will be available after app review.",
+            imported, skipped, errors = await _import_tiktok(
+                db, tokens.access_token, channel, tenant_id,
             )
         else:
             raise HTTPException(status_code=400, detail=f"Import not supported for {platform}")
@@ -482,3 +480,206 @@ def _channel_to_dict(ch: ChannelConnectionModel) -> dict:
         "created_at": ch.created_at.isoformat() if ch.created_at else None,
         "updated_at": ch.updated_at.isoformat() if ch.updated_at else None,
     }
+
+
+async def _import_tiktok(
+    db: AsyncSession,
+    access_token: str,
+    channel: ChannelConnectionModel,
+    tenant_id: uuid.UUID,
+) -> tuple[int, int, list[str]]:
+    """Fetch published videos from TikTok and create post records."""
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+    TT_API = "https://open.tiktokapis.com/v2"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        cursor = None
+        has_more = True
+
+        while has_more:
+            body: dict = {"max_count": 20}
+            if cursor:
+                body["cursor"] = cursor
+
+            resp = await client.post(
+                f"{TT_API}/video/list/",
+                headers=headers,
+                json=body,
+                params={
+                    "fields": "id,title,video_description,create_time,share_url,"
+                              "like_count,comment_count,share_count,view_count,duration",
+                },
+            )
+            if resp.status_code >= 400:
+                errors.append(f"TikTok video/list error ({resp.status_code}): {resp.text[:200]}")
+                break
+
+            data = resp.json().get("data", {})
+            videos = data.get("videos", [])
+
+            for v in videos:
+                video_id = v.get("id", "")
+                if not video_id:
+                    continue
+
+                existing = await db.execute(
+                    select(PostModel.id).where(
+                        PostModel.platform_post_id == video_id,
+                        PostModel.tenant_id == tenant_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    skipped += 1
+                    continue
+
+                published_at = None
+                if v.get("create_time"):
+                    try:
+                        published_at = datetime.utcfromtimestamp(v["create_time"])
+                    except Exception:
+                        pass
+
+                post = PostModel(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    channel_id=channel.id,
+                    platform="tiktok",
+                    status="published",
+                    content_text=v.get("video_description") or v.get("title") or "",
+                    media_urls=[],
+                    platform_post_id=video_id,
+                    permalink=v.get("share_url", ""),
+                    published_at=published_at,
+                    engagement={
+                        "views": v.get("view_count", 0),
+                        "likes": v.get("like_count", 0),
+                        "comments": v.get("comment_count", 0),
+                        "shares": v.get("share_count", 0),
+                    },
+                    action_type_label="video",
+                )
+                db.add(post)
+                imported += 1
+
+            has_more = data.get("has_more", False)
+            cursor = data.get("cursor")
+            if not videos:
+                break
+
+    return imported, skipped, errors
+
+
+@router.post("/{channel_id}/sync-metrics")
+async def force_sync_metrics(
+    channel_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings: Settings = Depends(get_settings),
+):
+    """Force an immediate metrics sync for all published posts on this channel."""
+    from amplify.adapters.crypto import TokenEncryptor
+    from amplify.adapters.token_store import TokenStore
+
+    result = await db.execute(
+        select(ChannelConnectionModel).where(
+            ChannelConnectionModel.id == channel_id,
+            ChannelConnectionModel.tenant_id == tenant_id,
+        )
+    )
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if not channel.access_token:
+        raise HTTPException(status_code=400, detail="Channel not connected")
+
+    encryptor = TokenEncryptor(
+        primary_key=settings.token_encryption_key,
+        old_keys=settings.token_encryption_old_keys,
+        deployment_mode=settings.deployment_mode,
+    )
+    tokens = TokenStore.from_channel_connection(channel, encryptor)
+
+    # Find published posts with platform IDs for this channel
+    posts_result = await db.execute(
+        select(PostModel).where(
+            PostModel.channel_id == channel_id,
+            PostModel.tenant_id == tenant_id,
+            PostModel.status == "published",
+            PostModel.platform_post_id.isnot(None),
+            PostModel.platform_post_id != "",
+        ).limit(100)
+    )
+    posts = list(posts_result.scalars().all())
+
+    if not posts:
+        return {"synced": 0, "errors": 0, "message": "No published posts to sync"}
+
+    platform = channel.platform
+    synced = 0
+    sync_errors = 0
+
+    try:
+        # Load the appropriate adapter
+        ADAPTER_MAP = {
+            "instagram": "amplify.adapters.instagram.adapter.InstagramAdapter",
+            "youtube": "amplify.adapters.youtube.adapter.YouTubeAdapter",
+            "tiktok": "amplify.adapters.tiktok.adapter.TikTokAdapter",
+            "twitter": "amplify.adapters.twitter.adapter.TwitterAdapter",
+        }
+        adapter_path = ADAPTER_MAP.get(platform)
+        if not adapter_path:
+            raise HTTPException(status_code=400, detail=f"Metrics sync not supported for {platform}")
+
+        module_path, class_name = adapter_path.rsplit(".", 1)
+        import importlib
+        mod = importlib.import_module(module_path)
+        AdapterClass = getattr(mod, class_name)
+
+        adapter = AdapterClass()
+        creds = {"access_token": tokens.access_token}
+        if platform == "youtube":
+            creds["client_id"] = settings.youtube_client_id
+            creds["client_secret"] = settings.youtube_client_secret
+        elif platform == "tiktok":
+            creds["client_key"] = settings.tiktok_client_key
+            creds["client_secret"] = settings.tiktok_client_secret
+        elif platform == "twitter":
+            creds["client_id"] = settings.twitter_client_id
+            creds["client_secret"] = settings.twitter_client_secret
+
+        await adapter.connect(creds)
+
+        for post in posts:
+            try:
+                snapshot = await adapter.sync_metrics(post.platform_post_id)
+                post.engagement = {
+                    "impressions": snapshot.impressions,
+                    "reach": snapshot.reach,
+                    "likes": snapshot.likes,
+                    "comments": snapshot.comments,
+                    "shares": snapshot.shares,
+                    "saves": snapshot.saves,
+                    "views": snapshot.views,
+                    "clicks": snapshot.clicks,
+                    "synced_at": datetime.utcnow().isoformat(),
+                }
+                synced += 1
+            except Exception as exc:
+                logger.warning("Metrics sync failed for post %s: %s", post.id, exc)
+                sync_errors += 1
+
+        await db.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Force sync failed for channel %s: %s", channel_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {exc}")
+
+    return {"synced": synced, "errors": sync_errors}

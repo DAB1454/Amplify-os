@@ -541,6 +541,7 @@ function CapabilityBadge({ name, enabled }: { name: string; enabled: boolean }) 
 
 function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Channel; onRefresh: () => void; onError?: (msg: string) => void; onSuccess?: (msg: string) => void }) {
   const [importing, setImporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const status = channel.connection_status || (channel.is_active ? "connected" : "disconnected");
   const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected";
   const isAutomatic = channel.integration_mode === "automatic";
@@ -644,6 +645,27 @@ function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Chan
               title="Import published posts from platform"
             >
               {importing ? "Importing..." : "Import"}
+            </button>
+            <button
+              disabled={syncing}
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  const resp = await apiPost<{ synced: number; errors: number }>(
+                    `/api/v1/channels/${channel.id}/sync-metrics`, {}
+                  );
+                  onSuccess?.(`Synced metrics for ${resp.synced} posts${resp.errors > 0 ? ` (${resp.errors} errors)` : ""}`);
+                  onRefresh();
+                } catch (err) {
+                  onError?.(err instanceof Error ? err.message : "Sync failed");
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              className="text-[10px] text-green-600 hover:text-green-500 disabled:opacity-50"
+              title="Pull latest metrics for all published posts"
+            >
+              {syncing ? "Syncing..." : "Sync Metrics"}
             </button>
             {showReconnect && (
               <button
