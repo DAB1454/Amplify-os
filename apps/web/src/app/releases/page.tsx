@@ -482,6 +482,24 @@ function TrackList({
     }
   };
 
+  const handleDeleteJob = async (trackId: string, jobId: string) => {
+    try {
+      await apiDelete(`/api/v1/video-clips/analysis/${jobId}`);
+      fetchVideoJobs(trackId);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to delete job");
+    }
+  };
+
+  const handleRetryJob = async (trackId: string, jobId: string) => {
+    try {
+      await apiPost(`/api/v1/video-clips/analysis/${jobId}/retry`, {});
+      fetchVideoJobs(trackId);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to retry job");
+    }
+  };
+
   const handleVideoUpload = async (trackId: string, files: FileList) => {
     const fileArray = Array.from(files);
 
@@ -1217,14 +1235,30 @@ function TrackList({
                               )}
                             </div>
                           </div>
-                          {(job.status !== "complete" && job.status !== "failed") && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            {(job.status !== "complete" && job.status !== "failed") && (
+                              <button
+                                onClick={() => fetchVideoJobs(track.id)}
+                                className="text-[10px] text-indigo-500 hover:underline"
+                              >
+                                Refresh
+                              </button>
+                            )}
+                            {(job.status === "failed" || (job.status !== "complete" && job.status !== "queued")) && (
+                              <button
+                                onClick={() => handleRetryJob(track.id, job.id)}
+                                className="text-[10px] text-amber-600 hover:underline"
+                              >
+                                Retry
+                              </button>
+                            )}
                             <button
-                              onClick={() => fetchVideoJobs(track.id)}
-                              className="text-[10px] text-indigo-500 hover:underline shrink-0"
+                              onClick={() => handleDeleteJob(track.id, job.id)}
+                              className="text-[10px] text-red-500/60 hover:text-red-600"
                             >
-                              Refresh
+                              Delete
                             </button>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>

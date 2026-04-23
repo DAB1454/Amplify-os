@@ -238,6 +238,88 @@ async def get_analysis_status(
     return _job_to_response(job, asset_name)
 
 
+# ── Delete analysis job ──────────────────────────────────────────
+
+@router.delete("/analysis/{job_id}")
+async def delete_analysis_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Delete a stuck or failed analysis job."""
+    from amplify.db.models.video_clip import VideoClipAnalysisJobModel
+
+    result = await db.execute(
+        select(VideoClipAnalysisJobModel).where(
+            VideoClipAnalysisJobModel.id == job_id,
+            VideoClipAnalysisJobModel.tenant_id == tenant_id,
+        )
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Analysis job not found")
+
+    await db.delete(job)
+    return {"status": "deleted", "job_id": str(job_id)}
+
+
+# ── Retry analysis job ──────────────────────────────────────────
+
+@router.post("/analysis/{job_id}/retry")
+async def retry_analysis_job(
+    job_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    """Reset a stuck/failed job and re-enqueue it."""
+    from amplify.db.models.video_clip import VideoClipAnalysisJobModel
+
+    result = await db.execute(
+        select(VideoClipAnalysisJobModel).where(
+            VideoClipAnalysisJobModel.id == job_id,
+            VideoClipAnalysisJobModel.tenant_id == tenant_id,
+        )
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Analysis job not found")
+
+    # Reset job state
+    job.status = "queued"
+    job.clips_detected = 0
+    job.clips_extracted = 0
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    await db.flush()
+
+    # Re-enqueue
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client:
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz
+        envelope = _json.dumps({
+            "job_id": uuid.uuid4().hex,
+            "job_type": "analyze_video_clips",
+            "payload": {
+                "source_asset_id": str(job.source_asset_id),
+                "track_id": str(job.track_id) if job.track_id else None,
+                "tenant_id": str(tenant_id),
+                "job_id": str(job_id),
+            },
+            "idempotency_key": "",
+            "enqueued_at": _dt.now(_tz.utc).isoformat(),
+            "max_retries": 2,
+            "attempt": 0,
+            "backoff_base": 2,
+            "timeout_seconds": 900,
+        })
+        await redis_client.rpush("amplify:queue", envelope)
+
+    return {"status": "queued", "job_id": str(job_id)}
+
+
 # ── List clips ───────────────────────────────────────────────────
 
 @router.get("", response_model=list[ClipResponse])
