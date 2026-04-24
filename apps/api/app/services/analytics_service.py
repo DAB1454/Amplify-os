@@ -166,10 +166,37 @@ class AnalyticsService:
                 for d in sorted(dates_vals.keys())
             ]
 
+        # Compute real cumulative totals from PostModel.engagement so
+        # the chart headline matches the overview cards.  DailyMetric
+        # deltas only capture increments since we started tracking,
+        # which under-counts posts imported with existing engagement.
+        # No date filter here — these are lifetime totals matching the
+        # overview; the sparkline shape shows the daily trend.
+        post_filter = [
+            PostModel.tenant_id == self.tenant_id,
+            PostModel.status == "published",
+        ]
+        if platform:
+            post_filter.append(PostModel.platform == platform)
+        if campaign_id:
+            post_filter.append(PostModel.campaign_id == campaign_id)
+        pub_rows = await self.db.execute(
+            select(PostModel.engagement).where(*post_filter)
+        )
+        cum_views = 0
+        cum_engagement = 0
+        for (engagement,) in pub_rows.all():
+            if not engagement or not isinstance(engagement, dict):
+                continue
+            views = int(engagement.get("views", 0) or engagement.get("impressions", 0) or 0)
+            cum_views += views
+            cum_engagement += int(engagement.get("likes", 0) or 0) + int(engagement.get("comments", 0) or 0) + int(engagement.get("shares", 0) or 0)
+
         return {
             "campaign_id": str(campaign_id) if campaign_id else "all",
             "days": days,
             "series": series,
+            "totals": {"views": cum_views, "engagement": cum_engagement},
             "source": "database" if series else "empty",
         }
 

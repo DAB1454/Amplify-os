@@ -15,6 +15,7 @@ interface TimeseriesPoint {
 
 interface TimeseriesData {
   series: Record<string, TimeseriesPoint[]>;
+  totals?: Record<string, number>;
   source: string;
 }
 
@@ -474,7 +475,7 @@ export default function AnalyticsPage() {
           {/* Time-series charts */}
           {timeseries && Object.keys(timeseries.series).length > 0 && (() => {
             const cardOrder = ["views", "engagement"];
-            const cardLabels: Record<string, string> = { views: "Views", engagement: "Engagement" };
+            const cardLabels: Record<string, string> = { views: "Total Views", engagement: "Total Engagement" };
             const cardColors: Record<string, string> = { views: "#c9a84c", engagement: "#22c55e" };
             const ordered = cardOrder.filter((m) => timeseries.series[m]?.length > 0);
             return (
@@ -490,9 +491,12 @@ export default function AnalyticsPage() {
                         {cardLabels[metric] || metric}
                       </p>
                       <p className="mt-1 text-lg font-bold text-[var(--text-primary)]">
-                        {points.reduce((sum: number, p: { value: number }) => sum + p.value, 0).toLocaleString()}
+                        {(timeseries.totals?.[metric] ?? points.reduce((sum: number, p: { value: number }) => sum + p.value, 0)).toLocaleString()}
                       </p>
-                      <div className="mt-3">
+                      <p className="text-[10px] text-[var(--text-secondary)]">
+                        Daily trend — last {range}
+                      </p>
+                      <div className="mt-2">
                         <SparkChart
                           points={points}
                           color={cardColors[metric] || "#3b82f6"}
