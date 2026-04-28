@@ -171,7 +171,11 @@ class TikTokPublisher:
             "total_chunk_count": max(1, -(-video_size // CHUNK_SIZE)),
         }
 
-        if self._is_app_audited():
+        audited = self._is_app_audited()
+        logger.info("TikTok _init_upload: TIKTOK_APP_AUDITED=%s, audited=%s",
+                     os.environ.get("TIKTOK_APP_AUDITED", "<not set>"), audited)
+
+        if audited:
             endpoint = f"{TT_API}/post/publish/video/init/"
             body: dict[str, Any] = {
                 "post_info": post_info or {},
