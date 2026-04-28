@@ -64,6 +64,10 @@ services:
         sync: false
       - key: TIKTOK_REDIRECT_URI
         sync: false
+      - key: TIKTOK_APP_AUDITED
+        value: "true"
+      - key: TIKTOK_DEFAULT_PRIVACY
+        value: "SELF_ONLY"
       - key: TWITTER_CLIENT_ID
         sync: false
       - key: TWITTER_CLIENT_SECRET
@@ -115,7 +119,9 @@ services:
       - key: AMPLIFY_TIKTOK_REDIRECT_URI
         sync: false
       - key: TIKTOK_APP_AUDITED
-        value: "false"
+        value: "true"
+      - key: TIKTOK_DEFAULT_PRIVACY
+        value: "SELF_ONLY"
       - key: AMPLIFY_TWITTER_CLIENT_ID
         sync: false
       - key: AMPLIFY_TWITTER_CLIENT_SECRET
