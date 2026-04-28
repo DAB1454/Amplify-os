@@ -144,6 +144,12 @@ async def generate_content(payload: dict) -> dict:
         "Content generation complete for campaign %s: %d generated, %d assets, %d failed, %d skipped",
         campaign_id, generated, assets_attached, failed, skipped,
     )
+
+    if generated > 0:
+        await _notify_content_ready(
+            tenant_id, campaign_id, ctx.get("campaign_name", ""), generated,
+        )
+
     return {
         "status": "ok",
         "pieces_generated": generated,
@@ -400,3 +406,32 @@ async def _find_matching_assets(
             return [pick.file_url]
 
     return []
+
+
+async def _notify_content_ready(
+    tenant_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    campaign_name: str,
+    count: int,
+) -> None:
+    """Send in-app notification when AI content is ready for review."""
+    from amplify.db.session import get_async_session
+    from amplify.core.services.notification_service import NotificationService
+    from app.config import Settings
+
+    settings = Settings()
+    try:
+        async with get_async_session(settings.database_url) as db:
+            svc = NotificationService(db, tenant_id)
+            await svc.notify_tenant(
+                event_type="content.ready",
+                title=f"{count} new AI-generated post{'s' if count != 1 else ''} ready",
+                body=f"Campaign \"{campaign_name}\" has {count} new draft{'s' if count != 1 else ''} "
+                     f"with AI-generated captions ready for your review.",
+                severity="info",
+                url=f"/campaigns/{campaign_id}",
+                entity_type="campaign",
+                entity_id=campaign_id,
+            )
+    except Exception:
+        logger.warning("Failed to send content-ready notification for campaign %s", campaign_id)

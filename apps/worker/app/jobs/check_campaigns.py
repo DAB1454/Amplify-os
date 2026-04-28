@@ -79,6 +79,10 @@ async def check_campaigns(payload: dict | None = None) -> dict:
                     reason,
                     total_count,
                 )
+                await _notify_campaign_complete(
+                    db, campaign.tenant_id, campaign.id,
+                    campaign.name or "Untitled", total_count, reason,
+                )
 
     logger.info("Campaign check done: %d campaigns completed", len(completed_ids))
     return {
@@ -87,3 +91,29 @@ async def check_campaigns(payload: dict | None = None) -> dict:
         "completed": len(completed_ids),
         "completed_ids": completed_ids,
     }
+
+
+async def _notify_campaign_complete(
+    db,
+    tenant_id,
+    campaign_id,
+    campaign_name: str,
+    total_posts: int,
+    reason: str,
+) -> None:
+    """Send in-app notification when a campaign completes."""
+    from amplify.core.services.notification_service import NotificationService
+
+    try:
+        svc = NotificationService(db, tenant_id)
+        await svc.notify_tenant(
+            event_type="campaign.complete",
+            title=f"Campaign \"{campaign_name}\" completed",
+            body=f"All {total_posts} posts have finished ({reason}).",
+            severity="success",
+            url=f"/campaigns/{campaign_id}",
+            entity_type="campaign",
+            entity_id=campaign_id,
+        )
+    except Exception:
+        logger.warning("Failed to send campaign completion notification for %s", campaign_id)

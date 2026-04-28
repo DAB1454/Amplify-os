@@ -178,6 +178,10 @@ async def publish_post(payload: dict) -> dict:
             last_error=str(exc)[:1000],
             retry_count=retry_count,
         )
+        await _notify_publish_failure(
+            tenant_id, post_id, platform, str(exc),
+            needs_reconnect=True,
+        )
         return {
             "status": "failed",
             "post_id": post_id,
@@ -196,6 +200,7 @@ async def publish_post(payload: dict) -> dict:
             last_error=str(exc)[:1000],
             retry_count=retry_count,
         )
+        await _notify_publish_failure(tenant_id, post_id, platform, str(exc))
         return {
             "status": "failed",
             "post_id": post_id,
@@ -211,6 +216,7 @@ async def publish_post(payload: dict) -> dict:
             last_error=str(exc)[:1000],
             retry_count=retry_count,
         )
+        await _notify_publish_failure(tenant_id, post_id, platform, str(exc))
         return {
             "status": "failed",
             "post_id": post_id,
@@ -227,6 +233,10 @@ async def publish_post(payload: dict) -> dict:
                 post_id, tenant_id, "failed",
                 last_error=str(exc)[:1000],
                 retry_count=retry_count,
+            )
+            await _notify_publish_failure(
+                tenant_id, post_id, platform, str(exc),
+                retries_exhausted=True,
             )
             return {
                 "status": "failed",
@@ -514,3 +524,55 @@ def _backoff_delay(retry_count: int) -> int:
     """Exponential backoff: 30s, 120s, 480s, capped at 600s."""
     delay = BASE_DELAY * (2 ** (retry_count - 1))
     return min(int(delay), MAX_DELAY)
+
+
+async def _notify_publish_failure(
+    tenant_id: str,
+    post_id: str,
+    platform: str,
+    error_msg: str,
+    *,
+    needs_reconnect: bool = False,
+    retries_exhausted: bool = False,
+) -> None:
+    """Send in-app notification for permanent publish failures."""
+    from amplify.db.session import get_async_session
+    from amplify.core.services.notification_service import NotificationService
+    from app.config import Settings
+
+    if not tenant_id:
+        return
+
+    settings = Settings()
+    tid = uuid.UUID(tenant_id)
+
+    if needs_reconnect:
+        event_type = "channel.token_expired"
+        title = f"{platform.title()} channel needs reconnection"
+        url = "/channels"
+        severity = "warning"
+    else:
+        event_type = "post.publish_failed"
+        title = f"Post failed to publish on {platform.title()}"
+        url = "/posts"
+        severity = "error"
+
+    body = error_msg[:300]
+    if retries_exhausted:
+        body = f"Failed after all retry attempts. {body}"
+
+    try:
+        async with get_async_session(settings.database_url) as db:
+            svc = NotificationService(db, tid)
+            await svc.notify_tenant(
+                event_type=event_type,
+                title=title,
+                body=body,
+                severity=severity,
+                url=url,
+                entity_type="post",
+                entity_id=uuid.UUID(post_id),
+                roles=("owner", "admin"),
+            )
+    except Exception:
+        logger.warning("Failed to send publish failure notification for post %s", post_id)

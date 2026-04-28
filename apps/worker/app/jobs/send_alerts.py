@@ -184,16 +184,81 @@ async def _send_in_app(
 async def _send_email(
     tenant_id: str, alert_type: str, message: str, metadata: dict
 ) -> None:
-    """Send an email alert.
+    """Send an email alert via Resend to all tenant owner/admin members."""
+    from amplify.db.session import get_async_session
+    from amplify.db.models.membership import MembershipModel
+    from amplify.db.models.user import UserModel
+    from app.config import Settings
 
-    Currently logs the intent. Email integration (SES/SendGrid) is
-    planned for Phase B of the build.
-    """
-    # TODO: Phase B — integrate with SES or SendGrid
-    logger.info(
-        "Email alert queued for tenant %s: [%s] %s (email adapter not yet wired)",
-        tenant_id, alert_type, message[:200],
-    )
+    settings = Settings()
+    if not settings.resend_api_key:
+        logger.debug("AMPLIFY_RESEND_API_KEY not set — skipping email alert")
+        return
+
+    defaults = _ALERT_DEFAULTS.get(alert_type, ("alert." + alert_type, alert_type.replace("_", " ").title(), "/", "info"))
+    _, default_title, default_url, _ = defaults
+    title = metadata.get("title", default_title)
+
+    # Look up owner/admin email addresses for this tenant
+    tid = uuid.UUID(tenant_id)
+    recipients: list[str] = []
+
+    async with get_async_session(settings.database_url) as db:
+        from sqlalchemy import select as sa_select
+        stmt = (
+            sa_select(UserModel.email)
+            .join(MembershipModel, MembershipModel.user_id == UserModel.id)
+            .where(
+                MembershipModel.tenant_id == tid,
+                MembershipModel.role.in_(("owner", "admin")),
+            )
+        )
+        result = await db.execute(stmt)
+        recipients = [row[0] for row in result.all() if row[0]]
+
+    if not recipients:
+        logger.info("No owner/admin emails found for tenant %s — skipping email", tenant_id)
+        return
+
+    # Send via Resend API
+    import httpx
+    email_body = f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px; margin: 0 auto;">
+  <h2 style="color: #1a1a1a;">{title}</h2>
+  <p style="color: #555; line-height: 1.6;">{message}</p>
+  <p style="margin-top: 24px;">
+    <a href="https://app.amplifyme.dev{default_url}"
+       style="background: #6366F1; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 500;">
+      View in AmplifyMe
+    </a>
+  </p>
+  <p style="color: #999; font-size: 12px; margin-top: 32px;">
+    You're receiving this because you're an admin of this workspace.
+  </p>
+</div>
+""".strip()
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": settings.resend_from_address,
+                    "to": recipients,
+                    "subject": f"[AmplifyMe] {title}",
+                    "html": email_body,
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            logger.info("Email alert sent to %d recipient(s) for tenant %s: %s",
+                        len(recipients), tenant_id, title)
+    except Exception:
+        logger.exception("Failed to send email alert for tenant %s", tenant_id)
 
 
 async def _send_push(

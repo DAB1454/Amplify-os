@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
 
+    # Email (Resend)
+    resend_api_key: str = ""
+    resend_from_address: str = "AmplifyMe <notifications@amplify-os.dev>"
+
     # Queue configuration
     max_retries: int = 3
     backoff_base: int = 2  # seconds — exponential backoff base

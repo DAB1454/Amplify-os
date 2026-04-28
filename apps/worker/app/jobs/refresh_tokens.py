@@ -151,6 +151,10 @@ async def refresh_tokens(payload: dict) -> dict:
                         "Channel %s (%s) needs reconnect — refresh permanently failed: %s",
                         channel.id, platform, exc,
                     )
+                    await _notify_token_expired(
+                        db, channel.tenant_id, channel.id, platform,
+                        channel.display_name or str(channel.id),
+                    )
                 else:
                     channel.last_health_status = "error"
                 await db.flush()
@@ -160,3 +164,30 @@ async def refresh_tokens(payload: dict) -> dict:
         "failed": failed,
         "skipped": skipped,
     }
+
+
+async def _notify_token_expired(
+    db,
+    tenant_id,
+    channel_id,
+    platform: str,
+    account_name: str,
+) -> None:
+    """Send in-app notification when a channel token permanently fails."""
+    from amplify.core.services.notification_service import NotificationService
+
+    try:
+        svc = NotificationService(db, tenant_id)
+        await svc.notify_tenant(
+            event_type="channel.token_expired",
+            title=f"{platform.title()} channel needs reconnection",
+            body=f"The {platform.title()} connection for '{account_name}' has expired. "
+                 f"Reconnect it on the Channels page to resume publishing.",
+            severity="warning",
+            url="/channels",
+            entity_type="channel",
+            entity_id=channel_id,
+            roles=("owner", "admin"),
+        )
+    except Exception:
+        logger.warning("Failed to send token expiry notification for channel %s", channel_id)
