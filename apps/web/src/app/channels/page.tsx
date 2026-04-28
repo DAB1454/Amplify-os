@@ -518,6 +518,7 @@ const statusDotColors: Record<string, string> = {
   connected: "bg-green-400",
   expired: "bg-yellow-400",
   needs_refresh: "bg-yellow-400",
+  needs_reconnect: "bg-red-400",
   not_connected: "bg-gray-500",
   disconnected: "bg-gray-500",
   revoked: "bg-red-400",
@@ -543,7 +544,7 @@ function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Chan
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const status = channel.connection_status || (channel.is_active ? "connected" : "disconnected");
-  const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected";
+  const showReconnect = status === "expired" || status === "revoked" || status === "error" || status === "disconnected" || status === "needs_reconnect";
   const isAutomatic = channel.integration_mode === "automatic";
 
   // Capabilities can be either a dict or array depending on whether OAuth has been done
@@ -614,7 +615,12 @@ function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Chan
             <button
               onClick={async () => {
                 try {
-                  await apiGet(`/api/v1/channels/${channel.id}/health`);
+                  const health = await apiGet<{ token_status: string; needs_reconnect: boolean }>(`/api/v1/channels/${channel.id}/health`);
+                  if (health.needs_reconnect) {
+                    onError?.(`${channel.platform} token is invalid — click Reconnect to re-authorize`);
+                  } else if (health.token_status === "valid") {
+                    onSuccess?.(`${channel.platform} connection is healthy`);
+                  }
                   onRefresh();
                 } catch (err) {
                   onError?.(err instanceof Error ? err.message : "Health check failed");
