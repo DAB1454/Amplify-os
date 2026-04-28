@@ -709,7 +709,15 @@ async def retry_stuck_post(
         try:
             svc = PublishingService(db=db, tenant_id=tenant_id)
             result = await svc.publish_post(post_id)
-            return {"post_id": str(post_id), "status": result.get("status", "published"), "message": "Post re-published successfully"}
+            result_status = result.get("status", "published")
+            if result_status == "failed":
+                return {
+                    "post_id": str(post_id),
+                    "status": "failed",
+                    "message": result.get("error", "Publish failed"),
+                    "error": result.get("error"),
+                }
+            return {"post_id": str(post_id), "status": result_status, "message": "Post re-published successfully"}
         except Exception as exc:
             logger.warning("Re-publish failed for %s: %s", post_id, exc)
             return {"post_id": str(post_id), "status": "scheduled", "message": f"Reset to scheduled, but re-publish failed: {exc}"}
