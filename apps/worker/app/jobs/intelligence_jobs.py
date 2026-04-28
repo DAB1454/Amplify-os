@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from amplify.observability.metrics import MetricsCollector
 from amplify.db.session import get_async_session
@@ -41,7 +41,7 @@ async def extract_features(payload: dict) -> dict:
     settings = Settings()
     tenant_id = payload.get("tenant_id")
     hours_back = payload.get("hours_back", 25)  # slightly > 24h for overlap
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+    cutoff = datetime.utcnow() - timedelta(hours=hours_back)
 
     async with get_async_session(settings.database_url) as db:
         # Find published posts without feature vectors
@@ -88,7 +88,7 @@ async def extract_features(payload: dict) -> dict:
                     hashtag_count=features.get("hashtag_count"),
                     has_link=features.get("has_link"),
                     campaign_phase=features.get("campaign_phase"),
-                    extracted_at=datetime.now(timezone.utc),
+                    extracted_at=datetime.utcnow(),
                 )
                 db.add(fv)
                 extracted += 1
@@ -265,7 +265,7 @@ async def aggregate_cohorts(payload: dict) -> dict:
 
     settings = Settings()
     days_back = payload.get("days_back", 30)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+    cutoff = datetime.utcnow() - timedelta(days=days_back)
 
     async with get_async_session(settings.database_url) as db:
         # Load recent observations from all tenants
@@ -378,7 +378,7 @@ async def check_model_health(payload: dict) -> dict:
     alerts: list[dict] = []
 
     async with get_async_session(settings.database_url) as db:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
 
         # 1. Stale features — published posts without feature vectors
         stale_cutoff = now - timedelta(hours=24)

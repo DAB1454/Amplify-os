@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -681,6 +682,7 @@ async def retry_stuck_post(
     post.status = "scheduled"
     post.last_error = None
     post.retry_count = 0
+    post.scheduled_at = datetime.utcnow()  # ensure scan_scheduled picks it up
 
     # Re-stitch channel_id if it's missing (e.g. after disconnect/reconnect)
     if not post.channel_id and post.platform:
