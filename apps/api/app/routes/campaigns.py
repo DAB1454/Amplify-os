@@ -7,7 +7,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_tenant_id, get_user_id, get_audit_service
@@ -422,6 +422,7 @@ async def delete_campaign(
 @router.post("/{campaign_id}/launch", response_model=CampaignResponse)
 async def launch_campaign(
     campaign_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     user_id: uuid.UUID | None = Depends(get_user_id),
@@ -454,6 +455,24 @@ async def launch_campaign(
         await db.flush()
         logger.info("Campaign %s launched: auto-scheduled %d posts", campaign_id, scheduled_count)
 
+    # Enqueue content generation for any draft posts that still have
+    # brief-style content (short planner output, not real captions).
+    try:
+        from worker.app.queue import JobQueue
+        r = request.app.state.redis  # type: ignore[union-attr]
+        q = JobQueue(r)
+        await q.enqueue(
+            "generate_content",
+            {
+                "campaign_id": str(campaign_id),
+                "tenant_id": str(tenant_id),
+                "user_id": str(user_id) if user_id else None,
+            },
+            idempotency_key=f"launch_content_{campaign_id}",
+        )
+    except Exception as exc:
+        logger.warning("Failed to enqueue content generation on launch: %s", exc)
+
     try:
         await audit.log(
             action="campaign.launched",
@@ -476,11 +495,31 @@ async def pause_campaign(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Set campaign status to paused."""
+    """Set campaign status to paused and unschedule pending posts."""
+    from sqlalchemy import select as sa_select
+    from amplify.db.models.post import PostModel
+
     repo = BaseRepository(db, CampaignModel, tenant_id)
     entity = await repo.update(campaign_id, status="paused")
     if entity is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Revert scheduled posts back to draft so they don't publish
+    result = await db.execute(
+        sa_select(PostModel).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+            PostModel.status == "scheduled",
+        )
+    )
+    posts = result.scalars().all()
+    unscheduled_count = 0
+    for post in posts:
+        post.status = "draft"
+        unscheduled_count += 1
+    if unscheduled_count:
+        await db.flush()
+        logger.info("Campaign %s paused: unscheduled %d posts", campaign_id, unscheduled_count)
 
     try:
         await audit.log(
@@ -488,7 +527,7 @@ async def pause_campaign(
             entity_type="campaign",
             entity_id=entity.id,
             user_id=user_id,
-            changes={"status": "paused"},
+            changes={"status": "paused", "unscheduled_posts": unscheduled_count},
         )
     except Exception as exc:
         logger.warning("Audit log failed (non-fatal): %s", exc)

@@ -104,6 +104,18 @@ export default function PostsPage() {
   const [generatingAIVideo, setGeneratingAIVideo] = useState<string | null>(null);
   const [confirmGenerate, setConfirmGenerate] = useState<{postId: string; cost: number} | null>(null);
 
+  // Close modals on ESC key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (confirmGenerate) { setConfirmGenerate(null); return; }
+      if (previewPostId) { setPreviewPostId(null); setPreviewData(null); return; }
+      if (showCreate) { setShowCreate(false); return; }
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [confirmGenerate, previewPostId, showCreate]);
+
   const fetchPosts = useCallback(async () => {
     setLoading(true);
     setFetchError(null);

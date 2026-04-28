@@ -168,7 +168,6 @@ async def disconnect_channel(
         if not channel:
             raise HTTPException(status_code=404, detail="Channel not found")
         await db.delete(channel)
-        await db.commit()
     except HTTPException:
         raise
     except Exception as exc:

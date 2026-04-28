@@ -49,7 +49,6 @@ async def create_version(
         description=body.description,
         author=body.author,
     )
-    await svc.db.commit()
     return row
 
 
@@ -94,7 +93,6 @@ async def promote_version(
     """Promote a version to active — deprecates the previous active version."""
     try:
         row = await svc.promote(version_id, user_id=tenant_id)
-        await svc.db.commit()
         return row
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -111,7 +109,6 @@ async def deprecate_version(
 ):
     try:
         row = await svc.deprecate(version_id)
-        await svc.db.commit()
         return row
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -131,7 +128,6 @@ async def rollback_version(
     rolls back to the second-most-recent version."""
     try:
         row = await svc.rollback(prompt_key, target_version)
-        await svc.db.commit()
         return row
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -158,7 +154,6 @@ async def create_assignment(
         reason=body.reason,
         assigned_by=body.assigned_by,
     )
-    await svc.db.commit()
     return row
 
 
@@ -186,7 +181,6 @@ async def delete_assignment(
     removed = await svc.unassign(tenant_id, prompt_key)
     if not removed:
         raise HTTPException(status_code=404, detail="Assignment not found")
-    await svc.db.commit()
     return {"status": "removed"}
 
 

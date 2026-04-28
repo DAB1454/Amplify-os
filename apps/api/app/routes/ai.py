@@ -908,6 +908,102 @@ async def generate_plan(
     )
 
 
+# ── Content Generation (AI captions + asset matching) ─────────
+
+
+class GenerateContentRequest(BaseModel):
+    campaign_id: str
+    post_ids: list[str] | None = None  # If omitted, processes all eligible drafts
+
+
+class GenerateContentResponse(BaseModel):
+    pieces_generated: int = 0
+    assets_attached: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
+@router.post("/generate-content", response_model=GenerateContentResponse)
+async def generate_content(
+    body: GenerateContentRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Generate AI captions and attach media for draft posts in a campaign.
+
+    Finds draft posts with brief-style content (short text placeholders from
+    the planner) and replaces them with real AI-generated captions using the
+    ContentAgent. Also attaches matching visual assets from the asset library.
+    """
+    from app.services.content_pipeline import generate_content_for_posts
+
+    campaign_id = uuid.UUID(body.campaign_id)
+
+    # Find eligible draft posts
+    from amplify.db.models.post import PostModel
+    from sqlalchemy import select
+
+    stmt = select(PostModel).where(
+        PostModel.campaign_id == campaign_id,
+        PostModel.tenant_id == tenant_id,
+        PostModel.status == "draft",
+    )
+    if body.post_ids:
+        stmt = stmt.where(PostModel.id.in_([uuid.UUID(p) for p in body.post_ids]))
+
+    result = await db.execute(stmt)
+    posts = result.scalars().all()
+
+    # Filter to brief-style posts (short content)
+    BRIEF_THRESHOLD = 500
+    eligible = [p for p in posts if not p.content_text or len(p.content_text or "") < BRIEF_THRESHOLD]
+
+    if not eligible:
+        return GenerateContentResponse()
+
+    try:
+        results = await generate_content_for_posts(
+            db,
+            post_ids=[p.id for p in eligible],
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        logger.exception("Content generation failed: %s", exc)
+        raise HTTPException(
+            status_code=500, detail=f"Content generation failed: {exc}"
+        )
+
+    # Count outcomes
+    generated = sum(1 for r in results.values() if r.get("caption_generated"))
+    assets = sum(1 for r in results.values() if r.get("assets_attached") or r.get("clip_library_used"))
+    failed = sum(1 for r in results.values() if r.get("error"))
+
+    try:
+        await audit.log(
+            action="ai.content_generated",
+            entity_type="campaign",
+            entity_id=campaign_id,
+            user_id=user_id,
+            changes={
+                "posts_processed": len(eligible),
+                "captions_generated": generated,
+                "assets_attached": assets,
+                "failed": failed,
+            },
+        )
+    except Exception:
+        pass
+
+    return GenerateContentResponse(
+        pieces_generated=generated,
+        assets_attached=assets,
+        failed=failed,
+        skipped=len(posts) - len(eligible),
+    )
+
 
 # ── Static Video (Tier 1) Generation ──────────────────────────
 

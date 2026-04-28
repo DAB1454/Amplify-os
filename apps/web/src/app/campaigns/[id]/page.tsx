@@ -151,6 +151,17 @@ export default function CampaignDetailPage() {
   const [strategyConfig, setStrategyConfig] = useState<CampaignConfig>({});
   const [savingStrategy, setSavingStrategy] = useState(false);
 
+  // Close modals on ESC key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (confirmGenerate) { setConfirmGenerate(null); return; }
+      if (showStrategyEditor) { setShowStrategyEditor(false); return; }
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [confirmGenerate, showStrategyEditor]);
+
   const fetchPlan = useCallback(async () => {
     try {
       const data = await apiGet<CampaignPlan>(`/api/v1/campaigns/${campaignId}/plan`);

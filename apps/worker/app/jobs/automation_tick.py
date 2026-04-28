@@ -372,6 +372,42 @@ async def _execute_decision(db, tenant_id, decision) -> tuple[str, str | None]:
             return "failed", f"{type(exc).__name__}: {exc}"
         return "success", None
 
+    if action == "generate_content":
+        # Generate AI captions for draft posts in the target campaign.
+        from app.jobs.generate_content import generate_content as _gen_content
+
+        target_id = decision.payload.get("campaign_id") if decision.payload else None
+        if not target_id:
+            # Fall back to oldest active campaign with drafts
+            from amplify.db.models.campaign import CampaignModel
+            target_id = (
+                await db.execute(
+                    select(CampaignModel.id)
+                    .where(
+                        CampaignModel.tenant_id == tenant_id,
+                        CampaignModel.status.in_(("active", "draft")),
+                    )
+                    .order_by(CampaignModel.created_at.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if target_id is None:
+                return "skipped", None
+            target_id = str(target_id)
+
+        try:
+            result = await _gen_content({
+                "campaign_id": str(target_id),
+                "tenant_id": str(tenant_id),
+            })
+            if result.get("pieces_generated", 0) == 0:
+                return "skipped", None
+            if isinstance(decision.snapshot, dict):
+                decision.snapshot["content_result"] = result
+            return "success", None
+        except Exception as exc:
+            return "failed", f"{type(exc).__name__}: {exc}"
+
     if action in ("generate_media", "start_experiment", "score_experiment", "rerank"):
         # Executors not wired yet — log the intent so the user sees
         # what the agent wanted to do (Tasks #20–#22).

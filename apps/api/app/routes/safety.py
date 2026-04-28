@@ -125,7 +125,6 @@ async def update_controls(
 
     try:
         controls = await svc.update_controls(updates, user_id)
-        await svc.db.commit()
         return controls.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

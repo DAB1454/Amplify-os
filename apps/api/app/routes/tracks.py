@@ -74,7 +74,6 @@ async def create_track(
     db.add(track)
     await db.flush()
     await db.refresh(track)
-    await db.commit()
     return track
 
 
@@ -104,7 +103,6 @@ async def update_track(
 
     await db.flush()
     await db.refresh(track)
-    await db.commit()
     return track
 
 
@@ -128,7 +126,6 @@ async def delete_track(
         raise HTTPException(status_code=404, detail="Track not found")
 
     await db.delete(track)
-    await db.commit()
 
 
 @router.post("/bulk", response_model=BulkCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -153,7 +150,6 @@ async def bulk_create_tracks(
     await db.flush()
     for t in created:
         await db.refresh(t)
-    await db.commit()
 
     return BulkCreateResponse(created=len(created), tracks=created)
 
@@ -254,7 +250,6 @@ async def import_tracks_csv(
         await db.flush()
         for t in created:
             await db.refresh(t)
-        await db.commit()
 
     return CSVImportResponse(
         created=len(created),

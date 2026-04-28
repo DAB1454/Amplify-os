@@ -92,7 +92,7 @@ async def create_channel(
         settings=body.get("settings", {}),
     )
     db.add(channel)
-    await db.commit()
+    await db.flush()
     await db.refresh(channel)
     return _channel_to_dict(channel)
 
@@ -136,7 +136,7 @@ async def update_channel(
         if field in body:
             setattr(channel, field, body[field])
 
-    await db.commit()
+    await db.flush()
     await db.refresh(channel)
     return _channel_to_dict(channel)
 
@@ -157,7 +157,6 @@ async def delete_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     await db.delete(channel)
-    await db.commit()
 
 
 @router.post("/{channel_id}/import-posts")
@@ -217,7 +216,6 @@ async def import_posts_from_platform(
         logger.error("Import failed for channel %s: %s", channel_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Import failed: {exc}")
 
-    await db.commit()
     return {
         "imported": imported,
         "skipped": skipped,
@@ -716,7 +714,6 @@ async def force_sync_metrics(
                 logger.warning("Metrics sync failed for post %s: %s", post.id, exc)
                 sync_errors += 1
 
-        await db.commit()
     except HTTPException:
         raise
     except Exception as exc:

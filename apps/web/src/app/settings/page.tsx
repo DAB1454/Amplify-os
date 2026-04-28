@@ -278,6 +278,15 @@ function AutomationTab({
 }) {
   const [pendingLevel, setPendingLevel] = useState<TenantProfile["automation_level"] | null>(null);
 
+  // Close modal on ESC key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pendingLevel) setPendingLevel(null);
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [pendingLevel]);
+
   const currentIdx = AUTOMATION_LEVELS.findIndex((l) => l.key === tenant.automation_level);
   const handleSelect = (key: TenantProfile["automation_level"]) => {
     if (key === tenant.automation_level) return;

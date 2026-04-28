@@ -90,7 +90,6 @@ async def create_run(
         window_end=body.window_end,
         top_k=body.top_k,
     )
-    await svc.db.commit()
     return run
 
 
