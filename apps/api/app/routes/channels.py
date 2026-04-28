@@ -433,7 +433,9 @@ def _derive_connection_status(ch: ChannelConnectionModel) -> str:
         return "disconnected"
     if not ch.access_token:
         return "not_connected"
-    # Check last health status first (but not "expired" — we re-derive that below)
+    # Check last health status first — needs_reconnect means refresh failed permanently
+    if ch.last_health_status == "needs_reconnect":
+        return "needs_reconnect"
     if ch.last_health_status in ("revoked", "error"):
         return ch.last_health_status
     # Check token expiry

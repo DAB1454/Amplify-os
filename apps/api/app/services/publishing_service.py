@@ -215,13 +215,17 @@ class PublishingService:
         try:
             result = await self._do_publish(post)
         except Exception as exc:
+            from amplify.adapters.base import TokenRefreshError as _TRE
             post.retry_count = (post.retry_count or 0) + 1
             post.last_error = str(exc)[:1000]
+            # Token refresh failure = permanent — user must reconnect
+            is_refresh_failure = isinstance(exc, _TRE)
             # Detect permanent errors that should not be retried
             err_str = str(exc).lower()
-            is_auth_error = any(kw in err_str for kw in [
+            is_auth_error = is_refresh_failure or any(kw in err_str for kw in [
                 "unaudited_client", "invalid_token", "token expired",
                 "access_token_invalid", "scope not authorized",
+                "reconnect the channel", "refresh failed",
                 "403", "401", "permission",
             ])
             is_adapter_permanent = getattr(exc, "permanent", False)
@@ -465,7 +469,7 @@ class PublishingService:
         Uses the adapter factory to load credentials and dispatch.
         Auto-refreshes expired tokens once before failing.
         """
-        from amplify.adapters.base import TokenExpiredError, RateLimitError
+        from amplify.adapters.base import TokenExpiredError, TokenRefreshError, RateLimitError
 
         channel_id = getattr(post, "channel_id", None)
         if not channel_id:
@@ -531,9 +535,16 @@ class PublishingService:
         except TokenExpiredError:
             # Auto-refresh and retry once
             logger.info("Token expired for channel %s — attempting refresh", channel_id)
-            from app.services.oauth_service import OAuthService
-            svc = OAuthService(self.db, None, settings)
-            await svc.refresh_channel_token(channel_id, self.tenant_id)
+            try:
+                from app.services.oauth_service import OAuthService
+                svc = OAuthService(self.db, None, settings)
+                await svc.refresh_channel_token(channel_id, self.tenant_id)
+            except (TokenRefreshError, Exception) as refresh_exc:
+                raise TokenRefreshError(
+                    f"{post.platform} token expired and refresh failed — "
+                    f"reconnect the channel on the Channels page: {refresh_exc}",
+                    platform=post.platform or "",
+                ) from refresh_exc
 
             adapter = await get_adapter(self.db, channel_id, settings)
             result = await adapter.publish(

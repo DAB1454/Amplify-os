@@ -31,7 +31,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from amplify.adapters.base import PublishError
+from amplify.adapters.base import PublishError, TokenRefreshError
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +170,23 @@ async def publish_post(payload: dict) -> dict:
             "permalink": adapter_result.get("permalink"),
             "published_at": published_at.isoformat(),
         }
+    except TokenRefreshError as exc:
+        # Refresh token is dead — user must reconnect. Never retry.
+        logger.error("Post %s permanent auth failure (reconnect required): %s", post_id, exc)
+        await _update_post_status(
+            post_id, tenant_id, "failed",
+            last_error=str(exc)[:1000],
+            retry_count=retry_count,
+        )
+        return {
+            "status": "failed",
+            "post_id": post_id,
+            "published": False,
+            "error": str(exc),
+            "retry_count": retry_count,
+            "alert": True,
+            "needs_reconnect": True,
+        }
     except PublishError as exc:
         if not exc.permanent:
             raise  # let the generic Exception handler retry it
@@ -299,8 +316,10 @@ async def _call_adapter(payload: dict) -> dict:
                 logger.error("Preemptive refresh failed for channel %s: %s", channel_id, refresh_exc, exc_info=True)
                 # If token is already expired, fail fast — no point trying with dead tokens
                 if tokens.expires_at and datetime.utcnow() >= tokens.expires_at:
-                    raise Exception(
-                        f"Token expired for {platform} channel and refresh failed: {refresh_exc}"
+                    raise TokenRefreshError(
+                        f"{platform} token expired and refresh failed — "
+                        f"reconnect the channel on the Channels page: {refresh_exc}",
+                        platform=platform,
                     ) from refresh_exc
                 # Token not yet expired but close — continue and hope it still works
 
@@ -343,8 +362,10 @@ async def _call_adapter(payload: dict) -> dict:
                 )
             except Exception as refresh_exc:
                 logger.error("Token refresh failed for channel %s: %s", channel_id, refresh_exc, exc_info=True)
-                raise Exception(
-                    f"Token expired for {platform} channel and refresh failed: {refresh_exc}"
+                raise TokenRefreshError(
+                    f"{platform} token expired and refresh failed — "
+                    f"reconnect the channel on the Channels page: {refresh_exc}",
+                    platform=platform,
                 ) from refresh_exc
         except RateLimitError as exc:
             raise Exception(

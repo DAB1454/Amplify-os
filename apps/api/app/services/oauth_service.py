@@ -304,11 +304,15 @@ class OAuthService:
         channel_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> dict:
-        """Full capability health check for a channel connection."""
+        """Full capability health check for a channel connection.
+
+        Actually validates the token against the platform API —
+        doesn't just check local DB expiry timestamps.
+        """
         channel = await self._get_channel(channel_id, tenant_id)
         tokens = self._token_store.from_channel_connection(channel, self._encryptor)
 
-        # Token status
+        # Token status — start with local checks
         if not tokens.access_token:
             token_status = "missing"
         elif tokens.is_expired:
@@ -317,6 +321,31 @@ class OAuthService:
             token_status = "needs_refresh"
         else:
             token_status = "valid"
+
+        # Live validation: actually call the platform API to verify the token
+        # This catches revocations, password changes, etc. that local checks miss.
+        live_valid = None
+        if token_status in ("valid", "needs_refresh") and tokens.access_token:
+            live_valid = await self._validate_token_live(channel.platform, tokens)
+            if not live_valid:
+                token_status = "revoked"
+
+        # If token is expired or revoked, try refreshing
+        needs_reconnect = False
+        if token_status in ("expired", "needs_refresh", "revoked"):
+            try:
+                await self.refresh_channel_token(channel_id, tenant_id)
+                token_status = "valid"
+                logger.info("Health check refreshed %s token for channel %s", channel.platform, channel_id)
+            except Exception as exc:
+                logger.warning("Health check refresh failed for %s channel %s: %s", channel.platform, channel_id, exc)
+                if token_status == "revoked":
+                    needs_reconnect = True
+                elif token_status == "expired" and not tokens.refresh_token:
+                    needs_reconnect = True
+                elif token_status == "expired":
+                    # Had refresh token but refresh failed — likely revoked
+                    needs_reconnect = True
 
         # Scope analysis
         required = self.get_required_scopes(channel.platform)
@@ -333,18 +362,64 @@ class OAuthService:
             "scopes_status": "complete" if not missing else "partial",
             "missing_scopes": missing,
             "capabilities": capabilities,
-            "publish_capable": capabilities.get("can_publish", False),
-            "needs_reconnect": token_status in ("missing", "expired") and not channel.refresh_token,
+            "publish_capable": capabilities.get("can_publish", False) and not needs_reconnect,
+            "needs_reconnect": needs_reconnect,
             "last_refresh_at": channel.last_refresh_at.isoformat() if channel.last_refresh_at else None,
         }
 
         # Update health check record
         channel.last_health_check_at = datetime.utcnow()
-        channel.last_health_status = token_status
+        channel.last_health_status = "needs_reconnect" if needs_reconnect else token_status
         channel.capabilities = capabilities
         await self.db.flush()
 
         return health
+
+    @staticmethod
+    async def _validate_token_live(platform: str, tokens) -> bool:
+        """Make a lightweight API call to verify the token is actually live.
+
+        Returns True if the token works, False if revoked/invalid.
+        """
+        import httpx
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                if platform == "instagram":
+                    resp = await client.get(
+                        "https://graph.instagram.com/v21.0/me",
+                        params={"fields": "id", "access_token": tokens.access_token},
+                    )
+                    return resp.status_code == 200
+
+                elif platform == "youtube":
+                    resp = await client.get(
+                        "https://www.googleapis.com/youtube/v3/channels",
+                        params={"part": "id", "mine": "true"},
+                        headers={"Authorization": f"Bearer {tokens.access_token}"},
+                    )
+                    return resp.status_code == 200
+
+                elif platform == "tiktok":
+                    resp = await client.get(
+                        "https://open.tiktokapis.com/v2/user/info/",
+                        params={"fields": "open_id"},
+                        headers={"Authorization": f"Bearer {tokens.access_token}"},
+                    )
+                    return resp.status_code == 200
+
+                elif platform == "twitter":
+                    resp = await client.get(
+                        "https://api.twitter.com/2/users/me",
+                        headers={"Authorization": f"Bearer {tokens.access_token}"},
+                    )
+                    return resp.status_code == 200
+
+        except Exception as exc:
+            logger.warning("Live token validation failed for %s: %s", platform, exc)
+            return False
+
+        return False
 
     async def disconnect_channel(
         self,

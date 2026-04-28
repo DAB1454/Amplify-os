@@ -136,7 +136,23 @@ async def refresh_tokens(payload: dict) -> dict:
                 failed += 1
                 logger.warning("Failed to refresh %s token for channel %s: %s",
                                platform, channel.id, exc)
-                channel.last_health_status = "error"
+                # Distinguish transient errors from permanent auth failures.
+                # If the token is already expired AND refresh failed, the user
+                # must reconnect — mark as needs_reconnect so UI can surface it.
+                err_str = str(exc).lower()
+                is_permanent = any(kw in err_str for kw in [
+                    "invalid_grant", "invalid_token", "token has been revoked",
+                    "session has been invalidated", "password",
+                    "no refresh token", "reconnect",
+                ])
+                if is_permanent or (channel.token_expires_at and datetime.utcnow() >= channel.token_expires_at):
+                    channel.last_health_status = "needs_reconnect"
+                    logger.error(
+                        "Channel %s (%s) needs reconnect — refresh permanently failed: %s",
+                        channel.id, platform, exc,
+                    )
+                else:
+                    channel.last_health_status = "error"
                 await db.flush()
 
     return {
