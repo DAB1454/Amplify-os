@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -71,6 +72,29 @@ interface Channel {
   display_name: string | null;
   avatar_url: string | null;
   is_active: boolean;
+}
+
+interface ExperimentVariant {
+  name: string;
+  avg_score?: number;
+  post_count?: number;
+  posts_with_data?: number;
+}
+
+interface Experiment {
+  id: string;
+  campaign_id: string;
+  name: string;
+  hypothesis: string;
+  status: string;
+  variants: ExperimentVariant[];
+  winner_variant: number | null;
+  outcome: {
+    variants?: ExperimentVariant[];
+    confidence?: number;
+    evaluated_at?: string;
+  } | null;
+  created_at: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -311,16 +335,19 @@ function RepurposeButton({
 // ── Page ───────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const toast = useToast();
   const [range, setRange] = useState<(typeof ranges)[number]>("14d");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [timeseries, setTimeseries] = useState<TimeseriesData | null>(null);
   const [scores, setScores] = useState<PostScore[]>([]);
   const [report, setReport] = useState<AnalystReport | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [verdictFilter, setVerdictFilter] = useState<string>("all");
+  const [showCreateExperiment, setShowCreateExperiment] = useState(false);
 
   const days = dayMap[range];
 
@@ -329,18 +356,20 @@ export default function AnalyticsPage() {
     setError(null);
     try {
       const platformParam = platformFilter !== "all" ? `&platform=${platformFilter}` : "";
-      const [ov, ts, sc, rp, ch] = await Promise.all([
+      const [ov, ts, sc, rp, ch, exps] = await Promise.all([
         apiGet<Overview>("/api/v1/analytics/overview"),
         apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}${platformParam}`),
         apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
         apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
         apiGet<Channel[]>("/api/v1/channels"),
+        apiGet<Experiment[]>("/api/v1/analytics/experiments"),
       ]);
       setOverview(ov);
       setTimeseries(ts);
       setScores(sc);
       setReport(rp);
       setChannels(ch);
+      setExperiments(exps);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load analytics");
     } finally {
@@ -664,8 +693,315 @@ export default function AnalyticsPage() {
               </div>
             </div>
           )}
+
+          {/* ── Experiments ──────────────────────────────────────── */}
+          <div className="mt-10">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">A/B Experiments</h2>
+              <button
+                onClick={() => setShowCreateExperiment(true)}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-opacity"
+              >
+                + New Experiment
+              </button>
+            </div>
+
+            {experiments.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-surface)] p-8 text-center text-[var(--text-secondary)]">
+                <p className="text-sm">No experiments yet.</p>
+                <p className="mt-1 text-xs">Create an A/B experiment to compare content variants.</p>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {experiments.map((exp) => (
+                  <ExperimentCard
+                    key={exp.id}
+                    experiment={exp}
+                    onRun={async () => {
+                      try {
+                        await apiPost(`/api/v1/analytics/experiments/${exp.id}/run`, {});
+                        toast.success("Experiment evaluation queued");
+                        setTimeout(fetchAll, 3000);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Failed to run");
+                      }
+                    }}
+                    onDelete={async () => {
+                      try {
+                        await apiDelete(`/api/v1/analytics/experiments/${exp.id}`);
+                        setExperiments((prev) => prev.filter((e) => e.id !== exp.id));
+                        toast.success("Experiment deleted");
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Failed to delete");
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Create experiment modal */}
+          {showCreateExperiment && (
+            <CreateExperimentModal
+              onClose={() => setShowCreateExperiment(false)}
+              onCreated={() => {
+                setShowCreateExperiment(false);
+                fetchAll();
+              }}
+            />
+          )}
         </>
       )}
     </>
+  );
+}
+
+// ── Experiment Card ─────────────────────────────────────────────
+
+function ExperimentCard({
+  experiment,
+  onRun,
+  onDelete,
+}: {
+  experiment: Experiment;
+  onRun: () => void;
+  onDelete: () => void;
+}) {
+  const statusColors: Record<string, string> = {
+    draft: "bg-gray-100 text-gray-600",
+    running: "bg-blue-100 text-blue-600",
+    completed: "bg-green-100 text-green-600",
+  };
+
+  const outcomeVariants = experiment.outcome?.variants || [];
+  const maxScore = Math.max(...outcomeVariants.map((v) => v.avg_score || 0), 1);
+
+  return (
+    <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{experiment.name}</h3>
+          <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", statusColors[experiment.status] || statusColors.draft)}>
+            {experiment.status}
+          </span>
+          {experiment.winner_variant !== null && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              Winner: {experiment.variants[experiment.winner_variant]?.name || `Variant ${experiment.winner_variant}`}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {experiment.status !== "completed" && (
+            <button
+              onClick={onRun}
+              className="rounded-lg bg-indigo-100 px-3 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-200 transition-colors"
+            >
+              Evaluate
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="rounded-lg px-2 py-1 text-xs text-red-500 hover:bg-red-50 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {experiment.hypothesis && (
+        <p className="mt-2 text-xs text-[var(--text-secondary)]">{experiment.hypothesis}</p>
+      )}
+
+      {/* Variant comparison bars */}
+      {outcomeVariants.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {outcomeVariants.map((v, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-xs text-[var(--text-secondary)] w-24 truncate">{v.name}</span>
+              <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    experiment.winner_variant === i ? "bg-green-500" : "bg-indigo-400",
+                  )}
+                  style={{ width: `${((v.avg_score || 0) / maxScore) * 100}%` }}
+                />
+              </div>
+              <span className="text-xs font-mono font-bold text-[var(--text-primary)] w-12 text-right">
+                {(v.avg_score || 0).toFixed(1)}
+              </span>
+              <span className="text-[10px] text-[var(--text-secondary)] w-20">
+                {v.posts_with_data || 0}/{v.post_count || 0} posts
+              </span>
+            </div>
+          ))}
+          {experiment.outcome?.confidence !== undefined && (
+            <p className="text-[10px] text-[var(--text-secondary)]">
+              Confidence: {experiment.outcome.confidence.toFixed(1)}%
+              {experiment.outcome.evaluated_at && (
+                <> &middot; Evaluated {new Date(experiment.outcome.evaluated_at).toLocaleDateString()}</>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Show variant names when no outcome yet */}
+      {outcomeVariants.length === 0 && experiment.variants.length > 0 && (
+        <div className="mt-2 flex gap-2">
+          {experiment.variants.map((v, i) => (
+            <span key={i} className="rounded bg-gray-100 px-2 py-0.5 text-xs text-[var(--text-secondary)]">
+              {v.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Create Experiment Modal ─────────────────────────────────────
+
+function CreateExperimentModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [hypothesis, setHypothesis] = useState("");
+  const [campaignId, setCampaignId] = useState("");
+  const [variantA, setVariantA] = useState("Variant A");
+  const [variantB, setVariantB] = useState("Variant B");
+  const [submitting, setSubmitting] = useState(false);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    apiGet<{ id: string; name: string }[]>("/api/v1/campaigns")
+      .then(setCampaigns)
+      .catch(() => {});
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !campaignId) return;
+
+    setSubmitting(true);
+    try {
+      await apiPost("/api/v1/analytics/experiments", {
+        name: name.trim(),
+        hypothesis,
+        campaign_id: campaignId,
+        variants: [
+          { name: variantA || "Variant A", post_ids: [] },
+          { name: variantB || "Variant B", post_ids: [] },
+        ],
+      });
+      toast.success("Experiment created");
+      onCreated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create experiment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-[var(--text-primary)]">New A/B Experiment</h3>
+        <p className="mt-1 text-xs text-[var(--text-secondary)]">
+          Compare two content approaches. Assign posts to each variant, then evaluate to find the winner.
+        </p>
+
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Campaign</label>
+            <select
+              value={campaignId}
+              onChange={(e) => setCampaignId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              required
+            >
+              <option value="">Select campaign...</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Experiment Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-indigo-500 focus:outline-none"
+              placeholder="e.g. Casual vs Professional tone"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Hypothesis</label>
+            <textarea
+              value={hypothesis}
+              onChange={(e) => setHypothesis(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] resize-none focus:border-indigo-500 focus:outline-none"
+              placeholder="Casual tone will drive 20% more engagement..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Variant A</label>
+              <input
+                type="text"
+                value={variantA}
+                onChange={(e) => setVariantA(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Variant B</label>
+              <input
+                type="text"
+                value={variantB}
+                onChange={(e) => setVariantB(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              />
+            </div>
+          </div>
+
+          <p className="text-[10px] text-[var(--text-secondary)]">
+            After creating, assign posts to each variant from the campaign detail page, then click Evaluate to compare.
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name.trim() || !campaignId}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {submitting ? "Creating..." : "Create Experiment"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
