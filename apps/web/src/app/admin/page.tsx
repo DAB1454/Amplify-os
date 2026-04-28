@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth/auth-provider";
 
 interface PlatformStats {
   tenants: number;
@@ -36,6 +37,8 @@ const tierBadge: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin" || role === "owner";
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,6 +80,22 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : "Failed to change plan");
     }
   };
+
+  if (!isAdmin) {
+    return (
+      <>
+        <Header title="Admin" />
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <p className="text-lg font-medium text-[var(--text-primary)]">Access Denied</p>
+            <p className="mt-2 text-sm text-[var(--text-secondary)]">
+              You need admin or owner permissions to access this page.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

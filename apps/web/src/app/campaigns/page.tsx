@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut, apiDelete, getAccessToken } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, apiFormPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 
@@ -249,18 +249,10 @@ export default function CampaignsPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("campaign_id", campaignId);
-      const token = getAccessToken();
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const res = await fetch(`${apiBase}/api/v1/calendar/import`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({ detail: "CSV import failed" }));
-        throw new Error(detail.detail || `HTTP ${res.status}`);
-      }
-      const result = await res.json() as { imported: number; skipped: number; errors: string[] };
+      const result = await apiFormPost<{ imported: number; skipped: number; errors: string[] }>(
+        `/api/v1/calendar/import`,
+        formData,
+      );
       setPlanResult({
         campaign_id: campaignId,
         daily_actions: 0,

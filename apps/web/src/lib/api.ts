@@ -240,6 +240,16 @@ export async function apiUploadCSV<T>(path: string, file: File): Promise<T> {
   });
 }
 
+/**
+ * POST a FormData body (file + extra fields). Auth handled automatically.
+ */
+export async function apiFormPost<T>(path: string, formData: FormData): Promise<T> {
+  return apiFetch<T>(path, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 // ── Auth helpers ────────────────────────────────────────────────
 
 export async function login(email: string, password: string) {

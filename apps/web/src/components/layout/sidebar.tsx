@@ -51,9 +51,10 @@ const COLLAPSED_KEY = "amplify-sidebar-collapsed";
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  isAdmin?: boolean;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, isAdmin }: SidebarProps) {
   const pathname = usePathname();
   const { logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -102,6 +103,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {navItems.map((item) => {
+          // Hide admin-only items for non-admin users
+          if ("adminOnly" in item && item.adminOnly && !isAdmin) return null;
+
           const isActive =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
