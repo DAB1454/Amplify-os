@@ -114,6 +114,8 @@ services:
         sync: false
       - key: AMPLIFY_TIKTOK_REDIRECT_URI
         sync: false
+      - key: TIKTOK_APP_AUDITED
+        value: "false"
       - key: AMPLIFY_TWITTER_CLIENT_ID
         sync: false
       - key: AMPLIFY_TWITTER_CLIENT_SECRET
