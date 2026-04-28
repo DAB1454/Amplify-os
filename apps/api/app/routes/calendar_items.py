@@ -8,7 +8,7 @@ import uuid
 logger = logging.getLogger(__name__)
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,81 @@ async def create_calendar_item(
         logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return entity
+
+
+@router.get("/export.ics")
+async def export_calendar_ics(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    campaign_id: uuid.UUID | None = Query(default=None),
+):
+    """Export calendar items as an ICS feed for subscription in Google Calendar, Apple Calendar, etc."""
+    from datetime import datetime, timedelta
+
+    stmt = select(CalendarItemModel).where(CalendarItemModel.tenant_id == tenant_id)
+    if campaign_id:
+        stmt = stmt.where(CalendarItemModel.campaign_id == campaign_id)
+    stmt = stmt.order_by(CalendarItemModel.scheduled_date)
+
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//AmplifyMe//Calendar//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:AmplifyMe Calendar",
+    ]
+
+    for item in items:
+        uid = f"{item.id}@amplify-os.dev"
+        if item.scheduled_time:
+            dt_start = datetime.combine(item.scheduled_date, item.scheduled_time)
+            dt_end = dt_start + timedelta(hours=1)
+            dtstart = f"DTSTART:{dt_start.strftime('%Y%m%dT%H%M%S')}"
+            dtend = f"DTEND:{dt_end.strftime('%Y%m%dT%H%M%S')}"
+        else:
+            dtstart = f"DTSTART;VALUE=DATE:{item.scheduled_date.strftime('%Y%m%d')}"
+            dtend = f"DTEND;VALUE=DATE:{(item.scheduled_date + timedelta(days=1)).strftime('%Y%m%d')}"
+
+        summary = _ics_escape(f"[{item.item_type.upper()}] {item.title}")
+        desc = _ics_escape(item.description or "")
+
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            dtstart,
+            dtend,
+            f"SUMMARY:{summary}",
+        ])
+        if desc:
+            lines.append(f"DESCRIPTION:{desc}")
+        if item.created_at:
+            lines.append(f"DTSTAMP:{item.created_at.strftime('%Y%m%dT%H%M%SZ')}")
+        lines.append("END:VEVENT")
+
+    lines.append("END:VCALENDAR")
+
+    ics_content = "\r\n".join(lines) + "\r\n"
+    return Response(
+        content=ics_content,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=amplify-calendar.ics",
+        },
+    )
+
+
+def _ics_escape(text: str) -> str:
+    """Escape special characters for ICS format."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
 
 
 @router.get("/{item_id}", response_model=CalendarItemResponse)
@@ -225,3 +300,27 @@ async def import_calendar_csv(
         logger.warning("Audit log failed (non-fatal): %s", exc)
 
     return result.to_dict()
+
+
+@router.post("/generate-posts")
+async def generate_posts_from_calendar(
+    request: Request,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+):
+    """Trigger the ingest_calendar job to create draft posts from calendar items."""
+    try:
+        from worker.app.queue import JobQueue
+
+        r = request.app.state.redis  # type: ignore[union-attr]
+        q = JobQueue(r)
+        await q.enqueue(
+            "ingest_calendar",
+            {"tenant_id": str(tenant_id)},
+            idempotency_key=f"ingest_calendar:{tenant_id}",
+        )
+    except Exception as exc:
+        logger.warning("Failed to enqueue ingest_calendar: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to enqueue job")
+
+    return {"status": "queued", "message": "Generating draft posts from calendar items"}
