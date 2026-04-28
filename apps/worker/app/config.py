@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     resend_api_key: str = ""
-    resend_from_address: str = "AmplifyMe <notifications@amplify-os.dev>"
+    resend_from_address: str = "AmplifyMe <onboarding@resend.dev>"
 
     # Queue configuration
     max_retries: int = 3
