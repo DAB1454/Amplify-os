@@ -25,7 +25,7 @@ class ChannelConnectionModel(Base, TimestampMixin, TenantMixin):
     artist_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("artists.id"), nullable=False
     )
-    platform: Mapped[str] = mapped_column(String(50), nullable=False)
+    platform: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     integration_mode: Mapped[str] = mapped_column(
         String(20), default="automatic", server_default="automatic"
     )
@@ -36,7 +36,7 @@ class ChannelConnectionModel(Base, TimestampMixin, TenantMixin):
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # OAuth metadata

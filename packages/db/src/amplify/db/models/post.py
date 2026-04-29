@@ -29,12 +29,12 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     channel_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("channel_connections.id", ondelete="SET NULL"), nullable=True
     )
-    platform: Mapped[str] = mapped_column(String(50), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="draft")
+    platform: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     content_text: Mapped[str] = mapped_column(Text, default="")
     media_urls: Mapped[list] = mapped_column(JSON, default=list)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     platform_post_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     permalink: Mapped[str | None] = mapped_column(String(500), nullable=True)
     engagement: Mapped[dict] = mapped_column(JSON, default=dict)
