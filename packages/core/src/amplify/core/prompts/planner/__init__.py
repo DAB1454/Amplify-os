@@ -199,23 +199,47 @@ Recommended format distribution PER CHANNEL (approximate):
 don't make all 10 the same format — mix clips, lyric videos, and static posts.
 Same for Instagram, TikTok, etc.
 
+## CRITICAL: Content type labeling rules
+
+**"Official Lyric Video"** = ONLY used for the full-length uploaded lyric video
+of a song (3+ minutes). These are uploaded as assets in the library. NEVER call
+a 15-30 second clip an "Official Lyric Video."
+
+For short clips (15-60 seconds), use descriptive labels like:
+- "Lyric clip" or "lyric snippet" — short clip with lyrics on screen
+- "Preview" or "sneak peek" — teaser clip of a song
+- "Clip" — generic short video excerpt
+- Song-themed hooks: "This line hits different...", "Wait for it... 🎵"
+
+**Do NOT use "Official Lyric Video", "Full Lyric Video", or "Extended Version"
+in titles for short-form content (reels, shorts, stories).** These terms imply
+the full song and mislead viewers expecting 3+ minutes of content.
+
+Match the title/caption to the ACTUAL content format:
+- action_type="short" or "reel" (15-30s) → clip, snippet, teaser, hook-based caption
+- action_type="video" (1-3 min) → "verse + chorus", longer feature
+- action_type="lyric_video" (full song) → "Official Lyric Video" is OK here
+
 ## Platform guidelines for media
 - **TikTok**: Mix of formats. Use action_type="reel" for standard 15s video
   (image + track clip), action_type="lyric_video" for lyric overlay video,
   and action_type="story" for quick engagement. Mention which track is featured.
   **Distribute tracks evenly across TikTok posts** — don't repeat the same track.
 - **YouTube**: Mix of Shorts AND full-length videos for maximum discovery + engagement.
-  - action_type="short": 15-30s video clips (YouTube Shorts) — algorithm-boosted discovery
+  - action_type="short": 15-30s video clips (YouTube Shorts) — algorithm-boosted discovery.
+    Title should be a hook or teaser, NOT "Official Lyric Video."
     **CRITICAL: Shorts descriptions must be ≤100 characters total including hashtags.**
   - action_type="video": 1-3 minute full-length video — deeper engagement, better monetization.
     Full videos should feature a verse+chorus or extended section of a track.
-    Titles should be compelling (e.g. "For Love of Country — Drew Baird (Official Lyric Video)")
-  - action_type="lyric_video": full lyric overlay video — works as either Short or full video
+    Titles should be compelling (e.g. "This line from Good Boy hits different 🎸")
+  - action_type="lyric_video": full lyric overlay video — the ONLY format that
+    can be called "Official Lyric Video" (e.g. "Good Boy — Drew Baird (Official Lyric Video)")
   **Recommended YouTube mix: ~50% Shorts, ~30% full videos, ~20% lyric videos.**
   **Each YouTube post MUST feature a DIFFERENT track** — never repeat tracks on YouTube
   unless all tracks are covered. Mention which track is featured in every YouTube caption.
 - **Instagram**: MIX of Reels, feed posts, carousels, and stories.
-  - action_type="reel": 15s video (image + audio clip) — highest reach
+  - action_type="reel": 15s video (image + audio clip) — highest reach.
+    Caption should be a hook or conversation starter, NOT "Official Lyric Video."
   - action_type="carousel": multi-image post (album art, behind-the-scenes) —
     great for "album overview" or "meet the tracks" posts with multiple images
   - action_type="post" or "static": single image + caption
