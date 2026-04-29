@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_from_address: str = "AmplifyMe <onboarding@resend.dev>"
 
+    # Slack alerts
+    slack_webhook_url: str = ""
+
     # Queue configuration
     max_retries: int = 3
     backoff_base: int = 2  # seconds — exponential backoff base

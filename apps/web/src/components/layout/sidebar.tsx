@@ -18,6 +18,7 @@ import {
   Bot,
   CreditCard,
   Shield,
+  Activity,
   Settings,
   PanelLeftClose,
   PanelLeft,
@@ -44,6 +45,7 @@ const navItems = [
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/admin", label: "Admin", icon: Shield, adminOnly: true },
+  { href: "/admin/ops", label: "Ops", icon: Activity, adminOnly: true },
 ];
 
 const COLLAPSED_KEY = "amplify-sidebar-collapsed";

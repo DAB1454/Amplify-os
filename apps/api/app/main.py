@@ -1,4 +1,3 @@
-import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -8,14 +7,17 @@ from fastapi.responses import JSONResponse
 
 from app.config import Settings
 from app.middleware.tenant import TenantMiddleware
+from app.middleware.tracing import TracingMiddleware
+from amplify.observability.logging import setup_logging, get_logger
 
-# Configure root logger so adapter/service logs are visible
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(levelname)s:%(name)s:%(message)s",
+# Configure structured logging (JSON in production, console locally)
+_deployment = os.environ.get("DEPLOYMENT_MODE", "local")
+setup_logging(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    json_output=(_deployment != "local"),
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 from app.routes.health import router as health_router
 from app.routes.auth import router as auth_router
 from app.routes.tenants import router as tenants_router
@@ -106,7 +108,10 @@ def create_app() -> FastAPI:
         redirect_slashes=False,
     )
 
-    # Tenant isolation middleware (added first so CORS wraps it)
+    # Request tracing (innermost — runs last, closest to handler)
+    application.add_middleware(TracingMiddleware)
+
+    # Tenant isolation middleware
     application.add_middleware(
         TenantMiddleware,
         deployment_mode=settings.deployment_mode,

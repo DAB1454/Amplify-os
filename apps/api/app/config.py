@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # OpenAI (Whisper audio transcription for lyric videos)
     openai_api_key: str = ""
 
+    # Slack alerts
+    slack_webhook_url: str = ""
+
     # Stripe billing
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""

@@ -240,7 +240,12 @@ class Worker:
 
 async def main() -> None:
     settings = Settings()
-    logging.basicConfig(level=settings.log_level)
+
+    from amplify.observability.logging import setup_logging
+    setup_logging(
+        level=settings.log_level,
+        json_output=(settings.deployment_mode != "local"),
+    )
 
     worker = Worker(settings)
 
