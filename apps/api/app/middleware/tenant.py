@@ -72,8 +72,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if payload.get("type") != "access":
             return JSONResponse(status_code=401, content={"detail": "Invalid token type"})
 
-        request.state.tenant_id = uuid.UUID(payload["tenant_id"])
-        request.state.user_id = uuid.UUID(payload["sub"])
+        try:
+            request.state.tenant_id = uuid.UUID(payload["tenant_id"])
+            request.state.user_id = uuid.UUID(payload["sub"])
+        except (KeyError, ValueError):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid tenant or user claims in token"},
+            )
         request.state.role = payload.get("role", "member")
 
         return await call_next(request)

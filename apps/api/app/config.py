@@ -70,6 +70,13 @@ class Settings(BaseSettings):
         return self.deployment_mode == "local"
 
     def model_post_init(self, __context: object) -> None:
+        # Validate secrets are set in production
+        if self.deployment_mode != "local":
+            if self.jwt_secret == "change-me-in-production":
+                raise ValueError("jwt_secret must be changed for non-local deployments")
+            if not self.token_encryption_key:
+                raise ValueError("token_encryption_key must be set for non-local deployments")
+
         # Render provides postgres:// but SQLAlchemy async needs postgresql+asyncpg://
         if self.database_url.startswith("postgres://"):
             object.__setattr__(

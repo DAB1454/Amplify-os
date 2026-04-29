@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { cn, formatLocalDate } from "@/lib/utils";
+import { platformEmojis as _platformEmojis, platformColors as _platformColors } from "@/lib/platforms";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -68,25 +69,8 @@ interface URLValidation {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-const platformIcons: Record<string, string> = {
-  instagram: "📸",
-  tiktok: "🎵",
-  youtube: "▶️",
-  twitter: "𝕏",
-  bandcamp: "🎶",
-  linktree: "🔗",
-  email: "📧",
-};
-
-const platformColors: Record<string, string> = {
-  instagram: "#E1306C",
-  tiktok: "#00f2ea",
-  youtube: "#FF0000",
-  twitter: "#000000",
-  bandcamp: "#1DA0C3",
-  linktree: "#43E660",
-  email: "#c9a84c",
-};
+const platformIcons = _platformEmojis as Record<string, string>;
+const platformColors = _platformColors as Record<string, string>;
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-600",
