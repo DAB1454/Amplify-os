@@ -56,9 +56,7 @@ class TikTokAuth:
             "redirect_uri": self.redirect_uri,
             "scope": ",".join(scopes or [
                 "user.info.basic",
-                "video.publish",
                 "video.upload",
-                "video.list",
             ]),
             "response_type": "code",
         }
