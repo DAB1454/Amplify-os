@@ -433,10 +433,6 @@ async def generate_media_for_post(
         max_images = 5 if is_carousel else 1
 
         from app.services.content_pipeline import _find_matching_assets
-        # Use track_reference as the primary matching anchor when available
-        content_hint = post.content_text or ""
-        if post.track_reference:
-            content_hint = f"🎵 Featuring: {post.track_reference}\n{content_hint}"
         image_urls = await _find_matching_assets(
             db=db,
             tenant_id=tenant_id,
@@ -445,7 +441,8 @@ async def generate_media_for_post(
             campaign_id=post.campaign_id,
             platform=post.platform,
             action_type=post.action_type_label,
-            content_hint=content_hint,
+            content_hint=post.content_text or "",
+            track_reference=post.track_reference,
             day_number=post.day_number,
             max_results=max_images,
         )

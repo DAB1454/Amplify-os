@@ -136,6 +136,7 @@ async def generate_content_for_post(
                 platform=post.platform,
                 action_type=post.action_type_label,
                 content_hint=brief,
+                track_reference=post.track_reference,
                 day_number=post.day_number,
                 max_results=max_media,
             )
@@ -242,6 +243,7 @@ async def _find_matching_assets(
     platform: str | None,
     action_type: str | None,
     content_hint: str = "",
+    track_reference: str | None = None,
     day_number: int | None = None,
     assets_required: list[str] | None = None,
     max_results: int = 1,
@@ -307,9 +309,10 @@ async def _find_matching_assets(
     # ── Build track name map for UUID-named asset enrichment ──
     track_url_to_title = await _build_track_name_map(db, tenant_id, release_id)
 
-    # ── Extract explicit track reference from content ──
-    # Catches "🎵 Featuring: Good Boy" or quoted track titles
-    explicit_track = _extract_track_reference(content_hint)
+    # ── Extract explicit track reference ──
+    # Prefer the post's track_reference field (set by planner) over regex from caption.
+    # Caption "Featuring: X" often contains the ALBUM name, not the track.
+    explicit_track = track_reference or _extract_track_reference(content_hint)
     explicit_track_clean = _normalize_for_match(explicit_track).lower() if explicit_track else ""
 
     # Build combined hint text from content_hint + assets_required

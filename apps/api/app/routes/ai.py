@@ -1180,6 +1180,7 @@ async def generate_static_video_endpoint(
         platform=post.platform,
         action_type=post.action_type_label,
         content_hint=post.content_text or "",
+        track_reference=post.track_reference,
         day_number=post.day_number,
         max_results=1,
     )

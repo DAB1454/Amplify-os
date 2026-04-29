@@ -126,6 +126,7 @@ async def generate_content(payload: dict) -> dict:
                         platform=post.platform,
                         action_type=post.action_type_label,
                         content_hint=brief,
+                        track_reference=post.track_reference,
                         day_number=post.day_number,
                     )
                     if media_urls:
@@ -339,6 +340,7 @@ async def _find_matching_assets(
     platform: str | None,
     action_type: str | None,
     content_hint: str = "",
+    track_reference: str | None = None,
     day_number: int | None = None,
 ) -> list[str]:
     """Find matching visual assets from the library for a post.
@@ -379,13 +381,18 @@ async def _find_matching_assets(
             if a.asset_type in VISUAL_TYPES and a.file_url
         ]
         if candidates:
-            # Simple scoring: prefer assets whose name matches content hint
+            # Score assets: track_reference is strongest signal, then content hint
             hint_lower = content_hint.lower() if content_hint else ""
+            track_lower = track_reference.lower().strip() if track_reference else ""
             scored = []
             for asset in candidates:
                 score = 0
                 name_lower = (asset.name or "").lower()
-                if hint_lower and name_lower and name_lower in hint_lower:
+                # Strongest: explicit track reference match
+                if track_lower and name_lower and (track_lower in name_lower or name_lower in track_lower):
+                    score += 80
+                # Weaker: caption/content hint match
+                elif hint_lower and name_lower and name_lower in hint_lower:
                     score += 50
                 if release_id and asset.release_id == release_id:
                     score += 10
