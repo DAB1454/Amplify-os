@@ -57,6 +57,7 @@ class TikTokAuth:
             "scope": ",".join(scopes or [
                 "user.info.basic",
                 "video.upload",
+                "video.publish",
             ]),
             "response_type": "code",
         }

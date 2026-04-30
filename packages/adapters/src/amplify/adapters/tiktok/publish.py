@@ -88,7 +88,7 @@ class TikTokPublisher:
                 retry_after=int(resp.headers.get("Retry-After", "60")),
             )
         if resp.status_code in (401, 403):
-            # Check if this is an app-audit issue, not a token issue
+            # Check if this is an app-audit or scope issue, not a token issue
             try:
                 body = resp.json()
                 err_code = body.get("error", {}).get("code", "")
@@ -96,6 +96,15 @@ class TikTokPublisher:
                     raise PublishError(
                         f"TikTok app not yet approved — unaudited apps can only post to private accounts. "
                         f"Check app review status at developers.tiktok.com. Raw: {resp.text[:300]}",
+                        platform="tiktok",
+                        permanent=True,
+                        details=body.get("error", {}),
+                    )
+                if "scope_not_authorized" in str(err_code):
+                    raise PublishError(
+                        f"TikTok scope not authorized — the connected account may need to be "
+                        f"reconnected with updated permissions. Disconnect and reconnect TikTok "
+                        f"on the Channels page. Raw: {resp.text[:300]}",
                         platform="tiktok",
                         permanent=True,
                         details=body.get("error", {}),
@@ -121,6 +130,14 @@ class TikTokPublisher:
         if error_code not in (None, "ok", 0):
             error_str = str(error_code).lower()
             error_msg = str(error_info.get("message", "")).lower()
+            if "scope_not_authorized" in error_str:
+                raise PublishError(
+                    f"TikTok scope not authorized — disconnect and reconnect TikTok "
+                    f"with updated permissions. Error: {error_info}",
+                    platform="tiktok",
+                    permanent=True,
+                    details=error_info,
+                )
             if any(kw in error_str for kw in ("access_token", "token_invalid", "token_expired", "unauthorized")):
                 raise TokenExpiredError(
                     f"TikTok {operation} auth error: {error_info}",

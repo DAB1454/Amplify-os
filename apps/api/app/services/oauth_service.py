@@ -37,6 +37,7 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
     "tiktok": [
         "user.info.basic",
         "video.upload",
+        "video.publish",
     ],
     "twitter": [
         "tweet.read",
