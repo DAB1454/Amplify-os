@@ -36,7 +36,6 @@ REQUIRED_SCOPES: dict[str, list[str]] = {
     ],
     "tiktok": [
         "user.info.basic",
-        "video.publish",
         "video.upload",
     ],
     "twitter": [
@@ -59,7 +58,7 @@ SCOPE_CAPABILITIES: dict[str, dict[str, list[str]]] = {
         "can_sync_metrics": ["https://www.googleapis.com/auth/youtube"],
     },
     "tiktok": {
-        "can_publish": ["video.publish", "video.upload"],
+        "can_publish": ["video.upload"],
         "can_fetch_comments": [],
         "can_sync_metrics": [],
     },
