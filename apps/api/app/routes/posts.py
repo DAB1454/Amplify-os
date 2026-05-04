@@ -1143,3 +1143,137 @@ async def get_post_status(
 
 
 ## Old retry endpoint removed — replaced by retry_stuck_post above (line ~442)
+
+
+# ── TikTok status reconciliation ─────────────────────────────────
+
+
+class RefreshTikTokStatusesResponse(BaseModel):
+    scanned: int
+    published: int
+    pending_approval: int
+    failed: int
+    still_processing: int
+    skipped: int
+    details: list[dict]
+
+
+@router.post("/refresh-tiktok-statuses", response_model=RefreshTikTokStatusesResponse)
+async def refresh_tiktok_statuses(
+    days: int = Query(default=7, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings_obj: Settings = Depends(get_settings),
+):
+    """Reconcile each TikTok post's DB status with what TikTok actually did.
+
+    For unaudited Direct Post, the upload API returns publish_id immediately
+    but the video sits in TikTok's processing queue and may end up in the
+    creator's drafts (SEND_TO_USER_INBOX), be published (PUBLISH_COMPLETE),
+    or be silently rejected (FAILED) — without any callback. This endpoint
+    queries TikTok's status endpoint for each recent publish_id and
+    rewrites the local post status to match.
+    """
+    from datetime import timedelta
+    from app.services.adapter_factory import get_adapter
+    from amplify.db.models.channel import ChannelConnectionModel
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    rows = await db.execute(
+        select(PostModel).where(
+            PostModel.tenant_id == tenant_id,
+            PostModel.platform == "tiktok",
+            PostModel.platform_post_id.isnot(None),
+            PostModel.platform_post_id != "",
+            PostModel.created_at >= cutoff,
+        ).order_by(PostModel.created_at.desc())
+    )
+    posts = list(rows.scalars().all())
+
+    counts = {"published": 0, "pending_approval": 0, "failed": 0, "still_processing": 0, "skipped": 0}
+    details: list[dict] = []
+
+    # Cache adapters per channel so we don't refresh tokens once per post
+    adapter_cache: dict[uuid.UUID, object] = {}
+
+    for post in posts:
+        publish_id = post.platform_post_id
+        channel_id = post.channel_id
+        if not channel_id:
+            counts["skipped"] += 1
+            details.append({"post_id": str(post.id), "publish_id": publish_id, "result": "no_channel"})
+            continue
+
+        try:
+            if channel_id not in adapter_cache:
+                adapter_cache[channel_id] = await get_adapter(
+                    db, channel_id, settings_obj, require_publish=False,
+                )
+            adapter = adapter_cache[channel_id]
+            publisher = getattr(adapter, "_publisher", None)
+            if publisher is None:
+                counts["skipped"] += 1
+                details.append({"post_id": str(post.id), "publish_id": publish_id, "result": "no_publisher"})
+                continue
+            data = await publisher.get_post_status(publish_id)
+        except Exception as exc:
+            logger.warning("TikTok status query failed for post %s (publish_id=%s): %s",
+                           post.id, publish_id, exc)
+            counts["skipped"] += 1
+            details.append({
+                "post_id": str(post.id),
+                "publish_id": publish_id,
+                "result": "error",
+                "error": str(exc)[:300],
+            })
+            continue
+
+        inner = data.get("data", {}) if isinstance(data, dict) else {}
+        tt_status = inner.get("status")
+        fail_reason = inner.get("fail_reason")
+
+        if tt_status == "PUBLISH_COMPLETE":
+            if post.status != "published":
+                post.status = "published"
+                post.last_error = None
+                if not post.published_at:
+                    post.published_at = datetime.utcnow()
+            counts["published"] += 1
+            outcome = "published"
+        elif tt_status == "SEND_TO_USER_INBOX":
+            if post.status != "pending_approval":
+                post.status = "pending_approval"
+                post.published_at = None
+                post.last_error = None
+            counts["pending_approval"] += 1
+            outcome = "pending_approval"
+        elif tt_status == "FAILED":
+            post.status = "failed"
+            post.published_at = None
+            post.last_error = (f"TikTok rejected: {fail_reason}" if fail_reason else "TikTok rejected")[:1000]
+            counts["failed"] += 1
+            outcome = "failed"
+        else:
+            counts["still_processing"] += 1
+            outcome = "still_processing"
+
+        details.append({
+            "post_id": str(post.id),
+            "publish_id": publish_id,
+            "tiktok_status": tt_status,
+            "fail_reason": fail_reason,
+            "result": outcome,
+            "previous_db_status": post.status,
+        })
+
+    await db.flush()
+
+    return RefreshTikTokStatusesResponse(
+        scanned=len(posts),
+        published=counts["published"],
+        pending_approval=counts["pending_approval"],
+        failed=counts["failed"],
+        still_processing=counts["still_processing"],
+        skipped=counts["skipped"],
+        details=details,
+    )

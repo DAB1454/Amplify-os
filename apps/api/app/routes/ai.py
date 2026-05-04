@@ -1693,11 +1693,42 @@ async def generate_ai_video(
             if not audio_url and _eng.get("ai_video_audio_url"):
                 audio_url = _eng["ai_video_audio_url"]
             if _linked.media_urls:
+                # Same extension-detection bug we fixed in posts.py:425 — strip
+                # query/fragment first so signed URLs aren't misclassified, and
+                # fall back to the assets table for URLs without an extension.
+                _img_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+                _aud_exts = (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")
+
+                def _ext(url: str) -> str:
+                    base = url.split("?", 1)[0].split("#", 1)[0].lower()
+                    dot = base.rfind(".")
+                    return base[dot:] if dot >= 0 else ""
+
+                _unknown: list[str] = []
                 for mu in _linked.media_urls:
-                    if not image_url and any(mu.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                    e = _ext(mu)
+                    if not image_url and e in _img_exts:
                         image_url = mu
-                    if not audio_url and any(mu.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")):
+                    elif not audio_url and e in _aud_exts:
                         audio_url = mu
+                    elif e not in _img_exts and e not in _aud_exts:
+                        _unknown.append(mu)
+
+                if _unknown and (not image_url or not audio_url):
+                    from amplify.db.models.asset import AssetModel
+                    _ar = await db.execute(
+                        select(AssetModel.file_url, AssetModel.asset_type).where(
+                            AssetModel.tenant_id == tenant_id,
+                            AssetModel.file_url.in_(_unknown),
+                        )
+                    )
+                    _type_by_url = {row.file_url: (row.asset_type or "").lower() for row in _ar}
+                    for mu in _unknown:
+                        atype = _type_by_url.get(mu, "")
+                        if not image_url and atype in ("image", "album_art", "promo_photo", "logo"):
+                            image_url = mu
+                        elif not audio_url and atype == "audio":
+                            audio_url = mu
 
     if body.release_id and not image_url:
         from amplify.db.models.release import ReleaseModel

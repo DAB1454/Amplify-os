@@ -103,6 +103,9 @@ export default function PostsPage() {
   const [showAIVideoForm, setShowAIVideoForm] = useState<string | null>(null);
   const [generatingAIVideo, setGeneratingAIVideo] = useState<string | null>(null);
   const [confirmGenerate, setConfirmGenerate] = useState<{postId: string; cost: number} | null>(null);
+  const [copiedCaptionId, setCopiedCaptionId] = useState<string | null>(null);
+  const [refreshingTikTok, setRefreshingTikTok] = useState(false);
+  const [refreshSummary, setRefreshSummary] = useState<string | null>(null);
 
   // Close modals on ESC key
   useEffect(() => {
@@ -1072,7 +1075,7 @@ export default function PostsPage() {
         </div>
       )}
 
-      <div className="mt-8 flex gap-2 flex-wrap">
+      <div className="mt-8 flex gap-2 flex-wrap items-center">
         {tabs.map((t) => (
           <button
             key={t}
@@ -1086,7 +1089,38 @@ export default function PostsPage() {
             {t}
           </button>
         ))}
+        <button
+          onClick={async () => {
+            setRefreshingTikTok(true);
+            setRefreshSummary(null);
+            setFetchError(null);
+            try {
+              const res = await apiPost<{
+                scanned: number; published: number; pending_approval: number;
+                failed: number; still_processing: number; skipped: number;
+              }>("/api/v1/posts/refresh-tiktok-statuses?days=7", {}, 120000);
+              setRefreshSummary(
+                `Scanned ${res.scanned}: ${res.published} published, ${res.pending_approval} in TikTok drafts, ${res.failed} failed, ${res.still_processing} still processing, ${res.skipped} skipped.`
+              );
+              fetchPosts();
+            } catch (err) {
+              setFetchError(err instanceof Error ? err.message : "Refresh failed");
+            } finally {
+              setRefreshingTikTok(false);
+            }
+          }}
+          disabled={refreshingTikTok}
+          className="ml-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] disabled:opacity-50"
+          title="Query TikTok for the actual status of recent posts (helpful while Direct Post audit is pending)"
+        >
+          {refreshingTikTok ? "Refreshing TikTok…" : "Refresh TikTok statuses"}
+        </button>
       </div>
+      {refreshSummary && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {refreshSummary}
+        </div>
+      )}
 
       {/* Platform filter */}
       <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -1130,8 +1164,8 @@ export default function PostsPage() {
                     >
                       {post.status === "pending_approval" ? "Pending Approval" : post.status}
                     </span>
-                    {post.status === "pending_approval" && (
-                      <span className="text-xs text-amber-600">Check TikTok app to approve</span>
+                    {post.status === "pending_approval" && post.platform !== "tiktok" && (
+                      <span className="text-xs text-amber-600">Awaiting approval</span>
                     )}
                     {post.retry_count > 0 && (
                       <span className="text-xs text-[var(--text-secondary)]">
@@ -1189,6 +1223,34 @@ export default function PostsPage() {
                       <span className="text-xs font-medium text-green-700">
                         AI Video ready — refresh to see it
                       </span>
+                    </div>
+                  )}
+
+                  {/* TikTok inbox — caption must be pasted manually until Direct Post is audited */}
+                  {post.status === "pending_approval" && post.platform === "tiktok" && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-medium text-amber-800">
+                        Sitting in your TikTok app drafts
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-amber-700">
+                        Until TikTok approves Direct Post, the API can&apos;t set the caption.
+                        Open TikTok → <span className="font-medium">+ (create)</span> → <span className="font-medium">Drafts</span>,
+                        publish from there, and paste the caption below.
+                      </p>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(post.content_text || "");
+                            setCopiedCaptionId(post.id);
+                            setTimeout(() => setCopiedCaptionId((cur) => cur === post.id ? null : cur), 2000);
+                          } catch {
+                            setFetchError("Couldn't copy caption — your browser may block clipboard access.");
+                          }
+                        }}
+                        className="mt-1.5 rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-700"
+                      >
+                        {copiedCaptionId === post.id ? "Copied" : "Copy caption"}
+                      </button>
                     </div>
                   )}
 
