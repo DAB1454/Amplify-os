@@ -420,10 +420,58 @@ async def generate_media_for_post(
             ]))
     )
 
-    # Extract image and audio from post's existing media_urls
+    # Extract image and audio from post's existing media_urls. The previous
+    # implementation did url.lower().endswith(ext), which silently dropped
+    # any URL with a query string (signed URLs) or without an extension, then
+    # the audio matcher fell back to caption-based scoring and picked the
+    # wrong track. We strip query/fragment first, then fall back to the
+    # assets table to classify any URL we still can't identify by extension.
+    image_exts = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+    audio_exts = (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a")
+
+    def _ext_of(url: str) -> str:
+        base = url.split("?", 1)[0].split("#", 1)[0].lower()
+        dot = base.rfind(".")
+        return base[dot:] if dot >= 0 else ""
+
     existing_media = post.media_urls or []
-    existing_images = [u for u in existing_media if any(u.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))]
-    existing_audio = [u for u in existing_media if any(u.lower().endswith(ext) for ext in (".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a"))]
+    existing_images: list[str] = []
+    existing_audio: list[str] = []
+    unclassified: list[str] = []
+    for u in existing_media:
+        ext = _ext_of(u)
+        if ext in image_exts:
+            existing_images.append(u)
+        elif ext in audio_exts:
+            existing_audio.append(u)
+        else:
+            unclassified.append(u)
+
+    if unclassified:
+        from amplify.db.models.asset import AssetModel
+        ar = await db.execute(
+            select(AssetModel.file_url, AssetModel.asset_type).where(
+                AssetModel.tenant_id == tenant_id,
+                AssetModel.file_url.in_(unclassified),
+            )
+        )
+        type_by_url = {row.file_url: (row.asset_type or "").lower() for row in ar}
+        for u in unclassified:
+            atype = type_by_url.get(u, "")
+            if atype == "audio":
+                existing_audio.append(u)
+            elif atype in ("image", "album_art", "promo_photo", "logo"):
+                existing_images.append(u)
+            elif atype in ("video", "lyric_video", "ai_video"):
+                # video URLs aren't a force_image source — leave them alone
+                pass
+
+    logger.info(
+        "Post %s media classification: images=%d audio=%d unknown=%d (raw=%d)",
+        post_id, len(existing_images), len(existing_audio),
+        len(existing_media) - len(existing_images) - len(existing_audio),
+        len(existing_media),
+    )
 
     if body.force_image_url:
         image_urls = [body.force_image_url]
