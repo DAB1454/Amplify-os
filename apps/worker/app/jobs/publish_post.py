@@ -152,23 +152,29 @@ async def publish_post(payload: dict) -> dict:
         adapter_result = await _call_adapter(payload)
         logger.info("Published post %s: %s", post_id, adapter_result)
 
-        # Update post in DB
-        published_at = datetime.utcnow()
+        # Inbox/draft flows (e.g. unaudited TikTok Direct Post) leave the
+        # video sitting in the user's TikTok app drafts — it is NOT live
+        # until the user publishes it manually. Mirror the API service:
+        # mark the post pending_approval, no published_at.
+        is_pending = adapter_result.get("status") == "pending_approval"
+        db_status = "pending_approval" if is_pending else "published"
+        published_at = None if is_pending else datetime.utcnow()
+
         await _update_post_status(
-            post_id, tenant_id, "published",
+            post_id, tenant_id, db_status,
             platform_post_id=adapter_result.get("platform_post_id"),
             permalink=adapter_result.get("permalink"),
             published_at=published_at,
         )
 
         return {
-            "status": "ok",
+            "status": "pending_approval" if is_pending else "ok",
             "post_id": post_id,
-            "published": True,
+            "published": not is_pending,
             "policy_decision": policy_decision,
             "platform_post_id": adapter_result.get("platform_post_id"),
             "permalink": adapter_result.get("permalink"),
-            "published_at": published_at.isoformat(),
+            "published_at": published_at.isoformat() if published_at else None,
         }
     except TokenRefreshError as exc:
         # Refresh token is dead — user must reconnect. Never retry.
@@ -385,6 +391,7 @@ async def _call_adapter(payload: dict) -> dict:
         return {
             "platform_post_id": pub_result.platform_post_id,
             "permalink": pub_result.url,
+            "status": pub_result.status,
         }
 
 

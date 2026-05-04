@@ -223,8 +223,17 @@ class TikTokPublisher:
         sounds: list[str] | None = None,
         privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
-    ) -> str:
-        """Upload a video to TikTok. Returns the publish_id.
+    ) -> dict:
+        """Upload a video to TikTok.
+
+        Returns dict with:
+            publish_id: str — TikTok's identifier for this upload
+            final_status: str — terminal status from TikTok (PUBLISH_COMPLETE,
+                SEND_TO_USER_INBOX, FAILED, or a non-terminal PROCESSING_*
+                state if polling timed out)
+            fail_reason: str | None — TikTok's reason if status == FAILED
+
+        Raises PublishError(permanent=True) if TikTok terminal state is FAILED.
 
         video_path can be a local file path or an HTTP(S) URL.
         URLs are downloaded to a temp file before uploading.
@@ -255,8 +264,8 @@ class TikTokPublisher:
         *,
         privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
-    ) -> str:
-        """Upload a local video file to TikTok. Returns the publish_id."""
+    ) -> dict:
+        """Upload a local video file to TikTok. See upload_video for return shape."""
         if not video.exists():
             raise ValidationError(f"Video not found: {video}", platform="tiktok")
 
@@ -317,16 +326,100 @@ class TikTokPublisher:
 
         logger.info("TikTok video upload complete — %d chunks, publish_id=%s", chunk_num, publish_id)
 
-        # Check publish status after upload
-        try:
-            import asyncio
-            await asyncio.sleep(2)  # Brief delay for TikTok to process
-            status_data = await self.get_post_status(publish_id)
-            logger.info("TikTok post status after upload: %s", status_data)
-        except Exception as exc:
-            logger.warning("TikTok status check failed (non-fatal): %s", exc)
+        # Poll TikTok status endpoint until terminal state. Without this, a
+        # silent post-processing rejection (e.g. unaudited Direct Post quota,
+        # content policy fail) is only logged as a warning and the post is
+        # marked "published" while the video is nowhere on TikTok.
+        poll = await self._poll_publish_status(publish_id)
+        final_status = poll["status"]
+        fail_reason = poll["fail_reason"]
 
-        return publish_id
+        if final_status == "FAILED":
+            raise PublishError(
+                f"TikTok rejected video after upload: {fail_reason or 'no reason provided'} "
+                f"(publish_id={publish_id})",
+                platform="tiktok",
+                permanent=True,
+                details={
+                    "publish_id": publish_id,
+                    "fail_reason": fail_reason,
+                    "raw": poll.get("raw"),
+                },
+            )
+
+        return {
+            "publish_id": publish_id,
+            "final_status": final_status,
+            "fail_reason": fail_reason,
+        }
+
+    async def _poll_publish_status(
+        self,
+        publish_id: str,
+        *,
+        timeout_seconds: int = 60,
+        initial_delay: int = 2,
+        poll_interval: int = 3,
+    ) -> dict:
+        """Poll TikTok's status endpoint until terminal state or timeout.
+
+        Terminal states: PUBLISH_COMPLETE, SEND_TO_USER_INBOX, FAILED.
+        On timeout, returns the last observed (non-terminal) status so the
+        caller can decide what to record. Never raises — caller inspects
+        the returned status field.
+        """
+        import asyncio
+
+        terminal = {"PUBLISH_COMPLETE", "SEND_TO_USER_INBOX", "FAILED"}
+        elapsed = 0
+        last_status: str | None = None
+        last_data: dict | None = None
+        last_fail_reason: str | None = None
+
+        await asyncio.sleep(initial_delay)
+        elapsed += initial_delay
+
+        while elapsed <= timeout_seconds:
+            try:
+                data = await self.get_post_status(publish_id)
+            except Exception as exc:
+                logger.warning(
+                    "TikTok status poll failed at %ds for publish_id=%s: %s",
+                    elapsed, publish_id, exc,
+                )
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+                continue
+
+            inner = data.get("data", {})
+            last_status = inner.get("status")
+            last_data = data
+            last_fail_reason = inner.get("fail_reason")
+
+            logger.info(
+                "TikTok publish_id=%s status=%s elapsed=%ds fail_reason=%s",
+                publish_id, last_status, elapsed, last_fail_reason,
+            )
+
+            if last_status in terminal:
+                return {
+                    "status": last_status,
+                    "fail_reason": last_fail_reason,
+                    "raw": last_data,
+                }
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        logger.warning(
+            "TikTok publish_id=%s did not reach terminal state in %ds (last=%s)",
+            publish_id, timeout_seconds, last_status,
+        )
+        return {
+            "status": last_status or "TIMEOUT",
+            "fail_reason": last_fail_reason,
+            "raw": last_data,
+        }
 
     async def get_post_status(self, publish_id: str) -> dict:
         """Check the publish status of a video."""

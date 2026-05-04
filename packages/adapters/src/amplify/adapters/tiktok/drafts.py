@@ -26,12 +26,13 @@ class TikTokDrafts:
 
     async def save_draft(self, video_path: str | Path, caption: str) -> str:
         """Save a video as a draft via the upload flow with SELF_ONLY privacy."""
-        return await self._publisher.upload_video(
+        result = await self._publisher.upload_video(
             video_path,
             caption,
             privacy_level="SELF_ONLY",
             as_draft=True,
         )
+        return result["publish_id"]
 
     async def list_drafts(self) -> list[dict]:
         """List saved drafts (uses video.list endpoint)."""

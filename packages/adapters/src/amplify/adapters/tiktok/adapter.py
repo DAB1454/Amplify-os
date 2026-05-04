@@ -188,21 +188,37 @@ class TikTokAdapter(BaseAdapter):
 
         assert self._publisher is not None
         is_inbox = not self._publisher._is_app_audited()
-        publish_id = await self._publisher.upload_video(
+        privacy = kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY"))
+        upload = await self._publisher.upload_video(
             media_paths[0],
             content,
-            privacy_level=kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY")),
+            privacy_level=privacy,
             as_draft=kwargs.get("as_draft", False),
         )
+
+        publish_id = upload["publish_id"]
+        tiktok_status = upload.get("final_status")
+        # SEND_TO_USER_INBOX (explicit inbox flow OR unaudited Direct Post that
+        # TikTok silently routed to drafts) → user must publish from TikTok app.
+        # PUBLISH_COMPLETE → live on TikTok. Anything else (incl. timeout) →
+        # fall back to env-flag default.
+        if tiktok_status == "SEND_TO_USER_INBOX":
+            result_status = "pending_approval"
+        elif tiktok_status == "PUBLISH_COMPLETE":
+            result_status = "processing"
+        else:
+            result_status = "pending_approval" if is_inbox else "processing"
 
         return PublishResult(
             platform=self.platform,
             platform_post_id=publish_id,
-            status="pending_approval" if is_inbox else "processing",
+            status=result_status,
             metadata={
-                "privacy_level": kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY")),
+                "privacy_level": privacy,
                 "as_draft": kwargs.get("as_draft", False),
                 "inbox_flow": is_inbox,
+                "tiktok_status": tiktok_status,
+                "tiktok_fail_reason": upload.get("fail_reason"),
             },
         )
 
