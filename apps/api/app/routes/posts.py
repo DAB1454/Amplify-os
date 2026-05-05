@@ -1230,6 +1230,34 @@ async def refresh_tiktok_statuses(
                 continue
             data = await publisher.get_post_status(publish_id)
         except Exception as exc:
+            err_str = str(exc)
+            # invalid_publish_id is a terminal "TikTok no longer recognizes
+            # this upload" signal. Either the video was rejected and the
+            # record was purged, or the publish aged out of TikTok's
+            # retention window. Either way the post is NOT live on TikTok,
+            # so reclassify as failed with a clear reason instead of
+            # leaving it as an opaque error and pretending it's published.
+            if "invalid_publish_id" in err_str:
+                logger.info(
+                    "TikTok purged publish_id for post %s (id=%s) — marking failed",
+                    post.id, publish_id,
+                )
+                post.status = "failed"
+                post.published_at = None
+                post.last_error = (
+                    "TikTok no longer recognizes this publish_id — the upload was "
+                    "either rejected during processing or aged out before reaching "
+                    "a terminal state. Republish if it should be live."
+                )[:1000]
+                counts["failed"] += 1
+                details.append({
+                    "post_id": str(post.id),
+                    "publish_id": publish_id,
+                    "result": "invalid_publish_id",
+                    "previous_db_status": post.status,
+                })
+                continue
+
             logger.warning("TikTok status query failed for post %s (publish_id=%s): %s",
                            post.id, publish_id, exc)
             counts["skipped"] += 1
@@ -1237,7 +1265,7 @@ async def refresh_tiktok_statuses(
                 "post_id": str(post.id),
                 "publish_id": publish_id,
                 "result": "error",
-                "error": str(exc)[:300],
+                "error": err_str[:300],
             })
             continue
 
