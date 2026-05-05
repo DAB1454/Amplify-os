@@ -27,10 +27,15 @@ def _get_analytics_service(
 
 @router.get("/overview")
 async def analytics_overview(
+    days: int | None = Query(default=None, ge=1, le=365),
     svc: AnalyticsService = Depends(_get_analytics_service),
 ):
-    """High-level analytics overview for the tenant."""
-    return await svc.get_overview()
+    """High-level analytics overview for the tenant.
+
+    Pass ``days`` to scope counts and engagement totals to a window;
+    omit it for all-time totals.
+    """
+    return await svc.get_overview(days=days)
 
 
 @router.get("/timeseries")

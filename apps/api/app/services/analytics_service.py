@@ -31,32 +31,45 @@ class AnalyticsService:
 
     # ── overview ──────────────────────────────────────────────────
 
-    async def get_overview(self) -> dict:
-        """High-level analytics overview for the tenant."""
+    async def get_overview(self, days: int | None = None) -> dict:
+        """High-level analytics overview for the tenant.
+
+        If ``days`` is provided, post counts and engagement totals are
+        scoped to that window (created_at for posts, published_at for
+        published/engagement). When ``days`` is None, returns all-time
+        totals (legacy behavior).
+        """
+        cutoff = datetime.utcnow() - timedelta(days=days) if days else None
+
         campaigns = await self.db.execute(
             select(func.count()).select_from(CampaignModel).where(
                 CampaignModel.tenant_id == self.tenant_id
             )
         )
-        posts = await self.db.execute(
-            select(func.count()).select_from(PostModel).where(
-                PostModel.tenant_id == self.tenant_id
-            )
+
+        posts_q = select(func.count()).select_from(PostModel).where(
+            PostModel.tenant_id == self.tenant_id,
         )
-        published = await self.db.execute(
-            select(func.count()).select_from(PostModel).where(
-                PostModel.tenant_id == self.tenant_id,
-                PostModel.status == "published",
-            )
+        if cutoff is not None:
+            posts_q = posts_q.where(PostModel.created_at >= cutoff)
+        posts = await self.db.execute(posts_q)
+
+        pub_count_q = select(func.count()).select_from(PostModel).where(
+            PostModel.tenant_id == self.tenant_id,
+            PostModel.status == "published",
         )
+        if cutoff is not None:
+            pub_count_q = pub_count_q.where(PostModel.published_at >= cutoff)
+        published = await self.db.execute(pub_count_q)
 
         # Aggregate total views/likes/comments from published posts' engagement JSON
-        pub_posts = await self.db.execute(
-            select(PostModel.engagement, PostModel.platform).where(
-                PostModel.tenant_id == self.tenant_id,
-                PostModel.status == "published",
-            )
+        pub_engagement_q = select(PostModel.engagement, PostModel.platform).where(
+            PostModel.tenant_id == self.tenant_id,
+            PostModel.status == "published",
         )
+        if cutoff is not None:
+            pub_engagement_q = pub_engagement_q.where(PostModel.published_at >= cutoff)
+        pub_posts = await self.db.execute(pub_engagement_q)
         total_views = 0
         total_likes = 0
         total_comments = 0
@@ -72,6 +85,7 @@ class AnalyticsService:
 
         return {
             "tenant_id": str(self.tenant_id),
+            "window_days": days,
             "total_campaigns": campaigns.scalar_one(),
             "total_posts": posts.scalar_one(),
             "published_posts": published.scalar_one(),

@@ -155,22 +155,56 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 
 function SparkChart({ points, color }: { points: TimeseriesPoint[]; color: string }) {
   if (points.length === 0) return null;
-  const max = Math.max(...points.map((p) => p.value));
-  const min = Math.min(...points.map((p) => p.value));
-  const range = max - min || 1;
-  const h = 60;
+  const rawMax = Math.max(...points.map((p) => p.value));
+  const rawMin = Math.min(...points.map((p) => p.value));
+  // Use 0 as the visual floor when all values are non-negative so the
+  // line's amplitude reflects the absolute scale, not just the delta.
+  const yMin = rawMin >= 0 ? 0 : rawMin;
+  const yMax = rawMax > yMin ? rawMax : yMin + 1;
+  const range = yMax - yMin;
+
+  const h = 80;
   const w = 280;
-  const step = w / Math.max(points.length - 1, 1);
+  const padLeft = 36;
+  const padRight = 4;
+  const padTop = 4;
+  const padBottom = 4;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+  const step = plotW / Math.max(points.length - 1, 1);
 
   const pathParts = points.map((p, i) => {
-    const x = i * step;
-    const y = h - ((p.value - min) / range) * h;
+    const x = padLeft + i * step;
+    const y = padTop + plotH - ((p.value - yMin) / range) * plotH;
     return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
   });
 
+  // Pick a midpoint tick that's aesthetically reasonable
+  const yMid = yMin + range / 2;
+  const fmt = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : n.toFixed(0);
+
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-16" preserveAspectRatio="none">
-      <path d={pathParts.join(" ")} fill="none" stroke={color} strokeWidth="2" />
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20">
+      {/* horizontal gridlines */}
+      <line x1={padLeft} x2={w - padRight} y1={padTop} y2={padTop}
+            stroke="currentColor" strokeWidth="0.5" opacity="0.15" />
+      <line x1={padLeft} x2={w - padRight} y1={padTop + plotH / 2} y2={padTop + plotH / 2}
+            stroke="currentColor" strokeWidth="0.5" opacity="0.1" strokeDasharray="2,2" />
+      <line x1={padLeft} x2={w - padRight} y1={padTop + plotH} y2={padTop + plotH}
+            stroke="currentColor" strokeWidth="0.5" opacity="0.2" />
+
+      {/* y-axis tick labels */}
+      <text x={padLeft - 4} y={padTop + 4} textAnchor="end"
+            fontSize="9" fill="currentColor" opacity="0.6">{fmt(yMax)}</text>
+      <text x={padLeft - 4} y={padTop + plotH / 2 + 3} textAnchor="end"
+            fontSize="9" fill="currentColor" opacity="0.5">{fmt(yMid)}</text>
+      <text x={padLeft - 4} y={padTop + plotH + 1} textAnchor="end"
+            fontSize="9" fill="currentColor" opacity="0.6">{fmt(yMin)}</text>
+
+      {/* the line */}
+      <path d={pathParts.join(" ")} fill="none" stroke={color} strokeWidth="2"
+            vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -357,7 +391,7 @@ export default function AnalyticsPage() {
     try {
       const platformParam = platformFilter !== "all" ? `&platform=${platformFilter}` : "";
       const [ov, ts, sc, rp, ch, exps] = await Promise.all([
-        apiGet<Overview>("/api/v1/analytics/overview"),
+        apiGet<Overview>(`/api/v1/analytics/overview?days=${days}`),
         apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}${platformParam}`),
         apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
         apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
@@ -478,23 +512,29 @@ export default function AnalyticsPage() {
         </div>
       ) : (
         <>
-          {/* Overview cards */}
+          {/* Overview cards. Campaigns is all-time (campaigns aren't dated by
+              window); the rest are scoped to the selected window. */}
           {overview && (
             <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
               {[
-                { label: "Campaigns", value: overview.total_campaigns },
-                { label: "Total Posts", value: overview.total_posts },
-                { label: "Published", value: overview.published_posts },
-                { label: "Total Views", value: overview.total_views?.toLocaleString() || "0" },
-                { label: "Likes", value: overview.total_likes?.toLocaleString() || "0" },
-                { label: "Comments", value: overview.total_comments?.toLocaleString() || "0" },
-                { label: "Shares", value: overview.total_shares?.toLocaleString() || "0" },
+                { label: "Campaigns", value: overview.total_campaigns, scoped: false },
+                { label: "Posts created", value: overview.total_posts, scoped: true },
+                { label: "Published", value: overview.published_posts, scoped: true },
+                { label: "Views", value: overview.total_views?.toLocaleString() || "0", scoped: true },
+                { label: "Likes", value: overview.total_likes?.toLocaleString() || "0", scoped: true },
+                { label: "Comments", value: overview.total_comments?.toLocaleString() || "0", scoped: true },
+                { label: "Shares", value: overview.total_shares?.toLocaleString() || "0", scoped: true },
               ].map((card) => (
                 <div
                   key={card.label}
                   className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] p-5"
                 >
-                  <p className="text-xs text-[var(--text-secondary)]">{card.label}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    {card.label}
+                    {card.scoped && (
+                      <span className="ml-1 text-[10px] opacity-70">last {range}</span>
+                    )}
+                  </p>
                   <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{card.value}</p>
                 </div>
               ))}
