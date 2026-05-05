@@ -106,6 +106,17 @@ export default function PostsPage() {
   const [copiedCaptionId, setCopiedCaptionId] = useState<string | null>(null);
   const [refreshingTikTok, setRefreshingTikTok] = useState(false);
   const [refreshSummary, setRefreshSummary] = useState<string | null>(null);
+  type RefreshDetail = {
+    post_id: string;
+    publish_id?: string | null;
+    tiktok_status?: string | null;
+    fail_reason?: string | null;
+    result: string;
+    error?: string;
+    previous_db_status?: string;
+  };
+  const [refreshDetails, setRefreshDetails] = useState<RefreshDetail[] | null>(null);
+  const [showRefreshDetails, setShowRefreshDetails] = useState(false);
 
   // Close modals on ESC key
   useEffect(() => {
@@ -1099,6 +1110,7 @@ export default function PostsPage() {
                 matched: number; scanned: number; published: number; pending_approval: number;
                 failed: number; still_processing: number; skipped: number;
                 skipped_no_publish_id: number;
+                details: RefreshDetail[];
               }>("/api/v1/posts/refresh-tiktok-statuses?days=14", {}, 120000);
               const noIdHint = res.skipped_no_publish_id > 0
                 ? ` ${res.skipped_no_publish_id} TikTok post${res.skipped_no_publish_id !== 1 ? "s" : ""} have no publish_id (never hit the TikTok API — likely manually marked published).`
@@ -1106,6 +1118,8 @@ export default function PostsPage() {
               setRefreshSummary(
                 `Matched ${res.matched} TikTok posts in last 14 days. Queried TikTok for ${res.scanned}: ${res.published} published, ${res.pending_approval} in TikTok drafts, ${res.failed} failed, ${res.still_processing} still processing, ${res.skipped} errored.${noIdHint}`
               );
+              setRefreshDetails(res.details || []);
+              setShowRefreshDetails(false);
               fetchPosts();
             } catch (err) {
               setFetchError(err instanceof Error ? err.message : "Refresh failed");
@@ -1122,7 +1136,84 @@ export default function PostsPage() {
       </div>
       {refreshSummary && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {refreshSummary}
+          <div className="flex items-start justify-between gap-3">
+            <span>{refreshSummary}</span>
+            {refreshDetails && refreshDetails.length > 0 && (
+              <button
+                onClick={() => setShowRefreshDetails((v) => !v)}
+                className="shrink-0 underline hover:no-underline"
+              >
+                {showRefreshDetails ? "Hide details" : "Show details"}
+              </button>
+            )}
+          </div>
+          {showRefreshDetails && refreshDetails && (() => {
+            const errorGroups = new Map<string, RefreshDetail[]>();
+            const statusGroups = new Map<string, RefreshDetail[]>();
+            const noIdRows: RefreshDetail[] = [];
+            for (const d of refreshDetails) {
+              if (d.result === "no_publish_id") {
+                noIdRows.push(d);
+              } else if (d.result === "error" || d.result === "no_channel" || d.result === "no_publisher") {
+                const key = (d.error || d.result).slice(0, 120);
+                if (!errorGroups.has(key)) errorGroups.set(key, []);
+                errorGroups.get(key)!.push(d);
+              } else {
+                const key = d.tiktok_status || d.result;
+                if (!statusGroups.has(key)) statusGroups.set(key, []);
+                statusGroups.get(key)!.push(d);
+              }
+            }
+            const sortedErrors = Array.from(errorGroups.entries()).sort((a, b) => b[1].length - a[1].length);
+            const sortedStatuses = Array.from(statusGroups.entries()).sort((a, b) => b[1].length - a[1].length);
+            return (
+              <div className="mt-2 space-y-2 text-[11px]">
+                {sortedStatuses.length > 0 && (
+                  <div>
+                    <p className="font-semibold">By TikTok status:</p>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {sortedStatuses.map(([key, rows]) => (
+                        <li key={key}>
+                          <span className="font-mono">{key}</span> &times; {rows.length}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {sortedErrors.length > 0 && (
+                  <div>
+                    <p className="font-semibold text-red-700">Errors:</p>
+                    <ul className="mt-0.5 space-y-1">
+                      {sortedErrors.map(([msg, rows]) => (
+                        <li key={msg}>
+                          <span className="text-red-700">[{rows.length}]</span>{" "}
+                          <span className="font-mono break-all">{msg}</span>
+                          <span className="ml-1 text-[10px] opacity-60">
+                            (e.g. post {rows[0].post_id.slice(0, 8)}…)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {noIdRows.length > 0 && (
+                  <div>
+                    <p className="font-semibold">No publish_id ({noIdRows.length}):</p>
+                    <ul className="mt-0.5 opacity-75">
+                      {noIdRows.slice(0, 5).map((d) => (
+                        <li key={d.post_id} className="font-mono">
+                          {d.post_id.slice(0, 8)}… — was {d.previous_db_status}
+                        </li>
+                      ))}
+                      {noIdRows.length > 5 && (
+                        <li className="opacity-60">…and {noIdRows.length - 5} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
