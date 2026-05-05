@@ -59,7 +59,7 @@ export default function PostsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
-  const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
+  const [newPost, setNewPost] = useState({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "" });
   // Video generation options for lyric_video / ai_video types
   const [videoDuration, setVideoDuration] = useState(30);
   const [videoAspect, setVideoAspect] = useState("9:16");
@@ -419,7 +419,7 @@ export default function PostsPage() {
                 const active = chans.filter((c) => ["instagram", "youtube", "tiktok", "twitter"].includes(c.platform));
                 setChannels(active);
                 if (active.length > 0) {
-                  setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
+                  setNewPost({ channel_id: active[0].id, platform: active[0].platform, content_text: "", media_urls: "", action_type_label: "", destination_url: "" });
                 }
                 // Fetch release URLs + artist streaming links for destination dropdown
                 try {
@@ -501,23 +501,21 @@ export default function PostsPage() {
                 setMerging(false);
               }
 
-              // Filter audio out of selectedAssetUrls for lyric videos (audio goes to audio track)
-              const filteredAssetUrls = newPost.action_type_label === "lyric_video"
-                ? selectedAssetUrls.filter((u) => !/\.(mp3|wav|aac|flac|ogg|m4a)/i.test(u))
-                : selectedAssetUrls;
-
-              // Also include any manually entered URLs and selected library assets
+              // Keep audio in media_urls even for lyric_video posts so the
+              // chosen track survives across regenerations (the lyric video
+              // renderer overwrites media_urls with the rendered video, but
+              // engagement.source_audio_url and the still-present audio in
+              // any pre-render media give us two recovery paths).
               const manualUrls = newPost.media_urls ? newPost.media_urls.split(",").map((u) => u.trim()).filter(Boolean) : [];
 
               const payload: Record<string, unknown> = {
                 channel_id: newPost.channel_id,
                 platform: newPost.platform,
                 content_text: newPost.content_text,
-                media_urls: [...uploadedUrls, ...filteredAssetUrls, ...manualUrls],
+                media_urls: [...uploadedUrls, ...selectedAssetUrls, ...manualUrls],
               };
               if (newPost.action_type_label) payload.action_type_label = newPost.action_type_label;
               if (newPost.destination_url) payload.destination_url = newPost.destination_url;
-              if (newPost.scheduled_at) payload.scheduled_at = new Date(newPost.scheduled_at).toISOString();
               const created = await apiPost<{id: string}>("/api/v1/posts", payload);
 
               // Auto-trigger video generation if lyric_video or ai_video was selected
@@ -562,7 +560,7 @@ export default function PostsPage() {
               }
 
               setShowCreate(false);
-              setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "", scheduled_at: "" });
+              setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "" });
               setVideoLyrics("");
               setAiVideoPrompt("");
               setMediaFiles([]);
@@ -658,16 +656,9 @@ export default function PostsPage() {
                 )}
               </select>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Schedule (optional)</label>
-              <input
-                type="datetime-local"
-                value={newPost.scheduled_at}
-                onChange={(e) => setNewPost({ ...newPost, scheduled_at: e.target.value })}
-                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
-              />
-            </div>
           </div>
+          {/* Schedule field removed — set the time via the Schedule action
+              on the draft instead, so policy runs at the same step. */}
 
           {/* Lyric Video settings */}
           {newPost.action_type_label === "lyric_video" && (
