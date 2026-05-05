@@ -27,6 +27,8 @@ interface Post {
 
 const statusColors: Record<string, string> = {
   draft: "bg-gray-100 text-gray-500",
+  // queued/approved kept only for any legacy DB rows that survive the
+  // server-side migration; UI no longer transitions posts into them.
   queued: "bg-yellow-100 text-yellow-600",
   approved: "bg-green-100 text-green-600",
   scheduled: "bg-blue-100 text-blue-600",
@@ -36,7 +38,7 @@ const statusColors: Record<string, string> = {
   failed: "bg-red-100 text-red-600",
 };
 
-const tabs = ["all", "draft", "queued", "approved", "scheduled", "published", "failed"] as const;
+const tabs = ["all", "draft", "scheduled", "published", "failed"] as const;
 
 interface Channel {
   id: string;
@@ -181,8 +183,12 @@ export default function PostsPage() {
       const result = await apiPost<{ status?: string; policy_decision?: string; reasons?: string[] }>(
         `/api/v1/posts/${postId}/${action}`, {}
       );
-      if (result?.policy_decision === "block") {
-        setFetchError(`Policy blocked: ${result.reasons?.join(", ") || "Unknown reason"}`);
+      // The schedule step now blocks on either "block" or "require_approval".
+      // Surface the reasons so the user knows what to fix instead of staring
+      // at an unchanged draft.
+      if (result?.policy_decision === "block" || result?.policy_decision === "require_approval") {
+        const label = result.policy_decision === "block" ? "Policy blocked" : "Policy needs review";
+        setFetchError(`${label}: ${result.reasons?.join(", ") || "Unknown reason"}`);
       } else {
         setFetchError(null);
       }
@@ -352,51 +358,35 @@ export default function PostsPage() {
     const edit = { label: "Edit", action: "edit", style: "bg-indigo-100 text-indigo-600" };
     const del = { label: "Delete", action: "delete", style: "bg-red-100 text-red-600" };
     const genVideo = { label: "Generate Video", action: "generate_video", style: "bg-purple-100 text-purple-600" };
+    const preview = { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" };
+    const schedule = { label: "Schedule", action: "schedule", style: "bg-[var(--brand-gold)] text-white" };
+    const publishNow = { label: "Publish Now", action: "publish", style: "bg-blue-600 text-white" };
+    const reset = { label: "Reset to Draft", action: "reset_draft", style: "bg-gray-100 text-gray-600" };
     switch (status) {
       case "draft":
-        return [
-          edit,
-          genVideo,
-          { label: "Queue", action: "queue", style: "bg-[var(--brand-gold)] text-white" },
-          { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
-          del,
-        ];
+        // Single-step commit: schedule (with date) or publish now. The
+        // queue/approve dance is gone — policy runs at the schedule step.
+        return [edit, genVideo, preview, schedule, publishNow, del];
+      // Legacy rows that survived the DB migration. Show the same
+      // commit affordances so the user can move them forward without
+      // hunting for the old buttons.
       case "queued":
-        return [
-          edit,
-          genVideo,
-          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
-          { label: "Approve", action: "approve", style: "bg-green-600 text-white" },
-          { label: "Reject", action: "reject", style: "bg-red-100 text-red-600" },
-          del,
-        ];
       case "approved":
-        return [
-          edit,
-          genVideo,
-          { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
-          { label: "Schedule", action: "schedule", style: "bg-blue-600 text-white" },
-          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
-          del,
-        ];
+        return [edit, genVideo, preview, schedule, publishNow, reset, del];
       case "scheduled":
-        return [
-          edit,
-          { label: "Publish Now", action: "publish", style: "bg-[var(--brand-gold)] text-white" },
-          { label: "Preview", action: "preview", style: "bg-blue-600/20 text-blue-600" },
-          del,
-        ];
+        return [edit, publishNow, preview, reset, del];
       case "publishing":
         return [
           edit,
           { label: "Re-publish", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
-          { label: "Reset to Draft", action: "reset_draft", style: "bg-gray-100 text-gray-600" },
+          reset,
           del,
         ];
       case "pending_approval":
         return [
           { label: "Mark Published", action: "mark_published", style: "bg-emerald-100 text-emerald-600" },
           { label: "Retry", action: "retry", style: "bg-[var(--brand-gold)] text-white" },
+          reset,
           del,
         ];
       case "published":
@@ -1262,6 +1252,22 @@ export default function PostsPage() {
                     {post.status === "pending_approval" && post.platform !== "tiktok" && (
                       <span className="text-xs text-amber-600">Awaiting approval</span>
                     )}
+                    {post.status === "draft" && post.policy_decision === "require_approval" && (
+                      <span
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                        title={post.last_error || "Policy flagged this post — review and re-schedule"}
+                      >
+                        Needs review
+                      </span>
+                    )}
+                    {post.status === "draft" && post.policy_decision === "block" && (
+                      <span
+                        className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                        title={post.last_error || "Policy blocked this post"}
+                      >
+                        Blocked
+                      </span>
+                    )}
                     {post.retry_count > 0 && (
                       <span className="text-xs text-[var(--text-secondary)]">
                         Retries: {post.retry_count}
@@ -1491,7 +1497,11 @@ export default function PostsPage() {
                         onClick={async () => {
                           setActionLoading(`${post.id}-reset_draft`);
                           try {
-                            await apiPut(`/api/v1/posts/${post.id}`, { status: "draft", last_error: null });
+                            // Use the new endpoint that goes through the
+                            // state machine instead of a raw PUT — the
+                            // PUT path doesn't enforce VALID_TRANSITIONS
+                            // and bypasses any policy-decision cleanup.
+                            await apiPost(`/api/v1/posts/${post.id}/reset-to-draft`, {});
                             setFetchError(null);
                             fetchPosts();
                           } catch (err) {

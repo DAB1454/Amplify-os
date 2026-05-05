@@ -240,7 +240,7 @@ export default function CalendarPage() {
 
   const stats = useMemo(() => {
     const published = visiblePosts.filter((p) => p.status === "published").length;
-    const scheduled = visiblePosts.filter((p) => p.status === "scheduled" || p.status === "approved").length;
+    const scheduled = visiblePosts.filter((p) => p.status === "scheduled").length;
     const failed = visiblePosts.filter((p) => p.status === "failed").length;
     return { posts: visiblePosts.length, items: visibleItems.length, published, scheduled, failed };
   }, [visiblePosts, visibleItems]);
