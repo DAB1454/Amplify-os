@@ -99,8 +99,10 @@ interface Experiment {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-const ranges = ["7d", "14d", "30d"] as const;
-const dayMap: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30 };
+const ranges = ["7d", "14d", "30d", "all"] as const;
+// "all" maps to null/no-days param — backend interprets that as
+// lifetime totals from PostModel.engagement.
+const dayMap: Record<string, number | null> = { "7d": 7, "14d": 14, "30d": 30, "all": null };
 
 const verdictColors: Record<string, string> = {
   keep: "bg-green-100 text-green-700",
@@ -382,19 +384,39 @@ export default function AnalyticsPage() {
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [verdictFilter, setVerdictFilter] = useState<string>("all");
   const [showCreateExperiment, setShowCreateExperiment] = useState(false);
+  const [releases, setReleases] = useState<{ id: string; name: string }[]>([]);
+  const [releaseFilter, setReleaseFilter] = useState<string>("all");
 
   const days = dayMap[range];
+
+  // Releases never change without user action — load once on mount.
+  useEffect(() => {
+    apiGet<{ id: string; name: string }[]>("/api/v1/releases")
+      .then((r) => setReleases(r || []))
+      .catch(() => setReleases([]));
+  }, []);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const platformParam = platformFilter !== "all" ? `&platform=${platformFilter}` : "";
+      const releaseParam = releaseFilter !== "all" ? `&release_id=${releaseFilter}` : "";
+      // For per-windowed endpoints: if range is "all", omit days entirely
+      // for overview and scores so backend uses lifetime totals; timeseries
+      // and analyst-report still require a days value (backend won't accept
+      // null), so we pick a generous ceiling — 365.
+      const daysParam = days != null ? `days=${days}` : "";
+      const daysOrCap = days ?? 365;
+      const overviewUrl = `/api/v1/analytics/overview?${daysParam}${releaseParam}`;
+      const scoresUrl = `/api/v1/analytics/scores?${daysParam}${releaseParam}`;
+      const tsUrl = `/api/v1/analytics/timeseries?days=${daysOrCap}${platformParam}${releaseParam}`;
+      const reportUrl = `/api/v1/analytics/analyst-report?days=${days ?? 90}${releaseParam}`;
       const [ov, ts, sc, rp, ch, exps] = await Promise.all([
-        apiGet<Overview>(`/api/v1/analytics/overview?days=${days}`),
-        apiGet<TimeseriesData>(`/api/v1/analytics/timeseries?days=${days}${platformParam}`),
-        apiGet<PostScore[]>(`/api/v1/analytics/scores?days=${days}`),
-        apiGet<AnalystReport>(`/api/v1/analytics/analyst-report?days=${days}`),
+        apiGet<Overview>(overviewUrl),
+        apiGet<TimeseriesData>(tsUrl),
+        apiGet<PostScore[]>(scoresUrl),
+        apiGet<AnalystReport>(reportUrl),
         apiGet<Channel[]>("/api/v1/channels"),
         apiGet<Experiment[]>("/api/v1/analytics/experiments"),
       ]);
@@ -409,7 +431,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [days, platformFilter]);
+  }, [days, platformFilter, releaseFilter]);
 
   useEffect(() => {
     fetchAll();
@@ -441,7 +463,7 @@ export default function AnalyticsPage() {
     <>
       <Header title="Analytics" />
 
-      {/* Range selector + platform filter */}
+      {/* Range selector + platform filter + release filter */}
       <div className="mt-8 flex flex-wrap items-center gap-4">
         <div className="flex gap-2">
           {ranges.map((r) => (
@@ -455,10 +477,27 @@ export default function AnalyticsPage() {
                   : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)]"
               )}
             >
-              {r}
+              {r === "all" ? "all-time" : r}
             </button>
           ))}
         </div>
+
+        {/* Release filter — only show if user has 2+ releases. */}
+        {releases.length > 1 && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[var(--text-secondary)]">Release</label>
+            <select
+              value={releaseFilter}
+              onChange={(e) => setReleaseFilter(e.target.value)}
+              className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--text-primary)] focus:border-indigo-500 focus:outline-none"
+            >
+              <option value="all">All releases</option>
+              {releases.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {platforms.length > 1 && (
           <div className="flex gap-1.5 ml-auto">
@@ -532,7 +571,9 @@ export default function AnalyticsPage() {
                   <p className="text-xs text-[var(--text-secondary)]">
                     {card.label}
                     {card.scoped && (
-                      <span className="ml-1 text-[10px] opacity-70">last {range}</span>
+                      <span className="ml-1 text-[10px] opacity-70">
+                        {range === "all" ? "all-time" : `last ${range}`}
+                      </span>
                     )}
                   </p>
                   <p className="mt-1 text-2xl font-bold text-[var(--text-primary)]">{card.value}</p>
@@ -563,7 +604,7 @@ export default function AnalyticsPage() {
                         {(timeseries.totals?.[metric] ?? points.reduce((sum: number, p: { value: number }) => sum + p.value, 0)).toLocaleString()}
                       </p>
                       <p className="text-[10px] text-[var(--text-secondary)]">
-                        Daily trend — last {range}
+                        Daily trend — {range === "all" ? "last 365 days" : `last ${range}`}
                       </p>
                       <div className="mt-2">
                         <SparkChart

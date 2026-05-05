@@ -28,24 +28,29 @@ def _get_analytics_service(
 @router.get("/overview")
 async def analytics_overview(
     days: int | None = Query(default=None, ge=1, le=365),
+    release_id: uuid.UUID | None = Query(default=None),
     svc: AnalyticsService = Depends(_get_analytics_service),
 ):
     """High-level analytics overview for the tenant.
 
     Pass ``days`` to scope counts and engagement totals to a window;
-    omit it for all-time totals.
+    omit it for all-time totals. Pass ``release_id`` to restrict to
+    posts whose campaign belongs to that release.
     """
-    return await svc.get_overview(days=days)
+    return await svc.get_overview(days=days, release_id=release_id)
 
 
 @router.get("/timeseries")
 async def all_timeseries(
     days: int = Query(default=30, ge=1, le=365),
     platform: str | None = Query(default=None),
+    release_id: uuid.UUID | None = Query(default=None),
     svc: AnalyticsService = Depends(_get_analytics_service),
 ):
     """Daily impressions, engagement, and clicks across all campaigns."""
-    return await svc.get_campaign_timeseries(None, days=days, platform=platform)
+    return await svc.get_campaign_timeseries(
+        None, days=days, platform=platform, release_id=release_id,
+    )
 
 
 @router.get("/campaigns/{campaign_id}/timeseries")
@@ -61,21 +66,30 @@ async def campaign_timeseries(
 @router.get("/scores")
 async def post_scores(
     campaign_id: uuid.UUID | None = Query(default=None),
-    days: int = Query(default=14, ge=1, le=90),
+    days: int | None = Query(default=14, ge=1, le=365),
+    release_id: uuid.UUID | None = Query(default=None),
     svc: AnalyticsService = Depends(_get_analytics_service),
 ):
-    """Score all posts by normalized engagement and CTR."""
-    return await svc.get_post_scores(campaign_id=campaign_id, days=days)
+    """Score all posts by normalized engagement and CTR.
+
+    Pass ``days=null`` (omit) for the lifetime / all-time view.
+    """
+    return await svc.get_post_scores(
+        campaign_id=campaign_id, days=days, release_id=release_id,
+    )
 
 
 @router.get("/analyst-report")
 async def analyst_report(
     campaign_id: uuid.UUID | None = Query(default=None),
-    days: int = Query(default=7, ge=1, le=90),
+    days: int = Query(default=7, ge=1, le=365),
+    release_id: uuid.UUID | None = Query(default=None),
     svc: AnalyticsService = Depends(_get_analytics_service),
 ):
     """Generate weekly keep/remix/stop analyst report."""
-    return await svc.generate_analyst_report(campaign_id=campaign_id, days=days)
+    return await svc.generate_analyst_report(
+        campaign_id=campaign_id, days=days, release_id=release_id,
+    )
 
 
 @router.get("/experiments/{experiment_id}")

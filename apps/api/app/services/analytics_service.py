@@ -31,27 +31,49 @@ class AnalyticsService:
 
     # ── overview ──────────────────────────────────────────────────
 
-    async def get_overview(self, days: int | None = None) -> dict:
+    async def get_overview(
+        self,
+        days: int | None = None,
+        release_id: uuid.UUID | None = None,
+    ) -> dict:
         """High-level analytics overview for the tenant.
 
-        If ``days`` is provided, post counts and engagement totals are
-        scoped to that window (created_at for posts, published_at for
-        published/engagement). When ``days`` is None, returns all-time
-        totals (legacy behavior).
+        - ``days``: when provided, post counts are scoped (created_at /
+          published_at) AND engagement totals are computed as daily-delta
+          sums from DailyMetricModel within the window — i.e. real
+          engagement gained in the window, not lifetime totals. When
+          ``days`` is None, returns lifetime totals (PostModel.engagement).
+        - ``release_id``: when provided, restrict to posts whose campaign
+          belongs to that release.
         """
         cutoff = datetime.utcnow() - timedelta(days=days) if days else None
 
-        campaigns = await self.db.execute(
-            select(func.count()).select_from(CampaignModel).where(
-                CampaignModel.tenant_id == self.tenant_id
-            )
+        campaigns_q = select(func.count()).select_from(CampaignModel).where(
+            CampaignModel.tenant_id == self.tenant_id
         )
+        if release_id:
+            campaigns_q = campaigns_q.where(CampaignModel.release_id == release_id)
+        campaigns = await self.db.execute(campaigns_q)
+
+        # Resolve campaign_ids for release filter once — used to scope
+        # PostModel queries and DailyMetricModel post-id lookups.
+        release_campaign_ids: list[uuid.UUID] | None = None
+        if release_id:
+            ridr = await self.db.execute(
+                select(CampaignModel.id).where(
+                    CampaignModel.tenant_id == self.tenant_id,
+                    CampaignModel.release_id == release_id,
+                )
+            )
+            release_campaign_ids = [r[0] for r in ridr.all()]
 
         posts_q = select(func.count()).select_from(PostModel).where(
             PostModel.tenant_id == self.tenant_id,
         )
         if cutoff is not None:
             posts_q = posts_q.where(PostModel.created_at >= cutoff)
+        if release_campaign_ids is not None:
+            posts_q = posts_q.where(PostModel.campaign_id.in_(release_campaign_ids or [uuid.UUID(int=0)]))
         posts = await self.db.execute(posts_q)
 
         pub_count_q = select(func.count()).select_from(PostModel).where(
@@ -60,40 +82,133 @@ class AnalyticsService:
         )
         if cutoff is not None:
             pub_count_q = pub_count_q.where(PostModel.published_at >= cutoff)
+        if release_campaign_ids is not None:
+            pub_count_q = pub_count_q.where(PostModel.campaign_id.in_(release_campaign_ids or [uuid.UUID(int=0)]))
         published = await self.db.execute(pub_count_q)
 
-        # Aggregate total views/likes/comments from published posts' engagement JSON
-        pub_engagement_q = select(PostModel.engagement, PostModel.platform).where(
-            PostModel.tenant_id == self.tenant_id,
-            PostModel.status == "published",
-        )
-        if cutoff is not None:
-            pub_engagement_q = pub_engagement_q.where(PostModel.published_at >= cutoff)
-        pub_posts = await self.db.execute(pub_engagement_q)
-        total_views = 0
-        total_likes = 0
-        total_comments = 0
-        total_shares = 0
-        for row in pub_posts.all():
-            engagement = row[0]
-            if not engagement or not isinstance(engagement, dict):
-                continue
-            total_views += int(engagement.get("views", 0) or engagement.get("impressions", 0) or 0)
-            total_likes += int(engagement.get("likes", 0) or 0)
-            total_comments += int(engagement.get("comments", 0) or 0)
-            total_shares += int(engagement.get("shares", 0) or 0)
+        if cutoff is None:
+            # All-time: fall back to lifetime totals from PostModel.engagement.
+            # DailyMetric only tracks data we've collected since the post was
+            # imported, so for the "everything ever" view, the platform's
+            # current cumulative engagement is the most accurate number.
+            engagement_q = select(PostModel.engagement, PostModel.platform).where(
+                PostModel.tenant_id == self.tenant_id,
+                PostModel.status == "published",
+            )
+            if release_campaign_ids is not None:
+                engagement_q = engagement_q.where(
+                    PostModel.campaign_id.in_(release_campaign_ids or [uuid.UUID(int=0)])
+                )
+            pub_posts = await self.db.execute(engagement_q)
+            totals = {"views": 0, "likes": 0, "comments": 0, "shares": 0}
+            for row in pub_posts.all():
+                eng = row[0]
+                if not eng or not isinstance(eng, dict):
+                    continue
+                totals["views"] += int(eng.get("views", 0) or eng.get("impressions", 0) or 0)
+                totals["likes"] += int(eng.get("likes", 0) or 0)
+                totals["comments"] += int(eng.get("comments", 0) or 0)
+                totals["shares"] += int(eng.get("shares", 0) or 0)
+        else:
+            # Windowed: sum daily deltas from DailyMetricModel so totals
+            # reflect engagement *gained* in the window, not the cumulative
+            # number a post had on the day it was last synced.
+            totals = await self._engagement_deltas_in_window(
+                days=days,
+                release_campaign_ids=release_campaign_ids,
+            )
 
         return {
             "tenant_id": str(self.tenant_id),
             "window_days": days,
+            "release_id": str(release_id) if release_id else None,
             "total_campaigns": campaigns.scalar_one(),
             "total_posts": posts.scalar_one(),
             "published_posts": published.scalar_one(),
-            "total_views": total_views,
-            "total_likes": total_likes,
-            "total_comments": total_comments,
-            "total_shares": total_shares,
+            "total_views": totals["views"],
+            "total_likes": totals["likes"],
+            "total_comments": totals["comments"],
+            "total_shares": totals["shares"],
         }
+
+    # Map raw metric_name strings to the four overview buckets. Platforms
+    # report different names for the same concept (impressions/views/reach
+    # all measure exposure), so we collapse them.
+    _OVERVIEW_VIEW_METRICS = {"impressions", "views", "reach"}
+    _OVERVIEW_LIKE_METRICS = {"likes", "favorites"}
+    _OVERVIEW_COMMENT_METRICS = {"comments", "replies"}
+    _OVERVIEW_SHARE_METRICS = {"shares", "retweets", "reposts"}
+
+    async def _engagement_deltas_in_window(
+        self,
+        *,
+        days: int,
+        release_campaign_ids: list[uuid.UUID] | None,
+    ) -> dict[str, int]:
+        """Sum daily deltas per overview metric across all posts in window.
+
+        Daily metrics are stored cumulatively per (post, metric_name, date),
+        so we walk each post×metric series and sum max(0, value[d] - value[d-1])
+        over the visible window. Pull one extra day before the window so
+        the first visible day has a previous-value to delta against.
+        """
+        visible_start = date.today() - timedelta(days=days)
+        fetch_start = visible_start - timedelta(days=1)
+
+        stmt = select(
+            DailyMetricModel.entity_id,
+            DailyMetricModel.date,
+            DailyMetricModel.metric_name,
+            DailyMetricModel.value,
+        ).where(
+            DailyMetricModel.tenant_id == self.tenant_id,
+            DailyMetricModel.entity_type == "post",
+            DailyMetricModel.date >= fetch_start,
+        )
+        # Restrict to posts in the release if a filter is set. We do this
+        # via a subquery on PostModel because DailyMetricModel doesn't
+        # carry release/campaign linkage of its own.
+        if release_campaign_ids is not None:
+            scoped_post_ids = select(PostModel.id).where(
+                PostModel.tenant_id == self.tenant_id,
+                PostModel.campaign_id.in_(release_campaign_ids or [uuid.UUID(int=0)]),
+            )
+            stmt = stmt.where(DailyMetricModel.entity_id.in_(scoped_post_ids))
+        rows = (await self.db.execute(stmt)).all()
+
+        # Group: (post_id, bucket) → [(date, value), ...]
+        from collections import defaultdict
+        per_series: dict[tuple, list[tuple]] = defaultdict(list)
+        for entity_id, row_date, metric_name, value in rows:
+            mname = (metric_name or "").lower()
+            if mname in self._OVERVIEW_VIEW_METRICS:
+                bucket = "views"
+            elif mname in self._OVERVIEW_LIKE_METRICS:
+                bucket = "likes"
+            elif mname in self._OVERVIEW_COMMENT_METRICS:
+                bucket = "comments"
+            elif mname in self._OVERVIEW_SHARE_METRICS:
+                bucket = "shares"
+            else:
+                continue
+            per_series[(entity_id, bucket)].append((row_date, float(value)))
+
+        totals = {"views": 0.0, "likes": 0.0, "comments": 0.0, "shares": 0.0}
+        for (entity_id, bucket), points in per_series.items():
+            # Multiple metric_names can land in the same bucket (e.g.
+            # impressions + views both → views); collapse per-day by max
+            # before computing deltas, mirroring get_campaign_timeseries.
+            by_date: dict[date, float] = {}
+            for d, v in points:
+                by_date[d] = max(by_date.get(d, 0.0), v)
+            sorted_dates = sorted(by_date.keys())
+            for i, d in enumerate(sorted_dates):
+                if d < visible_start:
+                    continue
+                prev = by_date[sorted_dates[i - 1]] if i > 0 else 0
+                totals[bucket] += max(0.0, by_date[d] - prev)
+
+        return {k: int(v) for k, v in totals.items()}
 
     # ── campaign time-series ──────────────────────────────────────
 
@@ -105,6 +220,7 @@ class AnalyticsService:
         campaign_id: uuid.UUID | None = None,
         days: int = 30,
         platform: str | None = None,
+        release_id: uuid.UUID | None = None,
     ) -> dict:
         """Daily views and engagement deltas for a campaign.
 
@@ -131,6 +247,14 @@ class AnalyticsService:
         )
         if platform:
             stmt = stmt.where(DailyMetricModel.source == platform)
+        if release_id:
+            scoped_post_ids = select(PostModel.id).join(
+                CampaignModel, PostModel.campaign_id == CampaignModel.id
+            ).where(
+                PostModel.tenant_id == self.tenant_id,
+                CampaignModel.release_id == release_id,
+            )
+            stmt = stmt.where(DailyMetricModel.entity_id.in_(scoped_post_ids))
         rows = (await self.db.execute(stmt)).all()
 
         # Group by (entity_id, canonical_metric) → sorted list of (date, value)
@@ -194,9 +318,12 @@ class AnalyticsService:
             post_filter.append(PostModel.platform == platform)
         if campaign_id:
             post_filter.append(PostModel.campaign_id == campaign_id)
-        pub_rows = await self.db.execute(
-            select(PostModel.engagement).where(*post_filter)
-        )
+        pub_q = select(PostModel.engagement).where(*post_filter)
+        if release_id:
+            pub_q = pub_q.join(
+                CampaignModel, PostModel.campaign_id == CampaignModel.id
+            ).where(CampaignModel.release_id == release_id)
+        pub_rows = await self.db.execute(pub_q)
         cum_views = 0
         cum_engagement = 0
         for (engagement,) in pub_rows.all():
@@ -219,22 +346,23 @@ class AnalyticsService:
     async def get_post_scores(
         self,
         campaign_id: uuid.UUID | None = None,
-        days: int = 14,
+        days: int | None = 14,
+        release_id: uuid.UUID | None = None,
     ) -> list[dict]:
         """Score all published posts by normalized engagement and CTR.
 
         Falls back to mock data when DB is empty.
         """
         # Try to get real aggregated metrics from DB
-        start = date.today() - timedelta(days=days)
         post_filter = [
             PostModel.tenant_id == self.tenant_id,
             PostModel.status == "published",
+        ]
+        if days is not None:
             # Restrict to the requested window. Without this, every range
             # button (7d/14d/30d) returned the same dataset because the
             # date filter was computed but never applied to the query.
-            PostModel.published_at >= start,
-        ]
+            post_filter.append(PostModel.published_at >= date.today() - timedelta(days=days))
         if campaign_id:
             post_filter.append(PostModel.campaign_id == campaign_id)
 
@@ -242,6 +370,10 @@ class AnalyticsService:
             PostModel.id, PostModel.platform, PostModel.engagement,
             PostModel.content_text, PostModel.permalink, PostModel.platform_post_id,
         ).where(*post_filter)
+        if release_id:
+            stmt = stmt.join(
+                CampaignModel, PostModel.campaign_id == CampaignModel.id
+            ).where(CampaignModel.release_id == release_id)
         rows = (await self.db.execute(stmt)).all()
 
         # Build a lookup so we can attach human-readable metadata after scoring.
@@ -314,6 +446,7 @@ class AnalyticsService:
         self,
         campaign_id: uuid.UUID | None = None,
         days: int = 7,
+        release_id: uuid.UUID | None = None,
     ) -> dict:
         """Generate a weekly keep/remix/stop analyst report.
 
@@ -323,7 +456,9 @@ class AnalyticsService:
         start = end - timedelta(days=days)
 
         # Get scored posts
-        score_dicts = await self.get_post_scores(campaign_id=campaign_id, days=days)
+        score_dicts = await self.get_post_scores(
+            campaign_id=campaign_id, days=days, release_id=release_id,
+        )
 
         cid = str(campaign_id) if campaign_id else "all"
 
