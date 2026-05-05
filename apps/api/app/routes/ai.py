@@ -540,7 +540,28 @@ async def _generate_lyric_video_for_post(
     artist_name = ""
     track_title = ""
 
-    if release_id:
+    # Priority 0: if the user picked an explicit audio URL, find THAT track
+    # so lyrics line up with the audio. Caption-based matching can pick a
+    # different track than the one whose audio we're about to play, which
+    # is why the manual lyric_video flow was producing image-only posts
+    # (lyrics empty → generator returned None → media_urls stayed [image]).
+    if audio_url:
+        url_match_q = select(TrackModel).where(
+            TrackModel.tenant_id == tenant_id,
+            TrackModel.audio_url == audio_url,
+        ).limit(1)
+        url_match_r = await db.execute(url_match_q)
+        url_matched = url_match_r.scalar_one_or_none()
+        if url_matched:
+            matched_track = url_matched
+            track_title = url_matched.title
+            lyrics = url_matched.lyrics or ""
+            logger.info(
+                "Lyric video: matched track '%s' by audio_url (lyrics=%s chars)",
+                url_matched.title, len(lyrics),
+            )
+
+    if release_id and not matched_track:
         tq = select(TrackModel).where(
             TrackModel.release_id == release_id,
             TrackModel.tenant_id == tenant_id,
@@ -1278,6 +1299,28 @@ async def generate_lyric_video(
             if not track_title and track.title:
                 track_title = track.title
 
+    # If caller passed an explicit audio_url, look up the track that owns
+    # it so the lyrics we display match the audio we play. Without this,
+    # lyrics-by-caption-match can pull lyrics from an unrelated track.
+    if audio_url and not lyrics:
+        from amplify.db.models.track import TrackModel as _TrackByUrl
+        url_track_r = await db.execute(
+            select(_TrackByUrl).where(
+                _TrackByUrl.tenant_id == tenant_id,
+                _TrackByUrl.audio_url == audio_url,
+            ).limit(1)
+        )
+        url_track = url_track_r.scalar_one_or_none()
+        if url_track:
+            if url_track.lyrics:
+                lyrics = url_track.lyrics
+            if not track_title and url_track.title:
+                track_title = url_track.title
+            logger.info(
+                "Lyric video endpoint: matched track '%s' by audio_url (lyrics=%s chars)",
+                url_track.title, len(lyrics),
+            )
+
     # Auto-resolve track from post content or release tracks when no track_id
     if not body.track_id and body.post_id:
         from amplify.db.models.post import PostModel
@@ -1524,6 +1567,15 @@ async def generate_lyric_video(
             post = post_result.scalar_one_or_none()
             if post:
                 post.media_urls = [video_url]
+                # Persist the source audio URL on the post so a future
+                # regeneration via the draft Lyric Video button can pick
+                # the same track instead of caption-matching to a random
+                # one. media_urls is overwritten with the rendered video,
+                # so we stash the original audio in engagement instead.
+                if audio_url:
+                    eng = dict(post.engagement or {})
+                    eng["source_audio_url"] = audio_url
+                    post.engagement = eng
                 await db.flush()
                 logger.info("Replaced media on post %s with lyric video", body.post_id)
 

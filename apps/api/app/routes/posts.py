@@ -495,9 +495,21 @@ async def generate_media_for_post(
             max_results=max_images,
         )
 
-    # Use existing audio from post if no force override provided
+    # Use existing audio from post if no force override provided.
+    # Order: explicit body override > audio in media_urls >
+    # engagement.source_audio_url (preserved across lyric video renders).
     if not body.force_audio_url and existing_audio:
         body.force_audio_url = existing_audio[0]
+    if not body.force_audio_url:
+        eng = post.engagement or {}
+        if isinstance(eng, dict):
+            stash = eng.get("source_audio_url")
+            if isinstance(stash, str) and stash:
+                body.force_audio_url = stash
+                logger.info(
+                    "Post %s: recovered source_audio_url from engagement for regeneration",
+                    post_id,
+                )
 
     video_generated = False
 
