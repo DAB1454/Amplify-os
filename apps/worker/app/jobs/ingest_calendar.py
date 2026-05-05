@@ -106,6 +106,16 @@ async def ingest_calendar(payload: dict) -> dict:
         # Default platform if none specified
         default_platform = next(iter(channels_by_platform), "instagram")
 
+        # Whether this tenant's autonomy level lets us pre-schedule posts
+        # straight from the planner instead of dumping drafts. Computed
+        # once per ingest run rather than per-item.
+        from amplify.db.models.tenant import TenantModel
+        tenant_row = await db.execute(
+            select(TenantModel.automation_level).where(TenantModel.id == tenant_id)
+        )
+        auto_level = (tenant_row.scalar_one_or_none() or "manual").lower()
+        auto_schedule_enabled = auto_level in ("auto_campaigns", "autonomous")
+
         # ── Non-post types that don't need draft posts ────────────
         NON_POST_TYPES = {"live", "engagement", "email", "meeting", "reminder"}
 
@@ -134,22 +144,37 @@ async def ingest_calendar(payload: dict) -> dict:
 
                 # Determine campaign mode for approval status
                 approval_status = "pending_review"
+                campaign_mode = "manual"
                 if item.campaign_id:
                     camp_result = await db.execute(
                         select(CampaignModel.mode).where(
                             CampaignModel.id == item.campaign_id
                         )
                     )
-                    mode = camp_result.scalar_one_or_none() or "manual"
-                    if mode == "autopilot":
+                    campaign_mode = camp_result.scalar_one_or_none() or "manual"
+                    if campaign_mode == "autopilot":
                         approval_status = "approved"
+
+                # Auto-schedule when the tenant is on a high-enough autonomy
+                # rung. This is the cleanest place for "auto-campaigns" to
+                # mean something — without it the planner just dumps drafts
+                # the user has to manually walk into scheduled.
+                # Requires: scheduled_at present (otherwise SCHEDULED makes
+                # no sense) and either campaign mode=autopilot or tenant
+                # automation_level in (auto_campaigns, autonomous).
+                lifecycle_status = "draft"
+                if scheduled_at and (
+                    campaign_mode == "autopilot"
+                    or auto_schedule_enabled
+                ):
+                    lifecycle_status = "scheduled"
 
                 post = PostModel(
                     tenant_id=tenant_id,
                     campaign_id=item.campaign_id,
                     channel_id=channel.id if channel else None,
                     platform=platform,
-                    status="draft",
+                    status=lifecycle_status,
                     content_text=item.description or item.title or "",
                     media_urls=[],
                     scheduled_at=scheduled_at,

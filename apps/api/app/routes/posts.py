@@ -981,18 +981,20 @@ async def repurpose_post(
 # ── Publishing Workflow ────────────────────────────────────────────
 
 
-@router.post("/{post_id}/queue", response_model=PostQueueResponse)
-async def queue_post(
+@router.post("/{post_id}/reset-to-draft", response_model=PostActionResponse)
+async def reset_to_draft_post(
     post_id: uuid.UUID,
     svc: PublishingService = Depends(_get_publishing_service),
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Submit a draft post for approval (runs policy engine)."""
+    """Move a post back to DRAFT (replaces the old /reject and /reset_draft).
+
+    Works from any pre-publish state: schedule, pending_approval (TikTok
+    inbox), failed, or legacy queued/approved rows.
+    """
     try:
-        result = svc.queue_post(post_id)
-        if hasattr(result, "__await__"):
-            result = await result
+        result = await svc.reset_to_draft(post_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except InvalidTransition as exc:
@@ -1000,62 +1002,7 @@ async def queue_post(
 
     try:
         await audit.log(
-            action="post.queued",
-            entity_type="post",
-            entity_id=post_id,
-            user_id=user_id,
-            changes={"policy_decision": result.get("policy_decision")},
-        )
-    except Exception as exc:
-        logger.warning("Audit log failed (non-fatal): %s", exc)
-    return result
-
-
-@router.post("/{post_id}/approve", response_model=PostActionResponse)
-async def approve_post(
-    post_id: uuid.UUID,
-    svc: PublishingService = Depends(_get_publishing_service),
-    user_id: uuid.UUID | None = Depends(get_user_id),
-    audit: AuditService = Depends(get_audit_service),
-):
-    """Approve a queued post."""
-    try:
-        result = await svc.approve_post(post_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except InvalidTransition as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
-    try:
-        await audit.log(
-            action="post.approved",
-            entity_type="post",
-            entity_id=post_id,
-            user_id=user_id,
-        )
-    except Exception as exc:
-        logger.warning("Audit log failed (non-fatal): %s", exc)
-    return result
-
-
-@router.post("/{post_id}/reject", response_model=PostActionResponse)
-async def reject_post(
-    post_id: uuid.UUID,
-    svc: PublishingService = Depends(_get_publishing_service),
-    user_id: uuid.UUID | None = Depends(get_user_id),
-    audit: AuditService = Depends(get_audit_service),
-):
-    """Reject a queued post back to draft."""
-    try:
-        result = await svc.reject_post(post_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    except InvalidTransition as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
-    try:
-        await audit.log(
-            action="post.rejected",
+            action="post.reset_to_draft",
             entity_type="post",
             entity_id=post_id,
             user_id=user_id,

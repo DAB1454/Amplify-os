@@ -85,6 +85,28 @@ async def lifespan(app: FastAPI):
     except Exception:
         app.state.redis = None
 
+    # One-time migration: collapse legacy queued/approved post statuses
+    # into the simplified DRAFT → SCHEDULED model. Idempotent — does
+    # nothing on subsequent boots once all rows have been migrated.
+    try:
+        from sqlalchemy import text
+        async with app.state.async_session() as session:
+            await session.execute(text(
+                "UPDATE posts SET status = 'scheduled' "
+                "WHERE status = 'approved' AND scheduled_at IS NOT NULL"
+            ))
+            await session.execute(text(
+                "UPDATE posts SET status = 'draft' "
+                "WHERE status IN ('queued', 'approved')"
+            ))
+            await session.commit()
+    except Exception as exc:
+        # Don't block app startup on migration issues — log and move on.
+        import logging
+        logging.getLogger(__name__).warning(
+            "Post status migration failed (non-fatal): %s", exc,
+        )
+
     yield
 
     # Shutdown

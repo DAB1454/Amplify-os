@@ -21,15 +21,27 @@ class PostStatus(str, Enum):
 
 
 # Valid state transitions for the post state machine.
+#
+# Simplified flow: DRAFT → SCHEDULED → PUBLISHING → PUBLISHED / FAILED.
+# QUEUED and APPROVED are retained in the enum for backwards compatibility
+# with any pre-existing DB rows (the API startup hook migrates those rows
+# to DRAFT/SCHEDULED on first boot), but no new transitions land in them.
+# They only allow escape transitions back to DRAFT or forward to SCHEDULED
+# so legacy rows that survive the migration aren't stuck.
+#
+# PENDING_APPROVAL is *not* a human-approval state — it's only set by the
+# TikTok unaudited Direct Post flow, where the upload lands in the
+# creator's TikTok app drafts and the human must publish it manually
+# inside TikTok before it actually goes live.
 VALID_TRANSITIONS: dict[PostStatus, set[PostStatus]] = {
-    PostStatus.DRAFT: {PostStatus.QUEUED, PostStatus.SCHEDULED, PostStatus.PUBLISHING},
-    PostStatus.QUEUED: {PostStatus.APPROVED, PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHING},
-    PostStatus.APPROVED: {PostStatus.SCHEDULED, PostStatus.PUBLISHING, PostStatus.DRAFT},
+    PostStatus.DRAFT: {PostStatus.SCHEDULED, PostStatus.PUBLISHING},
+    PostStatus.QUEUED: {PostStatus.DRAFT, PostStatus.SCHEDULED},
+    PostStatus.APPROVED: {PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHING},
     PostStatus.SCHEDULED: {PostStatus.PUBLISHING, PostStatus.DRAFT},
     PostStatus.PUBLISHING: {PostStatus.PUBLISHED, PostStatus.PENDING_APPROVAL, PostStatus.FAILED, PostStatus.SCHEDULED, PostStatus.DRAFT},
-    PostStatus.PENDING_APPROVAL: {PostStatus.PUBLISHED, PostStatus.FAILED},
+    PostStatus.PENDING_APPROVAL: {PostStatus.PUBLISHED, PostStatus.FAILED, PostStatus.DRAFT},
     PostStatus.PUBLISHED: {PostStatus.SCHEDULED},
-    PostStatus.FAILED: {PostStatus.QUEUED, PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHED},
+    PostStatus.FAILED: {PostStatus.DRAFT, PostStatus.SCHEDULED, PostStatus.PUBLISHED},
 }
 
 

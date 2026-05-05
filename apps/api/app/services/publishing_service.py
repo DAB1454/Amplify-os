@@ -98,20 +98,34 @@ class PublishingService:
 
     # ── state machine actions ─────────────────────────────────────────
 
-    async def queue_post(self, post_id: uuid.UUID) -> dict:
-        """Move a draft post into the approval queue.
+    async def reset_to_draft(self, post_id: uuid.UUID) -> dict:
+        """Move a post back to DRAFT for editing.
 
-        Runs the policy engine first.  If blocked, the post stays as draft.
+        Replaces the old reject_post — works from any pre-publish state
+        (QUEUED, APPROVED, SCHEDULED, PENDING_APPROVAL legacy rows).
+        """
+        post = await self._get_post(post_id)
+        if post.status != PostStatus.DRAFT.value:
+            post = await self._transition(post, PostStatus.DRAFT)
+        return {"post_id": str(post_id), "status": post.status}
+
+    async def schedule_post(self, post_id: uuid.UUID, scheduled_at: datetime) -> dict:
+        """Schedule a draft post for future publication.
+
+        This is now the single user-facing commit step (formerly queue →
+        approve → schedule). The policy engine runs here:
+          - decision=block → stay DRAFT, set last_error, return blocked
+          - decision=require_approval → stay DRAFT, set last_error,
+            return needs_approval (the user must explicitly override)
+          - decision=allow → transition to SCHEDULED, emit post_queued
+            learning event (kept under the old name so bandit consumers
+            don't need to change)
         """
         from amplify.learning.capture import policy_evaluated, post_queued
 
         post = await self._get_post(post_id)
-        self._assert_transition(post, PostStatus.QUEUED)
 
-        # Run policy engine
         policy_result = self._evaluate_policy(post)
-
-        # Capture policy evaluation
         await self._emit_learning(policy_evaluated(
             post_id=post_id,
             tenant_id=self.tenant_id,
@@ -120,21 +134,33 @@ class PublishingService:
             blocking_reasons=policy_result.get("reasons", []),
         ))
 
-        if policy_result["decision"] == "block":
+        if policy_result["decision"] in ("block", "require_approval"):
+            post.policy_decision = policy_result["decision"]
+            post.last_error = (
+                f"Policy {policy_result['decision']}: "
+                + "; ".join(policy_result.get("reasons", []) or ["no reason given"])
+            )[:1000]
+            await self.db.flush()
             return {
                 "post_id": str(post_id),
                 "status": post.status,
-                "policy_decision": "block",
-                "reasons": policy_result["reasons"],
+                "policy_decision": policy_result["decision"],
+                "reasons": policy_result.get("reasons", []),
             }
 
+        target = PostStatus.SCHEDULED
+        self._assert_transition(post, target)
         post = await self._transition(
-            post,
-            PostStatus.QUEUED,
+            post, target,
+            scheduled_at=scheduled_at,
             policy_decision=policy_result["decision"],
+            last_error=None,
         )
 
-        # Capture queue event
+        # Emit the same event the old queue_post used so the bandit
+        # pipeline keeps seeing the "user committed" signal at the
+        # right moment in the lifecycle. Renaming the event would
+        # silently break consumers that filter by action_type.
         await self._emit_learning(post_queued(
             post_id=post_id,
             tenant_id=self.tenant_id,
@@ -147,36 +173,8 @@ class PublishingService:
         return {
             "post_id": str(post_id),
             "status": post.status,
-            "policy_decision": policy_result["decision"],
-            "reasons": policy_result.get("reasons", []),
-        }
-
-    async def approve_post(self, post_id: uuid.UUID) -> dict:
-        """Approve a queued post. Auto-schedules if scheduled_at is already set."""
-        post = await self._get_post(post_id)
-        post = await self._transition(post, PostStatus.APPROVED)
-        # If post already has a scheduled time, auto-transition to SCHEDULED
-        if post.scheduled_at:
-            post = await self._transition(post, PostStatus.SCHEDULED)
-        return {"post_id": str(post_id), "status": post.status}
-
-    async def reject_post(self, post_id: uuid.UUID) -> dict:
-        """Reject a queued post back to draft."""
-        post = await self._get_post(post_id)
-        post = await self._transition(post, PostStatus.DRAFT)
-        return {"post_id": str(post_id), "status": post.status}
-
-    async def schedule_post(self, post_id: uuid.UUID, scheduled_at: datetime) -> dict:
-        """Schedule an approved or draft post for future publication."""
-        post = await self._get_post(post_id)
-        # Allow scheduling from approved or draft
-        target = PostStatus.SCHEDULED
-        self._assert_transition(post, target)
-        post = await self._transition(post, target, scheduled_at=scheduled_at)
-        return {
-            "post_id": str(post_id),
-            "status": post.status,
             "scheduled_at": scheduled_at.isoformat(),
+            "policy_decision": policy_result["decision"],
         }
 
     async def publish_post(self, post_id: uuid.UUID, dry_run: bool = False) -> dict:
@@ -193,8 +191,14 @@ class PublishingService:
         post = await self._transition(post, PostStatus.PUBLISHING)
 
         if dry_run:
-            # Roll back to previous state
-            post.status = PostStatus.APPROVED.value
+            # Roll back to a pre-publish state. SCHEDULED is closer to the
+            # commit semantic the user just performed; falling back to
+            # DRAFT if scheduled_at is missing.
+            post.status = (
+                PostStatus.SCHEDULED.value
+                if post.scheduled_at
+                else PostStatus.DRAFT.value
+            )
             await self.db.flush()
             return {
                 "post_id": str(post_id),
@@ -405,10 +409,17 @@ class PublishingService:
         }
 
     async def list_pending_approvals(self) -> list[PostModel]:
-        """Return all posts awaiting approval for this tenant."""
+        """Return drafts that policy flagged as needing approval.
+
+        Under the simplified state machine there is no QUEUED bucket — a
+        post that the policy engine wants the user to review stays in
+        DRAFT with policy_decision='require_approval'. This helper is what
+        the UI uses to surface the "Needs review" filter.
+        """
         stmt = select(PostModel).where(
             PostModel.tenant_id == self.tenant_id,
-            PostModel.status == PostStatus.QUEUED.value,
+            PostModel.status == PostStatus.DRAFT.value,
+            PostModel.policy_decision == "require_approval",
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

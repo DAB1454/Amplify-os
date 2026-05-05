@@ -93,7 +93,10 @@ async def scan_scheduled(payload: dict | None = None) -> dict:
 
     async with get_async_session(settings.database_url) as db:
         stmt = select(PostModel).where(
-            PostModel.status.in_(["scheduled", "approved"]),
+            # Under the simplified state machine the autopublish path is
+            # SCHEDULED only. Legacy APPROVED rows are migrated at API
+            # startup, so this list is intentionally not "approved" too.
+            PostModel.status == "scheduled",
             PostModel.scheduled_at <= now,
             PostModel.scheduled_at.isnot(None),
             PostModel.channel_id.isnot(None),

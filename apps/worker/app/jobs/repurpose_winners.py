@@ -245,13 +245,23 @@ async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
                 source["action_type_label"], source_platform, target_platform
             )
 
+            # Under the simplified state machine, auto_queue tenants get
+            # the post pre-scheduled (skipping draft entirely) so the
+            # autonomy level actually means something. The slot is "now
+            # + 1 hour" — close enough that the author can intervene if
+            # they catch it, far enough that scan_scheduled doesn't
+            # auto-publish before the worker run finishes flushing.
+            scheduled_at = (
+                datetime.utcnow() + timedelta(hours=1) if auto_queue else None
+            )
             new_post = PostModel(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
                 campaign_id=source["campaign_id"],
                 channel_id=target_channel.id,
                 platform=target_platform,
-                status="draft" if not auto_queue else "queued",
+                status="scheduled" if auto_queue else "draft",
+                scheduled_at=scheduled_at,
                 content_text=source["content_text"] or "",
                 media_urls=list(source["media_urls"] or []),
                 destination_url=source["destination_url"],
