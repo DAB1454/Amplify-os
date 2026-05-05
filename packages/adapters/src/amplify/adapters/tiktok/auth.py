@@ -11,6 +11,7 @@ Uses TikTok API v2 endpoints.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -23,6 +24,16 @@ logger = logging.getLogger(__name__)
 
 TT_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TT_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+
+
+def _variant_label() -> str:
+    """Return TIKTOK_OAUTH_VARIANT for log identification (sandbox/production).
+
+    Doesn't change behavior — purely a label so it's obvious from logs which
+    TikTok app's credentials are currently loaded. Useful when swapping to
+    sandbox keys for a Direct Post audit demo.
+    """
+    return os.environ.get("TIKTOK_OAUTH_VARIANT", "unset")
 
 
 class TikTokAuth:
@@ -50,15 +61,24 @@ class TikTokAuth:
         code_challenge_method: str | None = None,
         state: str | None = None,
     ) -> str:
-        """Return the TikTok OAuth authorization URL."""
+        """Return the TikTok OAuth authorization URL.
+
+        Default scope set requests all four scopes that the AmplifyMe app
+        is approved for: user.info.basic (Login Kit), video.upload (Inbox),
+        video.publish (Direct Post), video.list (analytics dashboard).
+        Drop video.list explicitly only when targeting an app that hasn't
+        been approved for it.
+        """
+        default_scopes = [
+            "user.info.basic",
+            "video.upload",
+            "video.publish",
+            "video.list",
+        ]
         params = {
             "client_key": self.client_key,
             "redirect_uri": self.redirect_uri,
-            "scope": ",".join(scopes or [
-                "user.info.basic",
-                "video.upload",
-                "video.publish",
-            ]),
+            "scope": ",".join(scopes or default_scopes),
             "response_type": "code",
         }
         if code_challenge:
@@ -67,6 +87,10 @@ class TikTokAuth:
             params["code_challenge_method"] = code_challenge_method
         if state:
             params["state"] = state
+        logger.info(
+            "TikTok OAuth url built (variant=%s scope=%s)",
+            _variant_label(), params["scope"],
+        )
         return f"{TT_AUTH_URL}?{urlencode(params)}"
 
     async def exchange_code(self, code: str, *, code_verifier: str | None = None) -> TokenSet:
@@ -102,6 +126,11 @@ class TikTokAuth:
         expires_in = data.get("expires_in", 86400)
         access_token = data["access_token"]
         open_id = data.get("open_id", "")
+        granted_scope = data.get("scope", "")
+        logger.info(
+            "TikTok OAuth code exchanged (variant=%s open_id=%s scope=%s)",
+            _variant_label(), open_id, granted_scope,
+        )
 
         # Fetch user profile for display_name and avatar_url
         extra: dict = {}

@@ -189,8 +189,11 @@ class TikTokPublisher:
         }
 
         audited = self._is_app_audited()
-        logger.info("TikTok _init_upload: TIKTOK_APP_AUDITED=%s, audited=%s",
-                     os.environ.get("TIKTOK_APP_AUDITED", "<not set>"), audited)
+        variant = os.environ.get("TIKTOK_OAUTH_VARIANT", "unset")
+        logger.info(
+            "TikTok _init_upload: variant=%s TIKTOK_APP_AUDITED=%s audited=%s",
+            variant, os.environ.get("TIKTOK_APP_AUDITED", "<not set>"), audited,
+        )
 
         if audited:
             endpoint = f"{TT_API}/post/publish/video/init/"
