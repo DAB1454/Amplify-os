@@ -1149,18 +1149,20 @@ async def get_post_status(
 
 
 class RefreshTikTokStatusesResponse(BaseModel):
+    matched: int
     scanned: int
     published: int
     pending_approval: int
     failed: int
     still_processing: int
     skipped: int
+    skipped_no_publish_id: int
     details: list[dict]
 
 
 @router.post("/refresh-tiktok-statuses", response_model=RefreshTikTokStatusesResponse)
 async def refresh_tiktok_statuses(
-    days: int = Query(default=7, ge=1, le=60),
+    days: int = Query(default=14, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     settings_obj: Settings = Depends(get_settings),
@@ -1173,22 +1175,33 @@ async def refresh_tiktok_statuses(
     or be silently rejected (FAILED) — without any callback. This endpoint
     queries TikTok's status endpoint for each recent publish_id and
     rewrites the local post status to match.
+
+    The window is matched against ANY of created_at/updated_at/scheduled_at/
+    published_at — a post created 8 days ago but published 2 days ago should
+    still be in scope. Posts that match the window but have no platform_post_id
+    are surfaced separately with reason="no_publish_id" so it's obvious when
+    a post never went through the API.
     """
     from datetime import timedelta
+    from sqlalchemy import or_
     from app.services.adapter_factory import get_adapter
-    from amplify.db.models.channel import ChannelConnectionModel
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     rows = await db.execute(
         select(PostModel).where(
             PostModel.tenant_id == tenant_id,
             PostModel.platform == "tiktok",
-            PostModel.platform_post_id.isnot(None),
-            PostModel.platform_post_id != "",
-            PostModel.created_at >= cutoff,
+            or_(
+                PostModel.created_at >= cutoff,
+                PostModel.updated_at >= cutoff,
+                PostModel.scheduled_at >= cutoff,
+                PostModel.published_at >= cutoff,
+            ),
         ).order_by(PostModel.created_at.desc())
     )
-    posts = list(rows.scalars().all())
+    matched_posts = list(rows.scalars().all())
+    posts = [p for p in matched_posts if p.platform_post_id]
+    no_publish_id_posts = [p for p in matched_posts if not p.platform_post_id]
 
     counts = {"published": 0, "pending_approval": 0, "failed": 0, "still_processing": 0, "skipped": 0}
     details: list[dict] = []
@@ -1266,14 +1279,27 @@ async def refresh_tiktok_statuses(
             "previous_db_status": post.status,
         })
 
+    # Also surface posts that match the time window but don't have a
+    # publish_id — these never went through the TikTok API (e.g. user
+    # clicked Mark Published manually) so we can't query their status.
+    for post in no_publish_id_posts:
+        details.append({
+            "post_id": str(post.id),
+            "publish_id": None,
+            "result": "no_publish_id",
+            "previous_db_status": post.status,
+        })
+
     await db.flush()
 
     return RefreshTikTokStatusesResponse(
+        matched=len(matched_posts),
         scanned=len(posts),
         published=counts["published"],
         pending_approval=counts["pending_approval"],
         failed=counts["failed"],
         still_processing=counts["still_processing"],
         skipped=counts["skipped"],
+        skipped_no_publish_id=len(no_publish_id_posts),
         details=details,
     )

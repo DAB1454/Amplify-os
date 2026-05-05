@@ -1096,11 +1096,15 @@ export default function PostsPage() {
             setFetchError(null);
             try {
               const res = await apiPost<{
-                scanned: number; published: number; pending_approval: number;
+                matched: number; scanned: number; published: number; pending_approval: number;
                 failed: number; still_processing: number; skipped: number;
-              }>("/api/v1/posts/refresh-tiktok-statuses?days=7", {}, 120000);
+                skipped_no_publish_id: number;
+              }>("/api/v1/posts/refresh-tiktok-statuses?days=14", {}, 120000);
+              const noIdHint = res.skipped_no_publish_id > 0
+                ? ` ${res.skipped_no_publish_id} TikTok post${res.skipped_no_publish_id !== 1 ? "s" : ""} have no publish_id (never hit the TikTok API — likely manually marked published).`
+                : "";
               setRefreshSummary(
-                `Scanned ${res.scanned}: ${res.published} published, ${res.pending_approval} in TikTok drafts, ${res.failed} failed, ${res.still_processing} still processing, ${res.skipped} skipped.`
+                `Matched ${res.matched} TikTok posts in last 14 days. Queried TikTok for ${res.scanned}: ${res.published} published, ${res.pending_approval} in TikTok drafts, ${res.failed} failed, ${res.still_processing} still processing, ${res.skipped} errored.${noIdHint}`
               );
               fetchPosts();
             } catch (err) {
