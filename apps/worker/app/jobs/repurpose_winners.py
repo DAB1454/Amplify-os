@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import select, func, and_
 
@@ -92,7 +92,10 @@ async def repurpose_winners(payload: dict) -> dict:
 async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
     """Score recent posts for one tenant and repurpose winners."""
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)
+    # PostModel.published_at is stored as a naive UTC timestamp. Compare
+    # against a naive cutoff so asyncpg doesn't reject the parameter with
+    # "can't subtract offset-naive and offset-aware datetimes".
+    cutoff = datetime.utcnow() - timedelta(days=LOOKBACK_DAYS)
 
     # Load published posts with engagement data
     post_stmt = select(

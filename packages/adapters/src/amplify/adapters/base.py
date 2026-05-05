@@ -39,6 +39,26 @@ class TokenRefreshError(AuthenticationError):
     """Refresh token exchange failed — user must re-authorize."""
 
 
+class InsufficientScopeError(AuthenticationError):
+    """Token is valid but lacks the scope required for this operation.
+
+    Distinct from TokenExpiredError because the token doesn't need refresh —
+    the user must re-authorize and grant the missing scope. Callers should
+    surface a "reconnect" CTA, not retry, and not flag the channel as
+    expired.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        platform: str = "",
+        missing_scope: str = "",
+        details: dict | None = None,
+    ) -> None:
+        super().__init__(message, platform, details)
+        self.missing_scope = missing_scope
+
+
 class RateLimitError(AdapterError):
     """Platform rate limit exceeded."""
 

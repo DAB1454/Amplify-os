@@ -290,7 +290,22 @@ async def aggregate_cohorts(payload: dict) -> dict:
             for e in events
         ]
 
-        from app.services.global_prior_service import DBGlobalPriorService
+        # DBGlobalPriorService still lives under apps/api/app/services/ and
+        # isn't shipped in the worker container. Warn-and-noop instead of
+        # DLQing every cohort-aggregation run. TODO: move the service to
+        # packages/learning/ so both API and worker can use it.
+        try:
+            from app.services.global_prior_service import DBGlobalPriorService
+        except ModuleNotFoundError:
+            logger.warning(
+                "aggregate_cohorts: DBGlobalPriorService unavailable in worker "
+                "container (apps/api/app/services/ is API-only). Skipping prior "
+                "computation; %d observations were loaded but not stored. "
+                "Move the service to packages/learning/ to enable.",
+                len(observations),
+            )
+            return {"observations": len(observations), "priors_stored": 0, "skipped": True}
+
         svc = DBGlobalPriorService(db)
         stored = await svc.compute_and_store(observations)
         await db.commit()

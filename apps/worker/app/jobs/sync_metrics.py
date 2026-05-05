@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import select, or_
 
-from amplify.adapters.base import TokenExpiredError
+from amplify.adapters.base import InsufficientScopeError, TokenExpiredError
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,6 @@ async def sync_metrics(payload: dict | None = None) -> dict:
                 # Sync each post
                 for post in channel_posts_list:
                     try:
-                        snapshot = await adapter.sync_metrics(post.platform_post_id)
 
                         # Update PostModel.engagement JSON
                         post.engagement = {
@@ -301,6 +300,22 @@ async def sync_metrics(payload: dict | None = None) -> dict:
                             snapshot.impressions, snapshot.likes, snapshot.views,
                         )
 
+                    except InsufficientScopeError as scope_exc:
+                        # All other posts on this token will hit the same
+                        # error — log once and stop iterating this channel.
+                        # User has to disconnect+reconnect to re-grant the
+                        # scope; nothing the worker can do about it.
+                        remaining = len(channel_posts_list) - channel_posts_list.index(post)
+                        logger.warning(
+                            "Channel %s (%s) is missing scope %s — skipping %d remaining posts. "
+                            "User must reconnect to grant the missing scope. (%s)",
+                            channel_id_str, platform,
+                            scope_exc.missing_scope or "?",
+                            remaining,
+                            scope_exc,
+                        )
+                        errors += 1
+                        break
                     except Exception as exc:
                         errors += 1
                         logger.warning(
