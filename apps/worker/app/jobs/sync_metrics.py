@@ -185,6 +185,7 @@ async def sync_metrics(payload: dict | None = None) -> dict:
                 # Sync each post
                 for post in channel_posts_list:
                     try:
+                        snapshot = await adapter.sync_metrics(post.platform_post_id)
 
                         # Update PostModel.engagement JSON
                         post.engagement = {
