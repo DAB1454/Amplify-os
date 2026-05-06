@@ -88,23 +88,41 @@ async def lifespan(app: FastAPI):
     # One-time migration: collapse legacy queued/approved post statuses
     # into the simplified DRAFT → SCHEDULED model. Idempotent — does
     # nothing on subsequent boots once all rows have been migrated.
+    #
+    # Time + row-count logged each boot so we can correlate startup
+    # health-check freezes with this migration. If the API hangs again
+    # like it did 04:36–04:37 UTC on 2026-05-06, look for this log line
+    # to confirm/exclude the migration as the cause.
+    import logging as _startup_logging
+    import time as _startup_time
+    _migration_log = _startup_logging.getLogger(__name__)
+    _migration_t0 = _startup_time.monotonic()
     try:
         from sqlalchemy import text
         async with app.state.async_session() as session:
-            await session.execute(text(
+            r1 = await session.execute(text(
                 "UPDATE posts SET status = 'scheduled' "
                 "WHERE status = 'approved' AND scheduled_at IS NOT NULL"
             ))
-            await session.execute(text(
+            r2 = await session.execute(text(
                 "UPDATE posts SET status = 'draft' "
                 "WHERE status IN ('queued', 'approved')"
             ))
             await session.commit()
+        _migration_elapsed_ms = (_startup_time.monotonic() - _migration_t0) * 1000.0
+        _migration_log.info(
+            "Post status migration: approved→scheduled=%s, queued|approved→draft=%s "
+            "(elapsed_ms=%.1f)",
+            getattr(r1, "rowcount", "?"),
+            getattr(r2, "rowcount", "?"),
+            _migration_elapsed_ms,
+        )
     except Exception as exc:
+        _migration_elapsed_ms = (_startup_time.monotonic() - _migration_t0) * 1000.0
         # Don't block app startup on migration issues — log and move on.
-        import logging
-        logging.getLogger(__name__).warning(
-            "Post status migration failed (non-fatal): %s", exc,
+        _migration_log.warning(
+            "Post status migration failed after %.1fms (non-fatal): %s",
+            _migration_elapsed_ms, exc,
         )
 
     yield
