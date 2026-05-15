@@ -310,7 +310,7 @@ export default function CampaignDetailPage() {
         content_notes: contentNotes,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         youtube_strategy: youtubeStrategy,
-      });
+      }, 240000);
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Plan generation failed");

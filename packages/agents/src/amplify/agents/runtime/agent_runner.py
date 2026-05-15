@@ -89,7 +89,7 @@ class AgentRunner:
 
     Usage::
 
-        config = AgentConfig.for_agent("planner", model="claude-sonnet-4-20250514")
+        config = AgentConfig.for_agent("planner", model="claude-sonnet-4-6")
         runner = AgentRunner(config=config, audit=my_audit_sink)
 
         result = await runner.run(

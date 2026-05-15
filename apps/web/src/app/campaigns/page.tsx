@@ -226,7 +226,7 @@ export default function CampaignsPage() {
         calendar_items_created: number;
         draft_posts_created: number;
         notes: string;
-      }>("/api/v1/ai/generate-plan", { campaign_id: campaignId, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      }>("/api/v1/ai/generate-plan", { campaign_id: campaignId, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }, 240000);
       setPlanResult({
         campaign_id: campaignId,
         daily_actions: result.daily_actions?.length || 0,

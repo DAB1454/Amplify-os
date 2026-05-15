@@ -74,8 +74,8 @@ class RecordingAuditSink(AuditSink):
 class TestAgentConfig:
     def test_defaults(self):
         config = AgentConfig()
-        assert config.model == "claude-sonnet-4-20250514"
-        assert config.max_tokens == 4096
+        assert config.model == "claude-sonnet-4-6"
+        assert config.max_tokens == 16384
         assert config.max_tool_iterations == 10
         assert config.temperature == 0.0
         assert config.audit_enabled is True
