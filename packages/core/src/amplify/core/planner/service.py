@@ -728,6 +728,7 @@ async def plan_campaign(
                     action_type_label=action.action_type,
                     scheduled_at=scheduled_at,
                     track_reference=action.track_reference or None,
+                    track_id=action_track.id if action_track else None,
                     goal=action.goal or None,
                 )
                 db.add(post)

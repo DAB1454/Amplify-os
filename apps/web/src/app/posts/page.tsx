@@ -98,6 +98,19 @@ export default function PostsPage() {
   const [assetsLoading, setAssetsLoading] = useState(false);
   const [releaseLinks, setReleaseLinks] = useState<ReleaseLink[]>([]);
   const [destMode, setDestMode] = useState<"choose" | "custom">("choose");
+  // Track-first create flow: the track anchors the post. Selecting one
+  // pre-fills audio, supplies the track title to the AI-caption call,
+  // and is persisted as posts.track_id so downstream caption/asset/audio
+  // selection stops drifting on fuzzy text matches.
+  type TrackOption = {
+    id: string;
+    title: string;
+    release_id: string;
+    release_title: string;
+    audio_url: string | null;
+  };
+  const [availableTracks, setAvailableTracks] = useState<TrackOption[]>([]);
+  const [selectedTrackId, setSelectedTrackId] = useState<string>("");
   const [audioFromLibrary, setAudioFromLibrary] = useState<{ name: string; url: string } | null>(null);
   const [showAudioLibrary, setShowAudioLibrary] = useState(false);
   const [audioLibraryAssets, setAudioLibraryAssets] = useState<{id: string; name: string; asset_type: string; file_url: string; mime_type: string | null}[]>([]);
@@ -259,12 +272,21 @@ export default function PostsPage() {
   const handleAiCaption = async (target: "create" | "edit", platform: string) => {
     setAiLoading(true);
     try {
+      // When creating a post anchored to a specific track, hand the
+      // backend the canonical track title so the caption is locked to
+      // that track instead of being inferred from whatever placeholder
+      // text the form currently holds.
+      const anchorTrack =
+        target === "create" && selectedTrackId
+          ? availableTracks.find((t) => t.id === selectedTrackId)
+          : null;
       const result = await apiPost<{ variants: { headline?: string; body: string; hashtags: string[]; cta?: string }[] }>(
         "/api/v1/ai/generate-caption",
         {
           platform,
           artist_name: "Drew Baird",
-          release_title: "For Love of Country",
+          release_title: anchorTrack?.release_title || "For Love of Country",
+          track_title: anchorTrack?.title || "",
           key_message: target === "create" ? newPost.content_text || "New music" : editContent || "New music",
           tone: "authentic",
         }
@@ -427,6 +449,32 @@ export default function PostsPage() {
                     apiGet<{id: string; title: string; linktree_url: string | null; bandcamp_url: string | null; hyperfollow_url: string | null; apple_music_url: string | null; spotify_url: string | null}[]>("/api/v1/releases/"),
                     apiGet<{id: string; name: string; apple_music_url?: string | null; spotify_artist_url?: string | null}[]>("/api/v1/artists").catch(() => []),
                   ]);
+                  // Fetch tracks for each release so the Track selector at
+                  // the top of the form has options to anchor the post to.
+                  try {
+                    const trackLists = await Promise.all(
+                      releases.map((r) =>
+                        apiGet<{id: string; title: string; audio_url: string | null}[]>(
+                          `/api/v1/tracks?release_id=${r.id}`
+                        ).catch(() => [])
+                      )
+                    );
+                    const allTracks: TrackOption[] = [];
+                    releases.forEach((r, i) => {
+                      for (const t of trackLists[i] || []) {
+                        allTracks.push({
+                          id: t.id,
+                          title: t.title,
+                          release_id: r.id,
+                          release_title: r.title,
+                          audio_url: t.audio_url,
+                        });
+                      }
+                    });
+                    setAvailableTracks(allTracks);
+                  } catch (_) {
+                    setAvailableTracks([]);
+                  }
                   const links: ReleaseLink[] = [];
                   // Per-artist streaming page links
                   for (const a of artists) {
@@ -516,6 +564,14 @@ export default function PostsPage() {
               };
               if (newPost.action_type_label) payload.action_type_label = newPost.action_type_label;
               if (newPost.destination_url) payload.destination_url = newPost.destination_url;
+              // Anchor the post to the selected track. The backend uses
+              // track_id as the hard FK for caption/asset/audio selection;
+              // track_reference is persisted alongside for display.
+              if (selectedTrackId) {
+                payload.track_id = selectedTrackId;
+                const anchorTrack = availableTracks.find((t) => t.id === selectedTrackId);
+                if (anchorTrack) payload.track_reference = anchorTrack.title;
+              }
               const created = await apiPost<{id: string}>("/api/v1/posts", payload);
 
               // Auto-trigger video generation if lyric_video or ai_video was selected
@@ -561,6 +617,7 @@ export default function PostsPage() {
 
               setShowCreate(false);
               setNewPost({ channel_id: "", platform: "", content_text: "", media_urls: "", action_type_label: "", destination_url: "" });
+              setSelectedTrackId("");
               setVideoLyrics("");
               setAiVideoPrompt("");
               setMediaFiles([]);
@@ -582,6 +639,50 @@ export default function PostsPage() {
             }
           }}
         >
+          {/* Track-first: anchoring the post to a specific track is the
+              first decision. Every downstream step (caption, audio,
+              imagery) keys off this choice instead of guessing from the
+              caption text. Caller may leave it blank for posts not about
+              a specific track (announcements, etc.). */}
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              Track <span className="font-normal text-[var(--text-secondary)]">(anchors caption, audio &amp; imagery)</span>
+            </label>
+            {availableTracks.length === 0 ? (
+              <p className="text-xs text-[var(--text-secondary)]">No tracks found. Add tracks to a release to anchor posts to them.</p>
+            ) : (
+              <select
+                value={selectedTrackId}
+                onChange={(e) => {
+                  const tid = e.target.value;
+                  setSelectedTrackId(tid);
+                  const t = availableTracks.find((x) => x.id === tid);
+                  // Auto-fill audio from the track when the track has an
+                  // audio_url. The user can still override via the audio
+                  // file upload or library picker further down.
+                  if (t && t.audio_url) {
+                    setAudioFromLibrary({ name: t.title, url: t.audio_url });
+                    setAudioFile(null);
+                  } else if (!tid) {
+                    // Cleared — drop the auto-filled audio so the form
+                    // doesn't carry a phantom track-derived audio choice.
+                    if (audioFromLibrary && availableTracks.some((x) => x.audio_url === audioFromLibrary.url)) {
+                      setAudioFromLibrary(null);
+                    }
+                  }
+                }}
+                className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="">— No specific track (general post) —</option>
+                {availableTracks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title} {t.release_title ? `· ${t.release_title}` : ""}
+                    {t.audio_url ? "" : " (no audio)"}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <div>
             <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Channel</label>
             {channels.length === 0 ? (

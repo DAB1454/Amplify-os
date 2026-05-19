@@ -107,12 +107,17 @@ async def _auto_generate_post_video(
     duration: int = 15,
     force_audio_url: str | None = None,
     carousel_index: int | None = None,
+    track_id: uuid.UUID | None = None,
 ) -> str | None:
     """Find the best audio asset and generate image+audio→video.
 
     Returns the uploaded video URL, or None if no audio available.
     For carousel items, carousel_index rotates through available tracks
     so each slide features a different song.
+
+    If ``track_id`` is provided, the linked track's audio is used directly
+    and fuzzy caption scoring is bypassed entirely. This is the
+    track-anchored path the planner uses.
     """
     from amplify.db.models.asset import AssetModel
     from amplify.db.models.track import TrackModel
@@ -122,6 +127,23 @@ async def _auto_generate_post_video(
 
     audio = None
     matched_track = None
+
+    # Hard anchor: resolve audio from the linked track row. Skipped when
+    # the caller already forced a specific audio URL (manual override wins).
+    if track_id and not force_audio_url:
+        tq = select(TrackModel).where(
+            TrackModel.id == track_id,
+            TrackModel.tenant_id == tenant_id,
+        ).limit(1)
+        tr = await db.execute(tq)
+        anchored_track = tr.scalar_one_or_none()
+        if anchored_track and anchored_track.audio_url:
+            force_audio_url = anchored_track.audio_url
+            matched_track = anchored_track
+            logger.info(
+                "Post video: anchored to track_id %s (%s) — audio_url=%s",
+                track_id, anchored_track.title, anchored_track.audio_url,
+            )
 
     # If user forced a specific audio, use it directly
     if force_audio_url:
@@ -540,12 +562,35 @@ async def _generate_lyric_video_for_post(
     artist_name = ""
     track_title = ""
 
+    # Priority -1: if the post has a hard track_id anchor (set by the
+    # planner or the manual "Track-first" create form), trust it absolutely.
+    # No fuzzy caption matching needed — we know exactly which track this
+    # post is about.
+    post_track_id = getattr(post, "track_id", None)
+    if post_track_id:
+        tq = select(TrackModel).where(
+            TrackModel.id == post_track_id,
+            TrackModel.tenant_id == tenant_id,
+        ).limit(1)
+        tr = await db.execute(tq)
+        anchored = tr.scalar_one_or_none()
+        if anchored:
+            matched_track = anchored
+            track_title = anchored.title
+            lyrics = anchored.lyrics or ""
+            if not audio_url and anchored.audio_url:
+                audio_url = anchored.audio_url
+            logger.info(
+                "Lyric video: anchored to track_id %s (%s, lyrics=%s chars)",
+                post_track_id, anchored.title, len(lyrics),
+            )
+
     # Priority 0: if the user picked an explicit audio URL, find THAT track
     # so lyrics line up with the audio. Caption-based matching can pick a
     # different track than the one whose audio we're about to play, which
     # is why the manual lyric_video flow was producing image-only posts
     # (lyrics empty → generator returned None → media_urls stayed [image]).
-    if audio_url:
+    if audio_url and not matched_track:
         url_match_q = select(TrackModel).where(
             TrackModel.tenant_id == tenant_id,
             TrackModel.audio_url == audio_url,
@@ -1170,6 +1215,21 @@ async def generate_static_video_endpoint(
             artist_id = campaign.artist_id
             release_id = campaign.release_id
 
+    # Resolve the canonical track title from the hard track_id anchor when
+    # present. Falls back to the fuzzy track_reference for legacy posts.
+    canonical_track_title = post.track_reference or ""
+    if post.track_id:
+        from amplify.db.models.track import TrackModel
+        _tr = await db.execute(
+            select(TrackModel).where(
+                TrackModel.id == post.track_id,
+                TrackModel.tenant_id == tenant_id,
+            )
+        )
+        _anchored = _tr.scalar_one_or_none()
+        if _anchored:
+            canonical_track_title = _anchored.title or canonical_track_title
+
     # ── Check clip library first ────────────────────────────────
     # If there are pre-extracted clips from a music video, use one
     # instead of generating a static image+audio video.
@@ -1177,7 +1237,7 @@ async def generate_static_video_endpoint(
         db=db,
         tenant_id=tenant_id,
         release_id=release_id,
-        track_reference=post.track_reference,
+        track_reference=canonical_track_title,
         platform=post.platform,
         campaign_id=post.campaign_id,
         day_number=post.day_number or 1,
@@ -1201,7 +1261,7 @@ async def generate_static_video_endpoint(
         platform=post.platform,
         action_type=post.action_type_label,
         content_hint=post.content_text or "",
-        track_reference=post.track_reference,
+        track_reference=canonical_track_title,
         day_number=post.day_number,
         max_results=1,
     )
@@ -1219,6 +1279,7 @@ async def generate_static_video_endpoint(
         day_number=post.day_number or 1,
         settings=settings_obj,
         duration=min(max(body.duration_seconds, 10), 60),
+        track_id=post.track_id,
     )
 
     if not video_url:

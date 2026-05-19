@@ -110,6 +110,7 @@ async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
         PostModel.action_type_label,
         PostModel.goal,
         PostModel.track_reference,
+        PostModel.track_id,
         PostModel.day_number,
     ).where(
         PostModel.tenant_id == tenant_id,
@@ -127,7 +128,7 @@ async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
     for row in rows:
         (post_id, platform, engagement, channel_id,
          content_text, media_urls, campaign_id, destination_url,
-         action_type_label, goal, track_reference, day_number) = row
+         action_type_label, goal, track_reference, track_id, day_number) = row
 
         if not engagement:
             continue
@@ -164,6 +165,7 @@ async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
             "action_type_label": action_type_label,
             "goal": goal,
             "track_reference": track_reference,
+            "track_id": track_id,
             "day_number": day_number,
         }
 
@@ -268,6 +270,7 @@ async def _repurpose_for_tenant(db, tenant_id: uuid.UUID) -> tuple[int, int]:
                 action_type_label=target_format,
                 goal=source["goal"],
                 track_reference=source["track_reference"],
+                track_id=source["track_id"],
                 day_number=source["day_number"],
                 repurposed_from_id=source_post_id,
             )

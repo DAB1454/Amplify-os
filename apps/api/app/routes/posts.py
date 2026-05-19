@@ -534,9 +534,20 @@ async def generate_media_for_post(
         # — the most common cause of lyric-video fallback is "no lyrics on
         # this track row", and that's a UX problem, not an FFmpeg bug.
         track_has_lyrics = False
-        if post.track_reference and release_id:
-            try:
-                from amplify.db.models.track import TrackModel
+        try:
+            from amplify.db.models.track import TrackModel
+            _trow = None
+            # Prefer the hard track_id anchor — exact, no string matching.
+            if post.track_id:
+                _t = await db.execute(
+                    select(TrackModel).where(
+                        TrackModel.id == post.track_id,
+                        TrackModel.tenant_id == tenant_id,
+                    )
+                )
+                _trow = _t.scalar_one_or_none()
+            # Fallback for legacy posts without track_id.
+            elif post.track_reference and release_id:
                 _t = await db.execute(
                     select(TrackModel).where(
                         TrackModel.release_id == release_id,
@@ -544,9 +555,9 @@ async def generate_media_for_post(
                     )
                 )
                 _trow = _t.scalar_one_or_none()
-                track_has_lyrics = bool(_trow and (_trow.lyrics or "").strip())
-            except Exception:
-                pass
+            track_has_lyrics = bool(_trow and (_trow.lyrics or "").strip())
+        except Exception:
+            pass
         try:
             from app.routes.ai import _generate_lyric_video_for_post
             video_url = await _generate_lyric_video_for_post(
@@ -583,10 +594,26 @@ async def generate_media_for_post(
             allowed, reason = await can_generate_ai_video(db, tenant_id)
             if allowed and settings_obj.replicate_api_token:
                 from app.services.replicate_video import generate_ai_video_for_post
-                # Resolve track info for better prompts
+                # Resolve track info for better prompts. The hard track_id
+                # anchor wins; track_reference is the legacy fallback.
                 track_title = post.track_reference or ""
                 artist_name_str = ""
                 lyrics_str = ""
+                anchored_audio_url: str | None = None
+                if post.track_id:
+                    from amplify.db.models.track import TrackModel
+                    _at = await db.execute(
+                        select(TrackModel).where(
+                            TrackModel.id == post.track_id,
+                            TrackModel.tenant_id == tenant_id,
+                        )
+                    )
+                    _atrow = _at.scalar_one_or_none()
+                    if _atrow:
+                        track_title = _atrow.title or track_title
+                        lyrics_str = _atrow.lyrics or ""
+                        if _atrow.audio_url:
+                            anchored_audio_url = _atrow.audio_url
                 if release_id:
                     from amplify.db.models.release import ReleaseModel
                     rel_r = await db.execute(
@@ -595,8 +622,8 @@ async def generate_media_for_post(
                     rel = rel_r.scalar_one_or_none()
                     if rel:
                         artist_name_str = getattr(rel, "artist_name", "") or ""
-                # Find audio URL
-                audio_for_replicate = body.force_audio_url
+                # Find audio URL — anchor wins over fallback library pick.
+                audio_for_replicate = body.force_audio_url or anchored_audio_url
                 if not audio_for_replicate and existing_audio:
                     audio_for_replicate = existing_audio[0]
                 if audio_for_replicate and image_urls:
@@ -633,7 +660,10 @@ async def generate_media_for_post(
                 video_content_hint = f"🎵 Featuring: {post.track_reference}\n{video_content_hint}"
 
             if is_carousel and len(image_urls) > 1:
-                # Carousel: generate a video per image, rotating tracks
+                # Carousel: generate a video per image. With a track anchor
+                # set, every slide uses the same track (intentional — the
+                # post is about one track). Without an anchor, rotate
+                # through tracks so each slide features a different song.
                 video_urls = []
                 for img_idx, img_url in enumerate(image_urls):
                     try:
@@ -648,7 +678,8 @@ async def generate_media_for_post(
                             settings=settings_obj,
                             duration=min(max(effective_duration, 10), 180),
                             force_audio_url=body.force_audio_url,
-                            carousel_index=img_idx,
+                            carousel_index=None if post.track_id else img_idx,
+                            track_id=post.track_id,
                         )
                         if vid_url:
                             video_urls.append(vid_url)
@@ -670,6 +701,7 @@ async def generate_media_for_post(
                     settings=settings_obj,
                     duration=min(max(effective_duration, 10), 180),
                     force_audio_url=body.force_audio_url,
+                    track_id=post.track_id,
                 )
                 if video_url:
                     post.media_urls = [video_url]
@@ -952,6 +984,7 @@ async def repurpose_post(
             action_type_label=body.action_type_label or source.action_type_label,
             goal=source.goal,
             track_reference=source.track_reference,
+            track_id=source.track_id,
             day_number=source.day_number,
             repurposed_from_id=source.id,
         )

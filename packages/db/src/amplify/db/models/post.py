@@ -46,7 +46,17 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     approval_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     day_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     action_type_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Fuzzy track name from the planner — retained for backward compatibility
+    # and as a fallback for posts that pre-date track_id. New posts should set
+    # track_id (the hard anchor) and let downstream code derive the display
+    # title from the linked TrackModel.
     track_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Hard FK to the track this post is about. When set, this is the source
+    # of truth for caption generation, audio selection, and asset matching —
+    # text-based scoring becomes a tiebreaker, not the anchor.
+    track_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tracks.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     # Marketing intent for this post — drives CTA selection, copy guidance,
     # and analytics segmentation. One of: awareness, follow, engage, save,
     # stream, purchase. Nullable so historical posts and manual posts that

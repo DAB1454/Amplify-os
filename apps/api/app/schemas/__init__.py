@@ -335,6 +335,12 @@ class PostCreateRequest(BaseModel):
     destination_url: str | None = None
     action_type_label: str | None = None  # e.g. "reel", "story", "static", "short", "lyric_video"
     goal: str | None = None  # awareness, follow, engage, save, stream, purchase
+    # Hard track anchor — when set, downstream caption/asset/audio
+    # selection keys off this FK instead of fuzzy text matching.
+    track_id: uuid.UUID | None = None
+    # Canonical track title, persisted alongside track_id for display and
+    # legacy compatibility. The Track-first manual create form sets both.
+    track_reference: str | None = None
 
 class PostUpdateRequest(BaseModel):
     content_text: str | None = None
@@ -372,6 +378,8 @@ class PostResponse(BaseModel):
     action_type_label: str | None
     goal: str | None = None
     repurposed_from_id: uuid.UUID | None = None
+    track_id: uuid.UUID | None = None
+    track_reference: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -34,6 +34,7 @@ async def generate_content_for_post(
     from amplify.db.models.artist import ArtistModel
     from amplify.db.models.release import ReleaseModel
     from amplify.db.models.asset import AssetModel
+    from amplify.db.models.track import TrackModel
 
     # Load the post
     result = await db.execute(
@@ -77,9 +78,25 @@ async def generate_content_for_post(
                 if release:
                     release_title = release.title or ""
 
+    # Resolve the canonical track. track_id is the hard anchor set by the
+    # planner; fall back to track_reference only for legacy posts that
+    # pre-date the FK migration.
+    track: TrackModel | None = None
+    if post.track_id:
+        tr = await db.execute(
+            select(TrackModel).where(
+                TrackModel.id == post.track_id,
+                TrackModel.tenant_id == tenant_id,
+            )
+        )
+        track = tr.scalar_one_or_none()
+    canonical_track_title = (track.title if track else post.track_reference) or ""
+
     updates: dict = {}
 
-    # Step 1: Generate real caption from the brief
+    # Step 1: Generate real caption from the brief, locked to the canonical
+    # track title. The agent prompt uses this as the track this post is
+    # about — not the fuzzy track_reference string.
     brief = post.content_text or ""
     if brief and len(brief) < 500:  # Looks like a brief, not a real caption
         try:
@@ -88,7 +105,7 @@ async def generate_content_for_post(
                 user_id=user_id,
                 artist_name=artist_name,
                 release_title=release_title,
-                track_title=post.track_reference or "",
+                track_title=canonical_track_title,
                 platform=post.platform or "instagram",
                 brief=brief,
             )
@@ -111,7 +128,7 @@ async def generate_content_for_post(
                 db=db,
                 tenant_id=tenant_id,
                 release_id=release_id,
-                track_reference=post.track_reference,
+                track_reference=canonical_track_title or post.track_reference,
                 platform=post.platform,
                 campaign_id=post.campaign_id,
                 day_number=post.day_number or 0,
@@ -136,7 +153,7 @@ async def generate_content_for_post(
                 platform=post.platform,
                 action_type=post.action_type_label,
                 content_hint=brief,
-                track_reference=post.track_reference,
+                track_reference=canonical_track_title or post.track_reference,
                 day_number=post.day_number,
                 max_results=max_media,
             )
@@ -310,9 +327,13 @@ async def _find_matching_assets(
     track_url_to_title = await _build_track_name_map(db, tenant_id, release_id)
 
     # ── Extract explicit track reference ──
-    # Prefer the post's track_reference field (set by planner) over regex from caption.
-    # Caption "Featuring: X" often contains the ALBUM name, not the track.
-    explicit_track = track_reference or _extract_track_reference(content_hint)
+    # The planner-set track_reference (resolved from the canonical track
+    # title via track_id at the caller) is authoritative. We deliberately do
+    # NOT fall through to _extract_track_reference(content_hint) here — that
+    # regex used to pick up stray "quoted" phrases from the caption and
+    # override the planner's intent, which is exactly the bug class this
+    # rework exists to kill.
+    explicit_track = track_reference
     explicit_track_clean = _normalize_for_match(explicit_track).lower() if explicit_track else ""
 
     # Build combined hint text from content_hint + assets_required
