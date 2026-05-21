@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
+import { TikTokDirectPostModal } from "@/components/tiktok/direct-post-modal";
 import { cn, formatLocal } from "@/lib/utils";
 
 interface Post {
@@ -132,6 +133,11 @@ export default function PostsPage() {
   };
   const [refreshDetails, setRefreshDetails] = useState<RefreshDetail[] | null>(null);
   const [showRefreshDetails, setShowRefreshDetails] = useState(false);
+  // TikTok Direct Post modal — interception state for the "Publish Now"
+  // button when post.platform === "tiktok". The modal hits creator_info
+  // on open and forwards the user's disclosure selections to /publish.
+  // Required by TikTok's Content Sharing Guidelines.
+  const [tiktokPublishPost, setTiktokPublishPost] = useState<Post | null>(null);
 
   // Close modals on ESC key
   useEffect(() => {
@@ -1713,7 +1719,19 @@ export default function PostsPage() {
                     ) : (
                       <button
                         key={btn.action}
-                        onClick={() => handleAction(post.id, btn.action)}
+                        onClick={() => {
+                          // TikTok publish must go through the
+                          // Content Sharing Guidelines disclosure
+                          // modal — never call /publish directly. The
+                          // modal queries creator_info and forwards
+                          // the user's selections (privacy level,
+                          // disclosure toggles, interaction controls).
+                          if (btn.action === "publish" && post.platform === "tiktok") {
+                            setTiktokPublishPost(post);
+                            return;
+                          }
+                          handleAction(post.id, btn.action);
+                        }}
                         disabled={actionLoading === `${post.id}-${btn.action}`}
                         className={`rounded-lg px-3 py-1.5 text-xs font-medium hover:opacity-90 disabled:opacity-50 ${btn.style}`}
                       >
@@ -2017,6 +2035,23 @@ export default function PostsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* TikTok Direct Post — Content Sharing Guidelines disclosure UI.
+          Opens when the user clicks "Publish Now" on a TikTok post.
+          The modal owns the publish call so /publish is never hit
+          without the user's disclosure selections. */}
+      {tiktokPublishPost && (
+        <TikTokDirectPostModal
+          postId={tiktokPublishPost.id}
+          captionPreview={tiktokPublishPost.content_text || ""}
+          onClose={() => setTiktokPublishPost(null)}
+          onPublished={() => {
+            setTiktokPublishPost(null);
+            setFetchError(null);
+            fetchPosts();
+          }}
+        />
       )}
     </>
   );

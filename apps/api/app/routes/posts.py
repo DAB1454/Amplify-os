@@ -1079,16 +1079,47 @@ async def schedule_post(
     return result
 
 
+class TikTokPublishParams(BaseModel):
+    """Per-request TikTok disclosure choices from the Direct Post modal.
+
+    Every field maps 1:1 to a Content Sharing Guidelines control on the
+    confirm screen. The route accepts the body as optional so non-TikTok
+    posts and legacy callers continue to work without change.
+    """
+    privacy_level: str | None = None
+    disable_comment: bool | None = None
+    disable_duet: bool | None = None
+    disable_stitch: bool | None = None
+    brand_content_toggle: bool | None = None
+    brand_organic_toggle: bool | None = None
+    video_cover_timestamp_ms: int | None = None
+
+
+class PublishNowRequest(BaseModel):
+    tiktok: TikTokPublishParams | None = None
+
+
 @router.post("/{post_id}/publish", response_model=PostActionResponse)
 async def publish_post_now(
     post_id: uuid.UUID,
+    body: PublishNowRequest | None = None,
     svc: PublishingService = Depends(_get_publishing_service),
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Publish a post immediately."""
+    """Publish a post immediately.
+
+    For TikTok posts, the body must include `tiktok` with the user's
+    Content Sharing Guidelines disclosure selections from the Direct
+    Post modal. Posts published without those selections will use
+    conservative defaults (private/SELF_ONLY when on an unaudited app).
+    """
+    platform_params: dict | None = None
+    if body is not None and body.tiktok is not None:
+        platform_params = body.tiktok.model_dump(exclude_none=True)
+
     try:
-        result = await svc.publish_post(post_id)
+        result = await svc.publish_post(post_id, platform_params=platform_params)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except InvalidTransition as exc:
@@ -1135,6 +1166,78 @@ async def get_post_status(
 
 
 ## Old retry endpoint removed — replaced by retry_stuck_post above (line ~442)
+
+
+# ── TikTok creator info (Content Sharing Guidelines) ─────────────
+
+
+class TikTokCreatorInfoResponse(BaseModel):
+    """Creator capabilities for the Direct Post disclosure modal.
+
+    These fields populate every required element of TikTok's Content
+    Sharing Guidelines UI (privacy options, comment/duet/stitch
+    availability, max duration). All values come straight from
+    TikTok's creator_info/query endpoint on the current access token.
+    """
+    creator_username: str
+    creator_nickname: str
+    creator_avatar_url: str
+    privacy_level_options: list[str]
+    comment_disabled: bool
+    duet_disabled: bool
+    stitch_disabled: bool
+    max_video_post_duration_sec: int
+
+
+@router.get(
+    "/{post_id}/tiktok/creator-info",
+    response_model=TikTokCreatorInfoResponse,
+)
+async def get_tiktok_creator_info(
+    post_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    settings_obj: Settings = Depends(get_settings),
+):
+    """Return the creator's TikTok posting capabilities for the
+    Direct Post disclosure modal.
+
+    Required by TikTok's Content Sharing Guidelines: every field the
+    user can see/select on the confirm screen must come from THIS
+    endpoint called against the current access token immediately
+    before showing the UI. Reviewers check for it.
+    """
+    from app.services.adapter_factory import get_adapter
+
+    post = await db.get(PostModel, post_id)
+    if post is None or post.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.platform != "tiktok":
+        raise HTTPException(
+            status_code=400,
+            detail=f"creator-info is TikTok-only (post platform={post.platform})",
+        )
+    if post.channel_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Post is not bound to a channel — reconnect TikTok",
+        )
+
+    try:
+        adapter = await get_adapter(
+            db, post.channel_id, settings_obj, require_publish=True,
+        )
+    except Exception as exc:
+        logger.warning("creator-info: adapter load failed for post %s: %s", post_id, exc)
+        raise HTTPException(status_code=400, detail=f"TikTok channel not ready: {exc}")
+
+    try:
+        info = await adapter.query_creator_info()
+    except Exception as exc:
+        logger.warning("creator-info: TikTok API failed for post %s: %s", post_id, exc)
+        raise HTTPException(status_code=502, detail=f"TikTok API error: {exc}")
+
+    return TikTokCreatorInfoResponse(**info)
 
 
 # ── TikTok status reconciliation ─────────────────────────────────

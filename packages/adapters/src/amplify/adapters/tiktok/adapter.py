@@ -159,6 +159,16 @@ class TikTokAdapter(BaseAdapter):
             token_expires_at=self._token_expires_at,
         )
 
+    async def query_creator_info(self) -> dict:
+        """Fetch the creator's posting capabilities required by the
+        Content Sharing Guidelines disclosure UI. Delegates to the
+        publisher; see TikTokPublisher.query_creator_info for shape.
+        """
+        self._require_connected()
+        self._check_token_expiry()
+        assert self._publisher is not None
+        return await self._publisher.query_creator_info()
+
     async def publish(
         self,
         content: str,
@@ -189,11 +199,22 @@ class TikTokAdapter(BaseAdapter):
         assert self._publisher is not None
         is_inbox = not self._publisher._is_app_audited()
         privacy = kwargs.get("privacy_level", os.environ.get("TIKTOK_DEFAULT_PRIVACY", "SELF_ONLY"))
+        # Disclosure params come from the Content Sharing Guidelines
+        # modal. When the caller omits them (e.g. legacy code paths,
+        # scheduled posts that pre-date the modal), conservative
+        # defaults apply: no commercial-content disclosure, all
+        # interactions allowed (matches TikTok's UI defaults).
         upload = await self._publisher.upload_video(
             media_paths[0],
             content,
             privacy_level=privacy,
             as_draft=kwargs.get("as_draft", False),
+            disable_comment=bool(kwargs.get("disable_comment", False)),
+            disable_duet=bool(kwargs.get("disable_duet", False)),
+            disable_stitch=bool(kwargs.get("disable_stitch", False)),
+            brand_content_toggle=bool(kwargs.get("brand_content_toggle", False)),
+            brand_organic_toggle=bool(kwargs.get("brand_organic_toggle", False)),
+            video_cover_timestamp_ms=kwargs.get("video_cover_timestamp_ms"),
         )
 
         publish_id = upload["publish_id"]
@@ -219,6 +240,11 @@ class TikTokAdapter(BaseAdapter):
                 "inbox_flow": is_inbox,
                 "tiktok_status": tiktok_status,
                 "tiktok_fail_reason": upload.get("fail_reason"),
+                "disable_comment": bool(kwargs.get("disable_comment", False)),
+                "disable_duet": bool(kwargs.get("disable_duet", False)),
+                "disable_stitch": bool(kwargs.get("disable_stitch", False)),
+                "brand_content_toggle": bool(kwargs.get("brand_content_toggle", False)),
+                "brand_organic_toggle": bool(kwargs.get("brand_organic_toggle", False)),
             },
         )
 

@@ -177,14 +177,32 @@ class PublishingService:
             "policy_decision": policy_result["decision"],
         }
 
-    async def publish_post(self, post_id: uuid.UUID, dry_run: bool = False) -> dict:
+    async def publish_post(
+        self,
+        post_id: uuid.UUID,
+        dry_run: bool = False,
+        *,
+        platform_params: dict | None = None,
+    ) -> dict:
         """Publish a post immediately via the platform adapter.
 
         If dry_run=True, runs everything except the actual API call.
+
+        platform_params is a per-platform kwargs blob forwarded into
+        adapter.publish(). For TikTok it carries the Content Sharing
+        Guidelines disclosure choices (privacy_level, disable_comment,
+        disable_duet, disable_stitch, brand_content_toggle,
+        brand_organic_toggle, video_cover_timestamp_ms). For other
+        platforms it's currently unused.
         """
         from amplify.learning.capture import post_published, post_failed
 
         post = await self._get_post(post_id)
+        # Stash the disclosure params on the post so _do_publish can
+        # read them after the status transition. Using an instance attr
+        # (not a DB column) keeps the request-scoped data flow simple
+        # for the immediate-publish path the disclosure modal hits.
+        self._platform_params = platform_params or {}
 
         # Must be approved or scheduled to publish
         self._assert_transition(post, PostStatus.PUBLISHING)
@@ -523,6 +541,27 @@ class PublishingService:
             # 280 chars by the adapter. No special kwargs needed unless
             # we're threading (reply_to_tweet_id).
             pass
+
+        elif post.platform == "tiktok":
+            # Disclosure params from the Content Sharing Guidelines
+            # modal. These come from the user's selections on the
+            # Direct Post confirm screen — TikTok rejects/silently-routes
+            # posts where the disclosure UI wasn't shown, and reviewers
+            # confirm we forward the values the user picked. When no
+            # modal was used (legacy or non-UI flows), the adapter
+            # falls back to conservative defaults.
+            tt_params = getattr(self, "_platform_params", None) or {}
+            for k in (
+                "privacy_level",
+                "disable_comment",
+                "disable_duet",
+                "disable_stitch",
+                "brand_content_toggle",
+                "brand_organic_toggle",
+                "video_cover_timestamp_ms",
+            ):
+                if k in tt_params and tt_params[k] is not None:
+                    publish_kwargs[k] = tt_params[k]
 
         elif post.platform == "youtube":
             # Use first line of content or track_reference as video title

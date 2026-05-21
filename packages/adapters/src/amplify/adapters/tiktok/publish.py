@@ -168,6 +168,38 @@ class TikTokPublisher:
         """
         return os.environ.get("TIKTOK_APP_AUDITED", "").lower() in ("true", "1", "yes")
 
+    async def query_creator_info(self) -> dict:
+        """Fetch the creator's posting capabilities from TikTok.
+
+        Required by Content Sharing Guidelines before showing the
+        Direct Post UI: every field surfaced on the disclosure modal
+        (allowed privacy levels, comment/duet/stitch disabled flags,
+        max duration, commercial-content toggle availability) MUST
+        come from this endpoint on the access token in use — TikTok's
+        review checks for it.
+
+        Returns a normalized dict. Keys mirror TikTok's response so
+        the frontend can pass them through without translation.
+        """
+        endpoint = f"{TT_API}/post/publish/creator_info/query/"
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(endpoint, headers=self._headers(), json={})
+            data = self._check_response(resp, "creator_info_query")
+        info = data.get("data", {}) or {}
+        return {
+            "creator_avatar_url": info.get("creator_avatar_url", "") or "",
+            "creator_username": info.get("creator_username", "") or "",
+            "creator_nickname": info.get("creator_nickname", "") or "",
+            # Subset of: PUBLIC_TO_EVERYONE, MUTUAL_FOLLOW_FRIENDS,
+            # FOLLOWER_OF_CREATOR, SELF_ONLY. UI defaults to the most
+            # restrictive option present.
+            "privacy_level_options": list(info.get("privacy_level_options", []) or []),
+            "comment_disabled": bool(info.get("comment_disabled", False)),
+            "duet_disabled": bool(info.get("duet_disabled", False)),
+            "stitch_disabled": bool(info.get("stitch_disabled", False)),
+            "max_video_post_duration_sec": int(info.get("max_video_post_duration_sec", 0) or 0),
+        }
+
     async def _init_upload(
         self,
         video_size: int,
@@ -226,6 +258,12 @@ class TikTokPublisher:
         sounds: list[str] | None = None,
         privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
+        disable_comment: bool = False,
+        disable_duet: bool = False,
+        disable_stitch: bool = False,
+        brand_content_toggle: bool = False,
+        brand_organic_toggle: bool = False,
+        video_cover_timestamp_ms: int | None = None,
     ) -> dict:
         """Upload a video to TikTok.
 
@@ -240,6 +278,14 @@ class TikTokPublisher:
 
         video_path can be a local file path or an HTTP(S) URL.
         URLs are downloaded to a temp file before uploading.
+
+        Disclosure params (mandatory per Content Sharing Guidelines):
+            disable_comment/duet/stitch: user's allow/disallow choices.
+            brand_content_toggle: True when the user disclosed commercial
+                Branded Content (paid partnership).
+            brand_organic_toggle: True when the user disclosed Your Brand
+                (their own promotion).
+            video_cover_timestamp_ms: optional cover-frame selection.
         """
         downloaded_tmp: Path | None = None
         if _is_url(str(video_path)):
@@ -251,7 +297,14 @@ class TikTokPublisher:
         try:
             return await self._upload_from_file(
                 video, caption,
-                privacy_level=privacy_level, as_draft=as_draft,
+                privacy_level=privacy_level,
+                as_draft=as_draft,
+                disable_comment=disable_comment,
+                disable_duet=disable_duet,
+                disable_stitch=disable_stitch,
+                brand_content_toggle=brand_content_toggle,
+                brand_organic_toggle=brand_organic_toggle,
+                video_cover_timestamp_ms=video_cover_timestamp_ms,
             )
         finally:
             if downloaded_tmp is not None:
@@ -267,6 +320,12 @@ class TikTokPublisher:
         *,
         privacy_level: str = "PUBLIC_TO_EVERYONE",
         as_draft: bool = False,
+        disable_comment: bool = False,
+        disable_duet: bool = False,
+        disable_stitch: bool = False,
+        brand_content_toggle: bool = False,
+        brand_organic_toggle: bool = False,
+        video_cover_timestamp_ms: int | None = None,
     ) -> dict:
         """Upload a local video file to TikTok. See upload_video for return shape."""
         if not video.exists():
@@ -282,10 +341,19 @@ class TikTokPublisher:
         post_info: dict[str, Any] = {
             "title": caption[:2200],
             "privacy_level": privacy_level,
-            "disable_duet": False,
-            "disable_comment": False,
-            "disable_stitch": False,
+            "disable_duet": disable_duet,
+            "disable_comment": disable_comment,
+            "disable_stitch": disable_stitch,
+            # Commercial content disclosure — TikTok requires both flags
+            # so it can label the post correctly. brand_content_toggle is
+            # Branded Content (paid partnership), brand_organic_toggle is
+            # "Your Brand". Both can be true when a user is promoting
+            # their own brand AND has a paid partner involved.
+            "brand_content_toggle": brand_content_toggle,
+            "brand_organic_toggle": brand_organic_toggle,
         }
+        if video_cover_timestamp_ms is not None and video_cover_timestamp_ms >= 0:
+            post_info["video_cover_timestamp_ms"] = video_cover_timestamp_ms
 
         logger.info("TikTok publish — file_size=%d, caption (%d chars): %s", file_size, len(caption), caption[:100])
 
