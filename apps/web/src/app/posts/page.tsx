@@ -138,6 +138,13 @@ export default function PostsPage() {
   // on open and forwards the user's disclosure selections to /publish.
   // Required by TikTok's Content Sharing Guidelines.
   const [tiktokPublishPost, setTiktokPublishPost] = useState<Post | null>(null);
+  // Same modal in schedule mode: opens when the user confirms a schedule
+  // on a TikTok post. The modal calls /schedule with the disclosure
+  // params so the worker can pull them at publish time.
+  const [tiktokSchedulePost, setTiktokSchedulePost] = useState<{
+    post: Post;
+    scheduledAt: string;
+  } | null>(null);
 
   // Close modals on ESC key
   useEffect(() => {
@@ -1753,7 +1760,19 @@ export default function PostsPage() {
                         className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-xs text-[var(--text-primary)]"
                       />
                       <button
-                        onClick={() => handleSchedule(post.id)}
+                        onClick={() => {
+                          // TikTok schedules must go through the
+                          // Content Sharing Guidelines disclosure
+                          // modal — the user picks privacy/disclosure
+                          // once at scheduling time, and the worker
+                          // reads tiktok_post_info at publish time.
+                          if (post.platform === "tiktok" && scheduleDateTime) {
+                            const iso = new Date(scheduleDateTime).toISOString();
+                            setTiktokSchedulePost({ post, scheduledAt: iso });
+                            return;
+                          }
+                          handleSchedule(post.id);
+                        }}
                         disabled={!scheduleDateTime || actionLoading === `${post.id}-schedule`}
                         className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                       >
@@ -2051,6 +2070,27 @@ export default function PostsPage() {
           onClose={() => setTiktokPublishPost(null)}
           onPublished={() => {
             setTiktokPublishPost(null);
+            setFetchError(null);
+            fetchPosts();
+          }}
+        />
+      )}
+
+      {/* Same modal in schedule mode — the user picks disclosure once,
+          here, and the choices ride on the post via tiktok_post_info
+          until the worker publishes. Required so scheduled/autonomous
+          TikTok posts satisfy the per-post disclosure requirement. */}
+      {tiktokSchedulePost && (
+        <TikTokDirectPostModal
+          mode="schedule"
+          scheduledAt={tiktokSchedulePost.scheduledAt}
+          postId={tiktokSchedulePost.post.id}
+          captionPreview={tiktokSchedulePost.post.content_text || ""}
+          onClose={() => setTiktokSchedulePost(null)}
+          onPublished={() => {
+            setTiktokSchedulePost(null);
+            setSchedulingPostId(null);
+            setScheduleDateTime("");
             setFetchError(null);
             fetchPosts();
           }}

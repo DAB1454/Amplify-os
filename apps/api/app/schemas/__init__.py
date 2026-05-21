@@ -341,6 +341,11 @@ class PostCreateRequest(BaseModel):
     # Canonical track title, persisted alongside track_id for display and
     # legacy compatibility. The Track-first manual create form sets both.
     track_reference: str | None = None
+    # TikTok Content Sharing Guidelines disclosure params. Captured by
+    # the Direct Post modal at Publish/Schedule time OR stamped by the
+    # planner from channel defaults. The worker reads this at publish
+    # time and forwards to the adapter.
+    tiktok_post_info: dict | None = None
 
 class PostUpdateRequest(BaseModel):
     content_text: str | None = None
@@ -380,6 +385,7 @@ class PostResponse(BaseModel):
     repurposed_from_id: uuid.UUID | None = None
     track_id: uuid.UUID | None = None
     track_reference: str | None = None
+    tiktok_post_info: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -420,6 +426,11 @@ class PostStatusResponse(BaseModel):
 
 class ScheduleRequest(BaseModel):
     scheduled_at: datetime
+    # TikTok Content Sharing Guidelines disclosure choices, captured by
+    # the Direct Post modal when the user schedules a TikTok post. Lands
+    # on posts.tiktok_post_info so the worker reads it at publish time.
+    # Non-TikTok schedules omit this block.
+    tiktok_post_info: dict | None = None
 
 
 # ── Approval ─────────────────────────────────────────────────────

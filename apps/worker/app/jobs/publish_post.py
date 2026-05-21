@@ -352,10 +352,50 @@ async def _call_adapter(payload: dict) -> dict:
             "account_id": tokens.account_id,
         })
 
+        # Build per-platform publish kwargs. For TikTok this carries the
+        # Content Sharing Guidelines disclosure choices the user made at
+        # Publish/Schedule time (or that the planner stamped from channel
+        # defaults). Without this block the worker would publish with no
+        # disclosure params — non-compliant once Direct Post is approved.
+        publish_kwargs: dict = {}
+        if platform == "tiktok":
+            from amplify.db.models.post import PostModel as _PostModel
+            post_id_raw = payload.get("post_id", "")
+            tt_info: dict = {}
+            if post_id_raw:
+                try:
+                    _pr = await db.execute(
+                        select(_PostModel).where(_PostModel.id == uuid.UUID(str(post_id_raw)))
+                    )
+                    _post = _pr.scalar_one_or_none()
+                    if _post is not None:
+                        tt_info = dict(_post.tiktok_post_info or {})
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load tiktok_post_info for post %s: %s",
+                        post_id_raw, exc,
+                    )
+            for k in (
+                "privacy_level",
+                "disable_comment",
+                "disable_duet",
+                "disable_stitch",
+                "brand_content_toggle",
+                "brand_organic_toggle",
+                "video_cover_timestamp_ms",
+            ):
+                if k in tt_info and tt_info[k] is not None:
+                    publish_kwargs[k] = tt_info[k]
+            logger.info(
+                "TikTok worker publish — post=%s disclosure_keys=%s",
+                post_id_raw, sorted(publish_kwargs.keys()),
+            )
+
         try:
             pub_result = await adapter.publish(
                 content=payload.get("content", ""),
                 media_paths=payload.get("media_urls", []),
+                **publish_kwargs,
             )
         except TokenExpiredError:
             # Auto-refresh token and retry once (same as web API)
@@ -375,6 +415,7 @@ async def _call_adapter(payload: dict) -> dict:
                 pub_result = await adapter.publish(
                     content=payload.get("content", ""),
                     media_paths=payload.get("media_urls", []),
+                    **publish_kwargs,
                 )
             except Exception as refresh_exc:
                 logger.error("Token refresh failed for channel %s: %s", channel_id, refresh_exc, exc_info=True)

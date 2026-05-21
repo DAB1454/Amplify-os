@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { cn, formatLocalDate } from "@/lib/utils";
 import { platformEmojis as _platformEmojis, platformColors as _platformColors } from "@/lib/platforms";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
+import { TikTokPostingDefaultsPanel } from "@/components/tiktok/posting-defaults-panel";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -581,6 +582,13 @@ function ChannelCard({ channel, onRefresh, onError, onSuccess }: { channel: Chan
               <CapabilityBadge key={name} name={name} enabled={!!enabled} />
             ))}
           </div>
+        )}
+        {/* TikTok posting defaults — shown only for connected TikTok
+            channels. These defaults flow into autopilot/scheduled posts
+            so they carry valid Content Sharing Guidelines disclosure
+            params at publish time. */}
+        {channel.platform === "tiktok" && status === "connected" && (
+          <TikTokPostingDefaultsPanel channelId={channel.id} />
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">

@@ -61,6 +61,16 @@ const PRIVACY_LABEL: Record<PrivacyLevel, string> = {
 export interface TikTokDirectPostModalProps {
   postId: string;
   captionPreview: string;
+  /**
+   * "publish" — submit immediately to /publish.
+   * "schedule" — persist disclosure params on the post and call /schedule
+   *   with the supplied scheduledAt. Used by the autonomy/scheduling flow
+   *   so the user picks disclosure once, at the moment of commitment,
+   *   instead of being prompted again at the actual publish time.
+   */
+  mode?: "publish" | "schedule";
+  /** Required when mode="schedule". ISO timestamp. */
+  scheduledAt?: string;
   onClose: () => void;
   onPublished: (result: { post_id: string; status?: string }) => void;
 }
@@ -68,6 +78,8 @@ export interface TikTokDirectPostModalProps {
 export function TikTokDirectPostModal({
   postId,
   captionPreview,
+  mode = "publish",
+  scheduledAt,
   onClose,
   onPublished,
 }: TikTokDirectPostModalProps) {
@@ -154,23 +166,42 @@ export function TikTokDirectPostModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await apiPost<{ post_id: string; status?: string }>(
-        `/api/v1/posts/${postId}/publish`,
-        {
-          tiktok: {
-            privacy_level: privacyLevel,
-            disable_comment: !allowComment,
-            disable_duet: !allowDuet,
-            disable_stitch: !allowStitch,
-            brand_organic_toggle: yourBrand,
-            brand_content_toggle: brandedContent,
-          },
+      const tiktokParams = {
+        privacy_level: privacyLevel,
+        disable_comment: !allowComment,
+        disable_duet: !allowDuet,
+        disable_stitch: !allowStitch,
+        brand_organic_toggle: yourBrand,
+        brand_content_toggle: brandedContent,
+      };
+      let result: { post_id: string; status?: string };
+      if (mode === "schedule") {
+        // Schedule path: persist disclosure on the post and call
+        // /schedule. The worker will read tiktok_post_info at publish
+        // time. The user only goes through this modal once per post —
+        // not again when the scheduled moment fires.
+        if (!scheduledAt) {
+          throw new Error("scheduledAt is required for schedule mode");
         }
-      );
+        result = await apiPost<{ post_id: string; status?: string }>(
+          `/api/v1/posts/${postId}/schedule`,
+          {
+            scheduled_at: scheduledAt,
+            tiktok_post_info: tiktokParams,
+          }
+        );
+      } else {
+        result = await apiPost<{ post_id: string; status?: string }>(
+          `/api/v1/posts/${postId}/publish`,
+          { tiktok: tiktokParams }
+        );
+      }
       onPublished(result);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to publish to TikTok"
+        err instanceof Error
+          ? err.message
+          : `Failed to ${mode === "schedule" ? "schedule" : "publish"} to TikTok`
       );
     } finally {
       setSubmitting(false);
@@ -187,7 +218,7 @@ export function TikTokDirectPostModal({
       >
         <div className="border-b border-gray-200 px-5 py-3 flex items-center justify-between">
           <h2 id="tt-direct-post-title" className="text-base font-semibold text-gray-900">
-            Post to TikTok
+            {mode === "schedule" ? "Schedule TikTok post" : "Post to TikTok"}
           </h2>
           <button
             type="button"
@@ -427,7 +458,15 @@ export function TikTokDirectPostModal({
             disabled={!validity.ok || submitting || !info}
             className="rounded-lg bg-black px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {submitting ? <ButtonSpinner label="Posting…" /> : "Post to TikTok"}
+            {submitting ? (
+              <ButtonSpinner
+                label={mode === "schedule" ? "Scheduling…" : "Posting…"}
+              />
+            ) : mode === "schedule" ? (
+              "Schedule"
+            ) : (
+              "Post to TikTok"
+            )}
           </button>
         </div>
       </div>

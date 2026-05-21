@@ -57,6 +57,14 @@ class PostModel(Base, TimestampMixin, TenantMixin):
     track_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tracks.id", ondelete="SET NULL"), nullable=True, index=True,
     )
+    # TikTok Content Sharing Guidelines disclosure params, captured from
+    # the Direct Post modal at Publish-Now OR Schedule time and read by
+    # the worker at publish time. Keys mirror the adapter kwargs:
+    # privacy_level, disable_comment, disable_duet, disable_stitch,
+    # brand_organic_toggle, brand_content_toggle, video_cover_timestamp_ms.
+    # Empty {} means "no disclosure choices captured" — only legal for
+    # non-TikTok posts or pre-rework legacy rows.
+    tiktok_post_info: Mapped[dict] = mapped_column(JSON, default=dict)
     # Marketing intent for this post — drives CTA selection, copy guidance,
     # and analytics segmentation. One of: awareness, follow, engage, save,
     # stream, purchase. Nullable so historical posts and manual posts that

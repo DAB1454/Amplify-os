@@ -109,7 +109,13 @@ class PublishingService:
             post = await self._transition(post, PostStatus.DRAFT)
         return {"post_id": str(post_id), "status": post.status}
 
-    async def schedule_post(self, post_id: uuid.UUID, scheduled_at: datetime) -> dict:
+    async def schedule_post(
+        self,
+        post_id: uuid.UUID,
+        scheduled_at: datetime,
+        *,
+        tiktok_post_info: dict | None = None,
+    ) -> dict:
         """Schedule a draft post for future publication.
 
         This is now the single user-facing commit step (formerly queue →
@@ -120,10 +126,22 @@ class PublishingService:
           - decision=allow → transition to SCHEDULED, emit post_queued
             learning event (kept under the old name so bandit consumers
             don't need to change)
+
+        tiktok_post_info carries the Content Sharing Guidelines
+        disclosure choices the user made on the Direct Post modal at
+        schedule time. Persisted on posts.tiktok_post_info so the
+        worker reads it when the scheduled time arrives.
         """
         from amplify.learning.capture import policy_evaluated, post_queued
 
         post = await self._get_post(post_id)
+
+        # Persist TikTok disclosure params if provided. Set this BEFORE
+        # the policy/transition flow so the row is consistent even when
+        # policy blocks the schedule.
+        if tiktok_post_info is not None and post.platform == "tiktok":
+            post.tiktok_post_info = dict(tiktok_post_info)
+            await self.db.flush()
 
         policy_result = self._evaluate_policy(post)
         await self._emit_learning(policy_evaluated(

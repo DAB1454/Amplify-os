@@ -1053,14 +1053,24 @@ async def schedule_post(
     user_id: uuid.UUID | None = Depends(get_user_id),
     audit: AuditService = Depends(get_audit_service),
 ):
-    """Schedule a post for future publication."""
+    """Schedule a post for future publication.
+
+    For TikTok posts, the body should include `tiktok_post_info` with
+    the Content Sharing Guidelines disclosure choices captured from
+    the Direct Post modal at schedule time. The worker reads these
+    when the scheduled moment arrives.
+    """
     # Strip timezone info — DB stores naive UTC datetimes
     scheduled_at = body.scheduled_at
     if scheduled_at.tzinfo is not None:
         from datetime import timezone
         scheduled_at = scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
     try:
-        result = await svc.schedule_post(post_id, scheduled_at)
+        result = await svc.schedule_post(
+            post_id,
+            scheduled_at,
+            tiktok_post_info=body.tiktok_post_info,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except InvalidTransition as exc:

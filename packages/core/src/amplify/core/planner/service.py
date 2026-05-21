@@ -714,6 +714,33 @@ async def plan_campaign(
                     action.content_brief, resolved_cta, action.platform
                 )
 
+                # TikTok Content Sharing Guidelines: each generated post
+                # must carry valid disclosure params at publish time so
+                # the worker can forward them to the adapter. Stamp the
+                # channel's configured defaults onto the row at creation
+                # so the row is self-contained, even if the user edits
+                # the defaults later (we don't retroactively re-stamp).
+                # Branded Content disclosure is INTENTIONALLY not set
+                # here — TikTok requires per-post affirmation for paid-
+                # partnership disclosure. If a planner action ever
+                # carried a branded-content flag, this code path would
+                # need to force approval_status="pending_review".
+                stamped_tiktok_info: dict = {}
+                stamped_approval = post_approval
+                if action.platform == "tiktok":
+                    chan_settings = getattr(channel, "settings", None) or {}
+                    tt_defaults = dict(chan_settings.get("tiktok_defaults") or {})
+                    stamped_tiktok_info = {
+                        "privacy_level": tt_defaults.get("privacy_level", "SELF_ONLY"),
+                        "disable_comment": bool(tt_defaults.get("disable_comment", False)),
+                        "disable_duet": bool(tt_defaults.get("disable_duet", False)),
+                        "disable_stitch": bool(tt_defaults.get("disable_stitch", False)),
+                        "brand_organic_toggle": bool(tt_defaults.get("brand_organic_toggle", False)),
+                        # Never set by defaults; carve-out for the
+                        # paid-partnership disclosure flow.
+                        "brand_content_toggle": False,
+                    }
+
                 post = PostModel(
                     tenant_id=tenant_id,
                     campaign_id=campaign.id,
@@ -723,13 +750,14 @@ async def plan_campaign(
                     content_text=caption_with_cta,
                     media_urls=[],
                     destination_url=resolved_cta,
-                    approval_status=post_approval,
+                    approval_status=stamped_approval,
                     day_number=day_idx,
                     action_type_label=action.action_type,
                     scheduled_at=scheduled_at,
                     track_reference=action.track_reference or None,
                     track_id=action_track.id if action_track else None,
                     goal=action.goal or None,
+                    tiktok_post_info=stamped_tiktok_info,
                 )
                 db.add(post)
                 draft_posts_created += 1

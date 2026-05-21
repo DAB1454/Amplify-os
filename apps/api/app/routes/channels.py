@@ -447,6 +447,96 @@ def _derive_connection_status(ch: ChannelConnectionModel) -> str:
     return "connected"
 
 
+# ── TikTok posting defaults ──────────────────────────────────────
+#
+# Channel-level defaults the planner / autopilot stamps onto generated
+# TikTok posts so they carry valid Content Sharing Guidelines disclosure
+# choices when the user isn't pressing a button per-post. Stored on the
+# existing settings JSON (settings.tiktok_defaults) — no schema change.
+# Branded Content is INTENTIONALLY excluded from defaults — TikTok
+# requires per-post affirmation for paid-partnership disclosure.
+
+
+from pydantic import BaseModel as _BaseModel, Field as _Field
+
+
+class TikTokDefaults(_BaseModel):
+    privacy_level: str = "SELF_ONLY"
+    disable_comment: bool = False
+    disable_duet: bool = False
+    disable_stitch: bool = False
+    # Default "Your Brand" disclosure for autopilot posts. Off by default;
+    # the user must actively opt in (with the disclosure copy shown in
+    # the UI) for autopilot to disclose self-promotion. The Channels page
+    # surfaces the same description text as the per-post modal.
+    brand_organic_toggle: bool = False
+
+
+@router.get("/{channel_id}/tiktok-defaults", response_model=TikTokDefaults)
+async def get_tiktok_defaults(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    result = await db.execute(
+        select(ChannelConnectionModel).where(
+            ChannelConnectionModel.id == channel_id,
+            ChannelConnectionModel.tenant_id == tenant_id,
+        )
+    )
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if channel.platform != "tiktok":
+        raise HTTPException(
+            status_code=400, detail="tiktok-defaults is TikTok-only"
+        )
+    saved = (channel.settings or {}).get("tiktok_defaults") or {}
+    return TikTokDefaults(**{k: v for k, v in saved.items() if v is not None})
+
+
+@router.put("/{channel_id}/tiktok-defaults", response_model=TikTokDefaults)
+async def set_tiktok_defaults(
+    channel_id: uuid.UUID,
+    body: TikTokDefaults,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+):
+    result = await db.execute(
+        select(ChannelConnectionModel).where(
+            ChannelConnectionModel.id == channel_id,
+            ChannelConnectionModel.tenant_id == tenant_id,
+        )
+    )
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if channel.platform != "tiktok":
+        raise HTTPException(
+            status_code=400, detail="tiktok-defaults is TikTok-only"
+        )
+    # Validate privacy_level against TikTok's enum so a bad value never
+    # reaches the publisher and triggers a runtime API rejection.
+    allowed = {
+        "PUBLIC_TO_EVERYONE",
+        "MUTUAL_FOLLOW_FRIENDS",
+        "FOLLOWER_OF_CREATOR",
+        "SELF_ONLY",
+    }
+    if body.privacy_level not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"privacy_level must be one of {sorted(allowed)}",
+        )
+    # SQLAlchemy needs a brand-new dict for JSON columns to mark dirty —
+    # mutating in place doesn't always trigger a flush.
+    new_settings = dict(channel.settings or {})
+    new_settings["tiktok_defaults"] = body.model_dump()
+    channel.settings = new_settings
+    await db.flush()
+    return body
+
+
 def _channel_to_dict(ch: ChannelConnectionModel) -> dict:
     platform_str = ch.platform
     try:
