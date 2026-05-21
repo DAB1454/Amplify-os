@@ -167,8 +167,11 @@ export default function PostsPage() {
         const publishing = await apiGet<Post[]>(`/api/v1/posts/?${pubParams.toString()}`);
         data = [...data, ...publishing];
       }
-      // Published/failed: newest first. Everything else: oldest first (next-to-publish on top).
-      const newestFirst = activeTab === "published" || activeTab === "failed";
+      // All/Published/Failed: newest first — these are review-oriented
+      // views where recent activity is most relevant. Draft/Scheduled
+      // stay oldest-first so the next-to-publish item is at the top.
+      const newestFirst =
+        activeTab === "all" || activeTab === "published" || activeTab === "failed";
       data.sort((a, b) => {
         const dateA = a.published_at || a.scheduled_at || a.created_at;
         const dateB = b.published_at || b.scheduled_at || b.created_at;
