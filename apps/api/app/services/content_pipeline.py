@@ -94,13 +94,38 @@ async def generate_content_for_post(
 
     updates: dict = {}
 
+    # Pre-load every other track title on this release so the caption
+    # validator below can detect cross-pollinated captions like
+    # "this line from Track A reminded me of Track B" — the classic
+    # mismatch the track-anchor rework didn't fully close.
+    sibling_track_titles: list[str] = []
+    if release_id:
+        try:
+            from amplify.db.models.track import TrackModel as _TM
+            _sibs = await db.execute(
+                select(_TM.title).where(
+                    _TM.release_id == release_id,
+                    _TM.tenant_id == tenant_id,
+                )
+            )
+            for (_title,) in _sibs.all():
+                if (
+                    _title
+                    and _title.strip()
+                    and _title.strip().lower() != (canonical_track_title or "").strip().lower()
+                ):
+                    sibling_track_titles.append(_title.strip())
+        except Exception as exc:
+            logger.debug("Failed to load sibling tracks for validation: %s", exc)
+
     # Step 1: Generate real caption from the brief, locked to the canonical
     # track title. The agent prompt uses this as the track this post is
-    # about — not the fuzzy track_reference string.
+    # about — not the fuzzy track_reference string. The validator below
+    # rejects captions that mention any OTHER track on the same release.
     brief = post.content_text or ""
     if brief and len(brief) < 500:  # Looks like a brief, not a real caption
         try:
-            caption = await _generate_caption(
+            caption, validator_meta = await _generate_caption_validated(
                 tenant_id=tenant_id,
                 user_id=user_id,
                 artist_name=artist_name,
@@ -108,11 +133,16 @@ async def generate_content_for_post(
                 track_title=canonical_track_title,
                 platform=post.platform or "instagram",
                 brief=brief,
+                sibling_track_titles=sibling_track_titles,
             )
             if caption:
                 post.content_text = caption
                 updates["caption_generated"] = True
-                logger.info("Generated caption for post %s (%d chars)", post_id, len(caption))
+                updates["caption_validator"] = validator_meta
+                logger.info(
+                    "Generated caption for post %s (%d chars, validator=%s)",
+                    post_id, len(caption), validator_meta,
+                )
         except Exception as exc:
             logger.warning("Caption generation failed for post %s: %s", post_id, exc)
             updates["caption_error"] = str(exc)
@@ -248,6 +278,121 @@ async def _generate_caption(
             return raw
 
     return None
+
+
+def _caption_mentions_other_tracks(
+    caption: str,
+    anchored_title: str,
+    sibling_titles: list[str],
+) -> list[str]:
+    """Return the sibling track titles a caption mentions in violation
+    of the single-anchor rule.
+
+    A caption is allowed to mention only the anchored track. If it
+    references any other track on the same release — even in an
+    aside like "this hits like 'Track B' did" — that's a drift bug
+    waiting to confuse a viewer (the video/audio plays Track A but
+    the text invokes Track B). Detected so the caller can regenerate.
+
+    Match is word-aware and punctuation-tolerant via _normalize_for_match.
+    """
+    if not sibling_titles or not caption:
+        return []
+    caption_clean = _normalize_for_match(caption.lower())
+    anchored_clean = _normalize_for_match((anchored_title or "").lower())
+    offenders: list[str] = []
+    for sib in sibling_titles:
+        sib_clean = _normalize_for_match(sib.lower())
+        if not sib_clean or len(sib_clean) < 3:
+            continue
+        # Skip sibling titles that are substrings of (or contain) the
+        # anchored title — e.g. "Bar in Heaven" vs "Ain't No Bar in
+        # Heaven" — to avoid spurious false positives when track titles
+        # nest. Reviewer logic over flagging here matches what users
+        # would intuit as a "real" cross-track reference.
+        if anchored_clean and (
+            sib_clean in anchored_clean or anchored_clean in sib_clean
+        ):
+            continue
+        # Word-boundary check: the sibling title must appear as a
+        # contiguous phrase, not as a fragment inside another word.
+        # _normalize_for_match has already split camelCase and stripped
+        # punctuation, so a simple containment check on the clean form
+        # is precise enough in practice.
+        if sib_clean in caption_clean:
+            offenders.append(sib)
+    return offenders
+
+
+async def _generate_caption_validated(
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    artist_name: str,
+    release_title: str,
+    track_title: str,
+    platform: str,
+    brief: str,
+    sibling_track_titles: list[str],
+    max_retries: int = 2,
+) -> tuple[str | None, dict]:
+    """Generate a caption and reject any output that mentions a
+    sibling track. Retries up to max_retries with an increasingly
+    explicit constraint appended to the brief. On final failure,
+    returns the last attempt anyway (with validator metadata so the
+    caller can flag the post for human review).
+    """
+    meta: dict = {"attempts": 0, "offenders": [], "passed": False}
+    last_caption: str | None = None
+    base_brief = brief
+    for attempt in range(max_retries + 1):
+        meta["attempts"] = attempt + 1
+        # Strengthen the prompt on retries with the explicit constraint
+        # that produced the violation last time. The ContentAgent has
+        # no forbidden-terms knob, so we inject into key_message.
+        if attempt == 0:
+            effective_brief = base_brief
+        else:
+            siblings_list = ", ".join(f"'{t}'" for t in sibling_track_titles)
+            effective_brief = (
+                f"{base_brief}\n\n"
+                f"CONSTRAINT: This post is exclusively about '{track_title}' "
+                f"from the release '{release_title}'. The caption MUST refer "
+                f"only to '{track_title}'. Do NOT mention any other track "
+                f"names from this release. Forbidden track names: "
+                f"{siblings_list}."
+            )
+        last_caption = await _generate_caption(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            artist_name=artist_name,
+            release_title=release_title,
+            track_title=track_title,
+            platform=platform,
+            brief=effective_brief,
+        )
+        if not last_caption:
+            meta["error"] = "caption_generation_returned_none"
+            return None, meta
+        offenders = _caption_mentions_other_tracks(
+            last_caption, track_title, sibling_track_titles
+        )
+        meta["offenders"] = offenders
+        if not offenders:
+            meta["passed"] = True
+            return last_caption, meta
+        logger.warning(
+            "Caption validator: attempt %d mentioned forbidden tracks %s — retrying",
+            attempt + 1, offenders,
+        )
+    # All retries exhausted. Surface the last attempt so the post isn't
+    # left empty, but the caller has the metadata to flag for human
+    # review. Logged as warning so the failure is visible.
+    logger.warning(
+        "Caption validator: exhausted %d retries for track '%s'; final caption still mentions %s",
+        max_retries, track_title, meta["offenders"],
+    )
+    return last_caption, meta
 
 
 async def _find_matching_assets(

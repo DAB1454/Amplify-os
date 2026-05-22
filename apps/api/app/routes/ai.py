@@ -1071,6 +1071,180 @@ async def generate_content(
     )
 
 
+# ── Cross-track caption repair ───────────────────────────────────
+
+
+class RepairCrossTrackRequest(BaseModel):
+    campaign_id: str
+    dry_run: bool = False  # When true, just report offenders without rewriting
+
+
+class RepairCrossTrackResponse(BaseModel):
+    scanned: int = 0
+    offenders: int = 0
+    repaired: int = 0
+    repair_failed: int = 0
+    details: list[dict] = Field(default_factory=list)
+
+
+@router.post("/repair-cross-track-captions", response_model=RepairCrossTrackResponse)
+async def repair_cross_track_captions(
+    body: RepairCrossTrackRequest,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    user_id: uuid.UUID | None = Depends(get_user_id),
+    audit: AuditService = Depends(get_audit_service),
+):
+    """Find posts whose caption mentions a track other than the one
+    they're anchored to, and regenerate the caption via the validator.
+
+    Built to clean up posts produced before the planner's track-swap
+    fix landed — those briefs still carry the original LLM's wrong
+    track name in the body while track_id / track_reference point
+    elsewhere. This endpoint sweeps a campaign and fixes the drift.
+
+    The repair walks any post status except FAILED/PUBLISHED (you
+    can't retroactively edit a published post on the platform). The
+    post's status, scheduled_at, and channel are unchanged — only
+    content_text is rewritten. dry_run=true reports the offenders
+    without touching content.
+    """
+    from amplify.db.models.post import PostModel
+    from amplify.db.models.track import TrackModel
+    from amplify.db.models.campaign import CampaignModel
+    from app.services.content_pipeline import (
+        generate_content_for_post,
+        _caption_mentions_other_tracks,
+    )
+    from sqlalchemy import select
+
+    campaign_id = uuid.UUID(body.campaign_id)
+
+    # Resolve the campaign's release so we can load sibling tracks.
+    camp_row = await db.execute(
+        select(CampaignModel).where(
+            CampaignModel.id == campaign_id,
+            CampaignModel.tenant_id == tenant_id,
+        )
+    )
+    campaign = camp_row.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if not campaign.release_id:
+        # Without a release we have no notion of sibling tracks — nothing
+        # to compare against, so by definition nothing to repair.
+        return RepairCrossTrackResponse()
+
+    # Build a {title_lower: TrackModel} map for the release once.
+    tracks_row = await db.execute(
+        select(TrackModel).where(
+            TrackModel.release_id == campaign.release_id,
+            TrackModel.tenant_id == tenant_id,
+        )
+    )
+    release_tracks = list(tracks_row.scalars().all())
+    if not release_tracks:
+        return RepairCrossTrackResponse()
+    track_by_id = {t.id: t for t in release_tracks}
+    all_titles = [t.title for t in release_tracks if t.title]
+
+    # Pull every post in the campaign that's still editable (anything
+    # not published and not permanently failed).
+    posts_row = await db.execute(
+        select(PostModel).where(
+            PostModel.campaign_id == campaign_id,
+            PostModel.tenant_id == tenant_id,
+            PostModel.status.notin_(["published", "failed"]),
+        )
+    )
+    posts = list(posts_row.scalars().all())
+
+    details: list[dict] = []
+    repaired = 0
+    repair_failed = 0
+    offender_count = 0
+    for post in posts:
+        # Anchored track title — track_id if set, else fall back to the
+        # fuzzy track_reference string.
+        anchored_title = ""
+        if post.track_id and post.track_id in track_by_id:
+            anchored_title = track_by_id[post.track_id].title or ""
+        anchored_title = anchored_title or (post.track_reference or "")
+        if not anchored_title:
+            continue  # Nothing to validate against on this post.
+
+        # Siblings are every release track that isn't the anchor.
+        siblings = [
+            t for t in all_titles
+            if t.strip().lower() != anchored_title.strip().lower()
+        ]
+        offenders = _caption_mentions_other_tracks(
+            post.content_text or "", anchored_title, siblings,
+        )
+        if not offenders:
+            continue
+
+        offender_count += 1
+        detail: dict = {
+            "post_id": str(post.id),
+            "platform": post.platform,
+            "anchor": anchored_title,
+            "mentions": offenders,
+        }
+
+        if body.dry_run:
+            detail["action"] = "dry_run"
+            details.append(detail)
+            continue
+
+        try:
+            # generate_content_for_post regenerates via the validator,
+            # which retries until the caption no longer references
+            # sibling tracks (or surfaces validator_meta if it can't).
+            result = await generate_content_for_post(
+                db, post.id, tenant_id, user_id,
+            )
+            if result.get("caption_generated"):
+                repaired += 1
+                detail["action"] = "repaired"
+                detail["validator"] = result.get("caption_validator")
+            else:
+                repair_failed += 1
+                detail["action"] = "repair_failed"
+                detail["reason"] = result.get("caption_error") or "no_caption_generated"
+        except Exception as exc:
+            repair_failed += 1
+            detail["action"] = "repair_failed"
+            detail["reason"] = str(exc)[:300]
+            logger.warning("Repair failed for post %s: %s", post.id, exc)
+        details.append(detail)
+
+    try:
+        await audit.log(
+            action="ai.cross_track_repair",
+            entity_type="campaign",
+            entity_id=campaign_id,
+            user_id=user_id,
+            changes={
+                "scanned": len(posts),
+                "offenders": offender_count,
+                "repaired": repaired,
+                "repair_failed": repair_failed,
+                "dry_run": body.dry_run,
+            },
+        )
+    except Exception:
+        pass
+
+    return RepairCrossTrackResponse(
+        scanned=len(posts),
+        offenders=offender_count,
+        repaired=repaired,
+        repair_failed=repair_failed,
+        details=details,
+    )
+
+
 # ── Static Video (Tier 1) Generation ──────────────────────────
 
 

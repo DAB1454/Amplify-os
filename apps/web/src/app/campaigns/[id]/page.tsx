@@ -154,6 +154,7 @@ export default function CampaignDetailPage() {
   const [savingStrategy, setSavingStrategy] = useState(false);
   // Content generation
   const [generatingContent, setGeneratingContent] = useState(false);
+  const [repairingCaptions, setRepairingCaptions] = useState(false);
   // Tab navigation
   const [activeTab, setActiveTab] = useState<"plan" | "settings">("plan");
 
@@ -443,6 +444,40 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const handleRepairCaptions = async () => {
+    // Confirm before sweeping — this rewrites content_text on potentially
+    // many posts. Worth a click of friction.
+    if (
+      !window.confirm(
+        "Scan this campaign for posts whose caption mentions a track other than the one they're anchored to, and regenerate those captions? Scheduled times and channels are not changed."
+      )
+    ) {
+      return;
+    }
+    setRepairingCaptions(true);
+    try {
+      const result = await apiPost<{
+        scanned: number;
+        offenders: number;
+        repaired: number;
+        repair_failed: number;
+      }>(`/api/v1/ai/repair-cross-track-captions`, { campaign_id: campaignId });
+      if (result.offenders === 0) {
+        toast.success(`Scanned ${result.scanned} posts — no cross-track captions found.`);
+      } else {
+        toast.success(
+          `Repaired ${result.repaired}/${result.offenders} cross-track caption${result.offenders !== 1 ? "s" : ""}` +
+          (result.repair_failed ? ` (${result.repair_failed} failed)` : "")
+        );
+      }
+      await fetchPlan();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Caption repair failed");
+    } finally {
+      setRepairingCaptions(false);
+    }
+  };
+
   const handleSaveStrategy = async () => {
     setSavingStrategy(true);
     setError(null);
@@ -558,6 +593,16 @@ export default function CampaignDetailPage() {
                 className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
               >
                 {generatingContent ? <ButtonSpinner label="Generating..." /> : "Generate Content"}
+              </button>
+            )}
+            {days.length > 0 && (
+              <button
+                onClick={handleRepairCaptions}
+                disabled={repairingCaptions}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                title="Find posts whose caption mentions a different track than they're anchored to, and regenerate them"
+              >
+                {repairingCaptions ? <ButtonSpinner label="Repairing..." /> : "Repair Cross-Track Captions"}
               </button>
             )}
             {campaign.status === "draft" && (

@@ -61,6 +61,69 @@ _POST_TIMES_LOCAL = [
 ]
 
 
+# Matches the trailing "🎵 Featuring: ..." block the planner used to
+# append to briefs when reassigning tracks. Kept here so the rewrite
+# helper below can strip whatever stale tag a prior planner run added.
+_FEATURING_TAG_RE = re.compile(r"\n*\U0001f3b5 Featuring:.*", re.DOTALL)
+
+
+def _rewrite_brief_for_track_swap(
+    action: Any,
+    old_track: str,
+    new_track: str,
+    release_title: str,
+) -> None:
+    """Rewrite an action.content_brief when the planner reassigns its
+    track_reference from old_track to new_track.
+
+    The previous implementation only appended a "🎵 Featuring: <new>"
+    suffix when the new track wasn't already in the body — leaving
+    captions that read "<LLM-generated lines about old_track>" with a
+    contradictory Featuring tag on the end. That cross-track caption
+    is exactly the drift class users see in production.
+
+    Strategy: try a case-insensitive substring swap of old_track for
+    new_track. If old_track isn't in the brief at all, the brief was
+    about something else entirely (the LLM ignored its track_reference
+    or referenced the album) — in that case null out the brief so the
+    downstream caption-generation step writes a fresh one. We do NOT
+    fall back to "append Featuring tag without rewriting the body".
+    """
+    brief = (action.content_brief or "").strip()
+    if not brief:
+        return
+    # Always strip any stale "🎵 Featuring: X" tag first so we don't
+    # double-stack them on repeated reassignment passes.
+    brief = _FEATURING_TAG_RE.sub("", brief).rstrip()
+    new_lower = new_track.lower()
+    old_lower = (old_track or "").strip().lower()
+    if new_lower and new_lower in brief.lower():
+        # Body already references the right track — nothing to do.
+        action.content_brief = brief
+        return
+    if old_lower and old_lower in brief.lower():
+        # Swap the OLD track name for the NEW one in-place. Preserves
+        # the LLM's hook/voice instead of throwing the line away.
+        action.content_brief = re.sub(
+            re.escape(old_track),
+            new_track,
+            brief,
+            flags=re.IGNORECASE,
+        )
+        return
+    # Last resort: the LLM ignored track_reference (wrote about the
+    # release, an unrelated track, or generic vibes). Replacing the
+    # release title with a track name would also be wrong. Replace
+    # with a minimal placeholder brief that mentions the new track —
+    # short enough (<500 chars) that the content_pipeline regenerates
+    # it via the LLM, AND non-empty so the post isn't published as
+    # just a CTA if regeneration is skipped.
+    if release_title:
+        action.content_brief = f"{new_track} — from {release_title}."
+    else:
+        action.content_brief = f"{new_track} — out now."
+
+
 @dataclass
 class PlanOverrides:
     """Optional caller-supplied overrides for one plan generation.
@@ -500,17 +563,19 @@ async def plan_campaign(
                     max_track and matched == max_track[0] and max_track[1] > 2
                 )
                 if reassign:
+                    # CAPTURE the LLM's original track BEFORE overwriting.
+                    # Critical because the rewrite below has to swap that
+                    # name out of the caption body — appending a new
+                    # "Featuring:" tag without scrubbing the body is what
+                    # produced cross-track captions in production.
+                    old_track = action.track_reference or ""
                     original_track = track_listing[
                         track_names.index(zero_tracks[zero_idx])
                     ]
                     action.track_reference = original_track
-                    if action.content_brief and original_track.lower() not in action.content_brief.lower():
-                        brief = re.sub(r"\n*\U0001f3b5 Featuring:.*", "", action.content_brief).rstrip()
-                        action.content_brief = (
-                            brief.replace(release_title or "", original_track)
-                            if (release_title and release_title.lower() in brief.lower())
-                            else f"{brief}\n\n\U0001f3b5 Featuring: {original_track}"
-                        )
+                    _rewrite_brief_for_track_swap(
+                        action, old_track, original_track, release_title,
+                    )
                     zero_idx += 1
             logger.info("Rebalanced %d posts to cover missing tracks", zero_idx)
 
@@ -528,16 +593,13 @@ async def plan_campaign(
                 if matched and matched in seen_tracks:
                     available = [t for t in unused_on_channel if t not in seen_tracks]
                     if available:
+                        old_track = action.track_reference or ""
                         new_track_norm = available[0]
                         new_track = track_listing[track_names.index(new_track_norm)]
                         action.track_reference = new_track
-                        if action.content_brief and new_track.lower() not in action.content_brief.lower():
-                            brief = re.sub(r"\n*\U0001f3b5 Featuring:.*", "", action.content_brief).rstrip()
-                            action.content_brief = (
-                                brief.replace(release_title or "", new_track)
-                                if (release_title and release_title.lower() in brief.lower())
-                                else f"{brief}\n\n\U0001f3b5 Featuring: {new_track}"
-                            )
+                        _rewrite_brief_for_track_swap(
+                            action, old_track, new_track, release_title,
+                        )
                         seen_tracks.add(new_track_norm)
                         total_reassigned += 1
                     else:
