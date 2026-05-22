@@ -280,6 +280,27 @@ async def _generate_caption(
     return None
 
 
+def _strip_hashtags_and_links(text: str) -> str:
+    """Return the caption with hashtags and URLs removed — used to
+    detect captions whose body is empty (only hashtags / link present).
+    """
+    if not text:
+        return ""
+    import re
+    # Strip URLs (http/https) and hashtags. Bare emoji + whitespace
+    # remain, which is intentional — a caption that's just "🎵" is
+    # still a body, even if a thin one.
+    cleaned = re.sub(r"https?://\S+", "", text)
+    cleaned = re.sub(r"#\w+", "", cleaned)
+    # Also strip the "🎵 Featuring: <name>" tag that the legacy planner
+    # appended — that's metadata, not body content.
+    cleaned = re.sub(r"\n*\U0001f3b5\s*Featuring:.*", "", cleaned, flags=re.DOTALL)
+    # Common CTA fragments the planner appends; their presence alone
+    # doesn't make a caption have a real body.
+    cleaned = re.sub(r"\U0001f3a7\s*(Link in bio|https?://\S+)", "", cleaned)
+    return cleaned.strip()
+
+
 def _caption_mentions_other_tracks(
     caption: str,
     anchored_title: str,
@@ -298,11 +319,17 @@ def _caption_mentions_other_tracks(
     """
     if not sibling_titles or not caption:
         return []
-    caption_clean = _normalize_for_match(caption.lower())
-    anchored_clean = _normalize_for_match((anchored_title or "").lower())
+    # CRITICAL: normalize BEFORE lowering. The camelCase splitter inside
+    # _normalize_for_match keys off [a-z]→[A-Z] transitions, which only
+    # exist on the original casing. Calling _normalize_for_match(s.lower())
+    # silently disables hashtag detection — "#WhiskeyScars" never gets
+    # split into "whiskey scars", and the validator misses every
+    # camelCase hashtag mention of a sibling track.
+    caption_clean = _normalize_for_match(caption).lower()
+    anchored_clean = _normalize_for_match(anchored_title or "").lower()
     offenders: list[str] = []
     for sib in sibling_titles:
-        sib_clean = _normalize_for_match(sib.lower())
+        sib_clean = _normalize_for_match(sib).lower()
         if not sib_clean or len(sib_clean) < 3:
             continue
         # Skip sibling titles that are substrings of (or contain) the
@@ -374,6 +401,20 @@ async def _generate_caption_validated(
         if not last_caption:
             meta["error"] = "caption_generation_returned_none"
             return None, meta
+        # Empty-body guard: when the LLM returns variants with empty
+        # body and only hashtags populated, _generate_caption produces
+        # "\n\n#tag1 #tag2...". That's not a publishable post — the
+        # text body is gone entirely. Treat as a validation failure so
+        # we retry rather than letting bare hashtags ship.
+        body_only = _strip_hashtags_and_links(last_caption)
+        if len(body_only.strip()) < 20:
+            meta["last_failure"] = "empty_body"
+            logger.warning(
+                "Caption validator: attempt %d returned hashtags-only "
+                "(body=%r) — retrying",
+                attempt + 1, body_only[:80],
+            )
+            continue
         offenders = _caption_mentions_other_tracks(
             last_caption, track_title, sibling_track_titles
         )

@@ -456,18 +456,50 @@ export default function CampaignDetailPage() {
     }
     setRepairingCaptions(true);
     try {
-      const result = await apiPost<{
-        scanned: number;
-        offenders: number;
-        repaired: number;
-        repair_failed: number;
-      }>(`/api/v1/ai/repair-cross-track-captions`, { campaign_id: campaignId });
-      if (result.offenders === 0) {
-        toast.success(`Scanned ${result.scanned} posts — no cross-track captions found.`);
+      // Each backend call processes up to `limit` posts before
+      // returning, to fit under the gateway timeout. Loop here until
+      // remaining_offenders==0 or no progress is made.
+      let totalRepaired = 0;
+      let totalFailed = 0;
+      let lastScanned = 0;
+      let lastOffenders = 0;
+      const MAX_BATCHES = 20; // hard safety; one campaign should never need this many
+      let batches = 0;
+      let priorRemaining = -1;
+      while (batches < MAX_BATCHES) {
+        const result = await apiPost<{
+          scanned: number;
+          offenders: number;
+          repaired: number;
+          repair_failed: number;
+          remaining_offenders: number;
+        }>(`/api/v1/ai/repair-cross-track-captions`, {
+          campaign_id: campaignId,
+          limit: 5,
+        });
+        batches += 1;
+        lastScanned = result.scanned;
+        lastOffenders = result.offenders;
+        totalRepaired += result.repaired;
+        totalFailed += result.repair_failed;
+        // Stop conditions: nothing left, or no progress (avoids infinite
+        // loops if the validator can't fix something).
+        if (result.remaining_offenders === 0) break;
+        if (result.repaired === 0) break;
+        if (priorRemaining === result.remaining_offenders) break;
+        priorRemaining = result.remaining_offenders;
+        // Give the user some feedback between chunks so a long sweep
+        // doesn't feel hung.
+        toast.info(
+          `Repaired ${totalRepaired} so far · ${result.remaining_offenders} remaining`
+        );
+      }
+      if (lastOffenders === 0) {
+        toast.success(`Scanned ${lastScanned} posts — no cross-track captions found.`);
       } else {
         toast.success(
-          `Repaired ${result.repaired}/${result.offenders} cross-track caption${result.offenders !== 1 ? "s" : ""}` +
-          (result.repair_failed ? ` (${result.repair_failed} failed)` : "")
+          `Repaired ${totalRepaired}/${lastOffenders} cross-track caption${lastOffenders !== 1 ? "s" : ""}` +
+          (totalFailed ? ` (${totalFailed} failed)` : "")
         );
       }
       await fetchPlan();

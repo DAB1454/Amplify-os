@@ -1077,6 +1077,12 @@ async def generate_content(
 class RepairCrossTrackRequest(BaseModel):
     campaign_id: str
     dry_run: bool = False  # When true, just report offenders without rewriting
+    # Cap the number of posts repaired in a single request so the LLM
+    # roundtrips fit inside the gateway timeout. The UI calls this
+    # endpoint in a loop until the response reports
+    # remaining_offenders==0. Default is conservative because each
+    # repair triggers up to 3 validator-retry LLM calls (~20s each).
+    limit: int = 5
 
 
 class RepairCrossTrackResponse(BaseModel):
@@ -1084,6 +1090,9 @@ class RepairCrossTrackResponse(BaseModel):
     offenders: int = 0
     repaired: int = 0
     repair_failed: int = 0
+    # How many offenders remain unrepaired after this batch — the UI
+    # uses this to decide whether to make another chunk call.
+    remaining_offenders: int = 0
     details: list[dict] = Field(default_factory=list)
 
 
@@ -1163,6 +1172,12 @@ async def repair_cross_track_captions(
     repaired = 0
     repair_failed = 0
     offender_count = 0
+    remaining_offenders = 0
+    # Chunking: scan ALL posts to surface the true offender_count and
+    # remaining_offenders so the UI knows whether more chunks are
+    # needed, but only PROCESS up to body.limit per request.
+    batch_limit = max(1, int(body.limit))
+    processed_in_batch = 0
     for post in posts:
         # Anchored track title — track_id if set, else fall back to the
         # fuzzy track_reference string.
@@ -1185,6 +1200,13 @@ async def repair_cross_track_captions(
             continue
 
         offender_count += 1
+
+        # If this offender is past our per-batch cap, just count it as
+        # remaining so the UI knows to call again. Don't run the LLM.
+        if not body.dry_run and processed_in_batch >= batch_limit:
+            remaining_offenders += 1
+            continue
+
         detail: dict = {
             "post_id": str(post.id),
             "platform": post.platform,
@@ -1197,6 +1219,7 @@ async def repair_cross_track_captions(
             details.append(detail)
             continue
 
+        processed_in_batch += 1
         try:
             # generate_content_for_post regenerates via the validator,
             # which retries until the caption no longer references
@@ -1241,6 +1264,7 @@ async def repair_cross_track_captions(
         offenders=offender_count,
         repaired=repaired,
         repair_failed=repair_failed,
+        remaining_offenders=remaining_offenders,
         details=details,
     )
 
