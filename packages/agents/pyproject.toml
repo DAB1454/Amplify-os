@@ -6,8 +6,10 @@ dependencies = [
     "anthropic>=0.40",
     "pydantic>=2.0",
     "structlog>=24.0",
+    "sqlalchemy[asyncio]>=2.0",
     "amplify-core",
     "amplify-learning",
+    "amplify-db",
 ]
 
 [build-system]
