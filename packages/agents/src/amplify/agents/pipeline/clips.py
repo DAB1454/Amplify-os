@@ -28,30 +28,44 @@ async def _find_clip_for_post(
     Returns a clip URL matching the requested aspect ratio, or None if no
     clips are available (caller should fall through to the image+audio pipeline).
     """
+    from sqlalchemy import func
     from amplify.db.models.video_clip import VideoClipModel
 
-    q = select(VideoClipModel).where(
+    base = select(VideoClipModel).where(
         VideoClipModel.tenant_id == tenant_id,
         VideoClipModel.status == "ready",
     )
     if release_id:
-        q = q.where(VideoClipModel.release_id == release_id)
+        base = base.where(VideoClipModel.release_id == release_id)
 
+    # Resolve the post's track so we can prefer clips cut from that track's
+    # video. Title match is case-insensitive — the canonical title and the
+    # uploaded video's track can differ only in casing ("For Love of
+    # Country" vs "For Love Of Country").
+    track_id = None
     if track_reference:
         from amplify.db.models.track import TrackModel
         track_result = await db.execute(
             select(TrackModel.id).where(
                 TrackModel.tenant_id == tenant_id,
-                TrackModel.title == track_reference,
+                func.lower(TrackModel.title) == track_reference.strip().lower(),
             ).limit(1)
         )
         track_id = track_result.scalar_one_or_none()
-        if track_id:
-            q = q.where(VideoClipModel.track_id == track_id)
 
-    q = q.order_by(VideoClipModel.energy_score.desc()).limit(50)
-    result = await db.execute(q)
-    clips = result.scalars().all()
+    # Progressive broadening: prefer clips from the post's exact track, but
+    # fall back to any clip in the same release rather than returning
+    # nothing. A track with no clips of its own should still pull from the
+    # release's video library instead of dropping to the image pipeline.
+    clips = []
+    if track_id is not None:
+        track_q = base.where(VideoClipModel.track_id == track_id)
+        track_q = track_q.order_by(VideoClipModel.energy_score.desc()).limit(50)
+        clips = list((await db.execute(track_q)).scalars().all())
+
+    if not clips:
+        q = base.order_by(VideoClipModel.energy_score.desc()).limit(50)
+        clips = list((await db.execute(q)).scalars().all())
 
     if not clips:
         return None
