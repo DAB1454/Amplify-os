@@ -38,13 +38,22 @@ async def _find_clip_for_post(
     if release_id:
         base = base.where(VideoClipModel.release_id == release_id)
 
-    # Resolve the post's track so we can prefer clips cut from that track's
-    # video. Title match is case-insensitive — the canonical title and the
-    # uploaded video's track can differ only in casing ("For Love of
-    # Country" vs "For Love Of Country").
-    track_id = None
-    if track_reference:
+    # A non-empty track_reference means this post is ABOUT a specific track.
+    # Such posts must only use clips cut from that track's own video — never
+    # a sibling track's footage. Putting song B's video on a song-A post is
+    # the imagery-vs-track mismatch the track-anchor rework exists to kill,
+    # so when the anchored track has no clips we return None and let the
+    # caller fall through to the normal media pipeline (lyric video,
+    # image+audio, asset matching). Only genuinely un-anchored posts (e.g.
+    # a general album announcement, no track_reference) may draw from any
+    # clip in the release.
+    track_anchored = bool(track_reference and track_reference.strip())
+
+    if track_anchored:
         from amplify.db.models.track import TrackModel
+        # Case-insensitive title match — the canonical title and the
+        # uploaded video's track can differ only in casing ("For Love of
+        # Country" vs "For Love Of Country").
         track_result = await db.execute(
             select(TrackModel.id).where(
                 TrackModel.tenant_id == tenant_id,
@@ -52,20 +61,14 @@ async def _find_clip_for_post(
             ).limit(1)
         )
         track_id = track_result.scalar_one_or_none()
+        if track_id is None:
+            return None
+        q = base.where(VideoClipModel.track_id == track_id)
+    else:
+        q = base
 
-    # Progressive broadening: prefer clips from the post's exact track, but
-    # fall back to any clip in the same release rather than returning
-    # nothing. A track with no clips of its own should still pull from the
-    # release's video library instead of dropping to the image pipeline.
-    clips = []
-    if track_id is not None:
-        track_q = base.where(VideoClipModel.track_id == track_id)
-        track_q = track_q.order_by(VideoClipModel.energy_score.desc()).limit(50)
-        clips = list((await db.execute(track_q)).scalars().all())
-
-    if not clips:
-        q = base.order_by(VideoClipModel.energy_score.desc()).limit(50)
-        clips = list((await db.execute(q)).scalars().all())
+    q = q.order_by(VideoClipModel.energy_score.desc()).limit(50)
+    clips = list((await db.execute(q)).scalars().all())
 
     if not clips:
         return None

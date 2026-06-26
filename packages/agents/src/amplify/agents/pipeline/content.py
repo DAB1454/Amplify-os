@@ -147,9 +147,20 @@ async def generate_content_for_post(
             logger.warning("Caption generation failed for post %s: %s", post_id, exc)
             updates["caption_error"] = str(exc)
 
-    # Step 2: Check clip library first, then fall back to asset matching
-    if not post.media_urls or len(post.media_urls) == 0:
-        # Try clip library for video posts
+    # Step 2: media attachment. Prefer a clip from the track's video, but
+    # only for a fraction of the track's posts — the rest fall through to
+    # the normal media pipeline (asset images, and lyric/static video
+    # generated elsewhere). Mixing media types per track feeds the
+    # intelligence layer comparable data points (clip vs. static) so it can
+    # learn which format performs, instead of every video'd-track post being
+    # a clip. See _should_use_clip.
+    clip_share = _env_float("AMPLIFY_CLIP_SHARE", 0.5)
+    if (
+        (not post.media_urls or len(post.media_urls) == 0)
+        and _should_use_clip(
+            post_id=post_id, day_number=post.day_number, clip_share=clip_share
+        )
+    ):
         try:
             from amplify.agents.pipeline.clips import _find_clip_for_post
             # YouTube defaults to landscape, others to vertical
@@ -850,6 +861,44 @@ def _desired_media_count(platform: str | None, action_type: str | None) -> int:
     if p == "instagram" and a in ("post",):
         return 2
     return 1
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var, tolerating empty/malformed values."""
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _should_use_clip(
+    *,
+    post_id: uuid.UUID,
+    day_number: int | None,
+    clip_share: float,
+) -> bool:
+    """Decide whether THIS post should use a video clip vs. fall through to
+    the normal media pipeline (images / lyric video / static video).
+
+    Even when a track has a full-length video, only a fraction
+    (``clip_share``, default 0.5) of its posts are routed to clips; the rest
+    use other media. Mixing media types per track gives the intelligence /
+    learning layer comparable data points (clip vs. static) to learn which
+    format drives engagement, instead of every video'd-track post looking
+    identical. Deterministic per post so re-running content generation is
+    stable and debuggable.
+    """
+    if clip_share >= 1.0:
+        return True
+    if clip_share <= 0.0:
+        return False
+    import hashlib
+    seed = hashlib.md5(f"clipmix:{post_id}:{day_number or 0}".encode()).digest()
+    bucket = int.from_bytes(seed[:4], "little") % 100
+    return bucket < round(clip_share * 100)
 
 
 async def generate_content_for_posts(
