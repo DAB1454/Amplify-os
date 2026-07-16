@@ -176,8 +176,14 @@ async def compute_rewards(payload: dict) -> dict:
                         if post:
                             platform = post.platform or "unknown"
                             action_type = post.action_type_label or "post"
-                            # Build composite arm key
-                            ctx_key = f"{platform}:{action_type}"
+                            # Split rewards by media format (clip vs static) so
+                            # the bandit learns which format performs per
+                            # context. clip_id is the reliable discriminator;
+                            # the content pipeline's AMPLIFY_CLIP_SHARE mix
+                            # produces both for the same track precisely to fill
+                            # these two arms with comparable data.
+                            media_format = "clip" if post.clip_id else "static"
+                            ctx_key = f"{platform}:{action_type}:{media_format}"
                             bandit.update(str(outcome.post_id), ctx_key, outcome.reward)
                             bandit_updated += 1
 

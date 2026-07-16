@@ -40,6 +40,38 @@ from amplify.learning.feature_extraction.pipeline import (
 
 logger = logging.getLogger(__name__)
 
+_VIDEO_EXTENSIONS = (".mp4", ".mov", ".webm", ".m4v")
+
+
+def _derive_media_format(post: PostModel, asset: AssetModel | None) -> str | None:
+    """Classify a post's media into a learning-friendly format label.
+
+    The clip-vs-static distinction is the reason this exists. ``clip_id`` is
+    the clean discriminator — a post generated from a VideoClipModel — because
+    its stitched-video S3 URL is not an AssetModel row and would otherwise be
+    misread as a static image. Falls back to the matched asset's type, then to
+    URL/extension inference. Returns None only for empty posts (no media, no
+    text), letting the content extractor's own inference stand.
+    """
+    if post.clip_id is not None:
+        return "clip"
+
+    if asset and asset.asset_type:
+        at = asset.asset_type.lower()
+        if at in ("lyric_video", "video", "teaser"):
+            return at
+        if at in ("image", "promo_photo", "cover_art"):
+            return "image"
+
+    urls = post.media_urls or []
+    if not urls:
+        return "text" if post.content_text else None
+
+    first = urls[0].lower()
+    if any(first.endswith(ext) for ext in _VIDEO_EXTENSIONS):
+        return "video"
+    return "carousel" if len(urls) > 1 else "image"
+
 
 class FeatureExtractionService:
     """Loads post context from DB, runs the extraction pipeline, and persists."""
@@ -177,6 +209,7 @@ class FeatureExtractionService:
             )
 
         # Asset — pick the first media_url and try to match an asset
+        asset = None
         if post.media_urls:
             asset = await self._find_asset_by_url(post.media_urls[0])
             if asset:
@@ -189,6 +222,15 @@ class FeatureExtractionService:
                     file_size_bytes=asset.file_size_bytes,
                     mime_type=asset.mime_type,
                 )
+
+        # Media format — the key signal for the clip-vs-static learning
+        # experiment. A clip post carries a clip_id FK, and its stitched-video
+        # URL is NOT an AssetModel row, so _find_asset_by_url misses it and the
+        # content extractor would otherwise mislabel the post "image" (the same
+        # tag a static photo gets). Deriving media_type here makes clip posts
+        # land as content_type="clip", which is the whole point of the
+        # AMPLIFY_CLIP_SHARE mix in the content pipeline.
+        ctx.media_type = _derive_media_format(post, asset)
 
         # Sequence position
         if post.campaign_id:
