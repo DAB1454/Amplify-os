@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir --prefix=/install \
     ./packages/observability \
     ./packages/learning \
     ./packages/agents \
-    ./packages/adapters
+    ./packages/adapters \
+    ./packages/media
 
 # Install API runtime deps separately (no package build needed)
 RUN pip install --no-cache-dir --prefix=/install \
