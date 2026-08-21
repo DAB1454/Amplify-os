@@ -8,7 +8,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -354,6 +354,10 @@ def _default_duration_for_action(action_type_label: str | None) -> int:
 
 
 class GenerateMediaResponse(BaseModel):
+    # "generating" when the work was handed to the worker (poll GET /posts/{id}
+    # and read engagement.media_status); "complete" when generated inline via
+    # the synchronous fallback.
+    status: str = "generating"
     media_urls: list[str] = Field(default_factory=list)
     video_generated: bool = False
     elapsed_ms: int = 0
@@ -363,29 +367,68 @@ class GenerateMediaResponse(BaseModel):
 async def generate_media_for_post(
     post_id: uuid.UUID,
     body: GenerateMediaRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     settings_obj: Settings = Depends(get_settings),
 ):
-    """Generate media for a single post — find assets + optionally create video.
+    """Kick off media generation for a single post.
 
-    This is the per-post generation step in the 3-step workflow:
-    1. Plan creates posts (caption + channel + date, no media)
-    2. Generate media for each post (this endpoint)
-    3. User reviews preview, then schedules/publishes
+    Enqueues the `generate_post_media` worker job and returns immediately with
+    status="generating"; the frontend polls GET /posts/{id} and reads
+    engagement.media_status ("generating" → "complete"/"failed"). If the queue
+    is unavailable, falls back to synchronous generation so it still works.
     """
-    import time
-    from amplify.media.orchestrator import generate_post_media_core
-
-    start_time = time.time()
+    from datetime import datetime, timezone
 
     repo = BaseRepository(db, PostModel, tenant_id)
     post = await repo.get(post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    # Delegate the whole cascade (asset match -> lyric/Replicate/standard video)
-    # to the shared media package so the worker can run the identical logic.
+    payload = {
+        "post_id": str(post_id),
+        "tenant_id": str(tenant_id),
+        "duration_seconds": body.duration_seconds,
+        "aspect_ratio": body.aspect_ratio,
+        "generate_video": body.generate_video,
+        "force_image_url": body.force_image_url,
+        "force_audio_url": body.force_audio_url,
+        "generate_lyric_video": body.generate_lyric_video,
+    }
+
+    # Preferred path: mark generating, enqueue, return immediately.
+    try:
+        r = getattr(request.app.state, "redis", None)
+        if r is None:
+            raise RuntimeError("redis unavailable")
+        from worker.app.queue import JobQueue
+
+        eng = dict(post.engagement or {})
+        eng["media_status"] = "generating"
+        eng["media_status_at"] = datetime.now(timezone.utc).isoformat()
+        eng.pop("media_error", None)
+        post.engagement = eng
+        await db.commit()
+
+        q = JobQueue(r)
+        # Media jobs can run several minutes (Replicate poll + stitch); give the
+        # worker a generous ceiling well past the 300s Replicate cap.
+        await q.enqueue("generate_post_media", payload, timeout_seconds=900)
+        logger.info("Enqueued generate_post_media for post %s", post_id)
+        return GenerateMediaResponse(status="generating")
+    except Exception as exc:
+        logger.warning(
+            "generate-media enqueue failed for post %s (%s); running inline",
+            post_id, exc,
+        )
+
+    # Synchronous fallback (queue/worker unavailable).
+    import time
+    from amplify.media.orchestrator import generate_post_media_core
+
+    start_time = time.time()
+    post = await repo.get(post_id)  # reload; the try-block may have committed
     result = await generate_post_media_core(
         db, post, tenant_id, settings_obj,
         duration_seconds=body.duration_seconds,
@@ -395,12 +438,16 @@ async def generate_media_for_post(
         force_audio_url=body.force_audio_url,
         generate_lyric_video=body.generate_lyric_video,
     )
+    eng = dict(post.engagement or {})
+    eng["media_status"] = "complete"
+    post.engagement = eng
     await db.flush()
 
     elapsed = int((time.time() - start_time) * 1000)
-    logger.info("Media generated for post %s in %dms (video=%s, urls=%d)",
+    logger.info("Media generated inline for post %s in %dms (video=%s, urls=%d)",
                 post_id, elapsed, result["video_generated"], len(result["media_urls"]))
     return GenerateMediaResponse(
+        status="complete",
         media_urls=result["media_urls"],
         video_generated=result["video_generated"],
         elapsed_ms=elapsed,

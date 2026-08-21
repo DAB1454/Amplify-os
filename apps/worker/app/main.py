@@ -14,6 +14,7 @@ from app.queue import JobEnvelope, JobQueue
 from app.scheduler import Scheduler
 from app.jobs.ingest_calendar import ingest_calendar
 from app.jobs.generate_content import generate_content
+from app.jobs.generate_post_media import generate_post_media
 from app.jobs.render_media import render_media
 from app.jobs.publish_post import publish_post
 from app.jobs.sync_metrics import sync_metrics
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 JOB_HANDLERS: dict[str, Callable[[dict], Coroutine[Any, Any, dict]]] = {
     "ingest_calendar": ingest_calendar,
     "generate_content": generate_content,
+    "generate_post_media": generate_post_media,
     "render_media": render_media,
     "publish_post": publish_post,
     "sync_metrics": sync_metrics,
