@@ -100,6 +100,12 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Media generation (generate_post_media job): Replicate AI video + the
+      # media URL prefix. Set to the SAME values as the API service.
+      - key: AMPLIFY_REPLICATE_API_TOKEN
+        sync: false
+      - key: AMPLIFY_MEDIA_BASE_URL
+        sync: false
       - key: AMPLIFY_YOUTUBE_CLIENT_ID
         sync: false
       - key: AMPLIFY_YOUTUBE_CLIENT_SECRET
