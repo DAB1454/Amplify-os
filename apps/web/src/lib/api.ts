@@ -1,5 +1,14 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Client timeout for POST /posts/{id}/generate-media. Video generation runs
+// up to ~300s server-side (Replicate poll cap + stitch/upload, or lyric-video
+// render). The browser must wait past that ceiling: aborting early (the old
+// 120s) both surfaces a spurious 408 AND, during bulk "generate all", fires
+// the next request while the prior is still running — two concurrent
+// long-held transactions writing the same campaign's posts deadlock in
+// Postgres. Kept above the server ceiling with headroom.
+export const GEN_MEDIA_TIMEOUT_MS = 360000;
+
 // ── Token management ────────────────────────────────────────────
 
 let accessToken: string | null = null;

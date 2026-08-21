@@ -109,6 +109,13 @@ async def generate_content(payload: dict) -> dict:
                 result = await generate_content_for_post(
                     db, post.id, tenant_id, user_id,
                 )
+                # Commit per-post so FK share locks on the shared campaign /
+                # track / release rows release immediately instead of being
+                # held across every post's LLM caption call. A single
+                # transaction spanning the whole loop (100s+ of Anthropic
+                # round-trips) is what deadlocked against concurrent
+                # generate-media writes to the same campaign's posts.
+                await db.commit()
                 if result.get("caption_generated"):
                     generated += 1
                 elif result.get("caption_error"):
@@ -121,9 +128,10 @@ async def generate_content(payload: dict) -> dict:
                 logger.warning(
                     "Content generation failed for post %s: %s", post.id, exc,
                 )
+                # Roll back only the failed post's work so the next post
+                # starts from a clean transaction rather than a poisoned one.
+                await db.rollback()
                 failed += 1
-
-        await db.flush()
 
     logger.info(
         "Content generation complete for campaign %s: %d generated, %d assets, %d failed, %d skipped",

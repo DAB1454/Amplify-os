@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut, apiDelete, apiUpload } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, apiUpload, GEN_MEDIA_TIMEOUT_MS } from "@/lib/api";
 import { useRef } from "react";
 import { LoadingOverlay, ButtonSpinner, Spinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
@@ -357,7 +357,9 @@ export default function PostsPage() {
       if (opts?.forceImageUrl) body.force_image_url = opts.forceImageUrl;
       if (opts?.forceAudioUrl) body.force_audio_url = opts.forceAudioUrl;
       if (opts?.lyricVideo) body.generate_lyric_video = true;
-      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, 120000);
+      // Video generation runs up to ~300s server-side; wait past that so
+      // slow renders don't surface as a spurious 408. See GEN_MEDIA_TIMEOUT_MS.
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, GEN_MEDIA_TIMEOUT_MS);
       fetchPosts();
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Media generation failed");

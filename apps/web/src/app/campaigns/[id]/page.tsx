@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, GEN_MEDIA_TIMEOUT_MS } from "@/lib/api";
 import { cn, formatLocal, formatLocalDate } from "@/lib/utils";
 import { LoadingOverlay, ButtonSpinner } from "@/components/ui/spinner";
 import { MediaPreview, DownloadAllButton } from "@/components/ui/media-preview";
@@ -214,7 +214,7 @@ export default function CampaignDetailPage() {
       if (opts?.forceImageUrl) body.force_image_url = opts.forceImageUrl;
       if (opts?.forceAudioUrl) body.force_audio_url = opts.forceAudioUrl;
       if (opts?.lyricVideo) body.generate_lyric_video = true;
-      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, 120000);
+      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, GEN_MEDIA_TIMEOUT_MS);
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Media generation failed");
@@ -238,12 +238,19 @@ export default function CampaignDetailPage() {
 
     setGeneratingAllMedia(true);
     setError(null);
-    // Generate one at a time to avoid overloading Render
+    // Generate strictly one at a time. Video generation can take up to
+    // ~300s server-side (Replicate poll cap / lyric-video render). The
+    // client MUST wait that long per post — if it aborts early (the old
+    // 120s), the loop fires the next request while the previous one is
+    // still running on the server, and two concurrent long-held
+    // transactions writing the same campaign's posts deadlock in Postgres.
+    // GEN_MEDIA_TIMEOUT_MS exceeds the server cap so each post finishes
+    // before the next starts.
     for (let i = 0; i < postsToGenerate.length; i++) {
       setGenerateAllProgress({ current: i + 1, total: postsToGenerate.length });
       setGeneratingMedia(postsToGenerate[i]);
       try {
-        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {}, 120000);
+        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {}, GEN_MEDIA_TIMEOUT_MS);
       } catch (err) {
         setError(err instanceof Error ? err.message : `Failed generating post ${i + 1}`);
         // Continue to next post even if one fails
