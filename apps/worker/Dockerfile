@@ -30,7 +30,9 @@ RUN pip install --no-cache-dir --prefix=/install \
 # Stage 2: Runtime
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends libpq5 ffmpeg curl \
+# fonts-liberation is required for lyric-video ASS subtitle text rendering
+# (matches the API image); without it the worker's lyric videos have no font.
+RUN apt-get update && apt-get install -y --no-install-recommends libpq5 ffmpeg curl fonts-liberation \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r amplify && useradd -r -g amplify -d /app amplify
 

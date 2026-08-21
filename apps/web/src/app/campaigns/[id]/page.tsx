@@ -206,6 +206,37 @@ export default function CampaignDetailPage() {
     }
   };
 
+  // Poll the plan until the target posts have media (or the deadline passes),
+  // refreshing the UI live. Media generation runs on the worker and survives
+  // navigation, so this only drives the progress display.
+  const pollMediaUntilDone = async (targetIds: string[], deadlineMs: number): Promise<number> => {
+    const target = new Set(targetIds);
+    const countDone = (p: CampaignPlan | null): number => {
+      if (!p) return 0;
+      let n = 0;
+      for (const day of p.days) {
+        for (const post of day.posts) {
+          if (target.has(post.id) && post.media_urls && post.media_urls.length > 0) n++;
+        }
+      }
+      return n;
+    };
+    let done = 0;
+    while (Date.now() < deadlineMs) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const data = await apiGet<CampaignPlan>(`/api/v1/campaigns/${campaignId}/plan`);
+        setPlan(data);
+        done = countDone(data);
+        setGenerateAllProgress({ current: done, total: targetIds.length });
+        if (done >= targetIds.length) break;
+      } catch {
+        // transient fetch error — keep polling
+      }
+    }
+    return done;
+  };
+
   const handleGenerateMedia = async (postId: string, opts?: { forceImageUrl?: string; forceAudioUrl?: string; lyricVideo?: boolean }) => {
     setGeneratingMedia(postId);
     setError(null);
@@ -214,7 +245,14 @@ export default function CampaignDetailPage() {
       if (opts?.forceImageUrl) body.force_image_url = opts.forceImageUrl;
       if (opts?.forceAudioUrl) body.force_audio_url = opts.forceAudioUrl;
       if (opts?.lyricVideo) body.generate_lyric_video = true;
-      await apiPost(`/api/v1/posts/${postId}/generate-media`, body, GEN_MEDIA_TIMEOUT_MS);
+      const res = await apiPost<{ status?: string }>(`/api/v1/posts/${postId}/generate-media`, body, GEN_MEDIA_TIMEOUT_MS);
+      // Worker path returns immediately with status="generating"; poll until
+      // this post gets media (15 min cap). The synchronous fallback returns
+      // "complete" and needs no polling.
+      if (res?.status === "generating") {
+        await pollMediaUntilDone([postId], Date.now() + 15 * 60 * 1000);
+        setGenerateAllProgress(null);
+      }
       await fetchPlan();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Media generation failed");
@@ -238,28 +276,30 @@ export default function CampaignDetailPage() {
 
     setGeneratingAllMedia(true);
     setError(null);
-    // Generate strictly one at a time. Video generation can take up to
-    // ~300s server-side (Replicate poll cap / lyric-video render). The
-    // client MUST wait that long per post — if it aborts early (the old
-    // 120s), the loop fires the next request while the previous one is
-    // still running on the server, and two concurrent long-held
-    // transactions writing the same campaign's posts deadlock in Postgres.
-    // GEN_MEDIA_TIMEOUT_MS exceeds the server cap so each post finishes
-    // before the next starts.
-    for (let i = 0; i < postsToGenerate.length; i++) {
-      setGenerateAllProgress({ current: i + 1, total: postsToGenerate.length });
-      setGeneratingMedia(postsToGenerate[i]);
-      try {
-        await apiPost(`/api/v1/posts/${postsToGenerate[i]}/generate-media`, {}, GEN_MEDIA_TIMEOUT_MS);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : `Failed generating post ${i + 1}`);
-        // Continue to next post even if one fails
-      }
-    }
+    setGenerateAllProgress({ current: 0, total: postsToGenerate.length });
+
+    // Fire every request; each returns immediately ("generating") and the
+    // worker runs them — its job queue is the throttle, so we don't overload
+    // the instance. The jobs survive navigation: closing this page does NOT
+    // cancel generation.
+    await Promise.allSettled(
+      postsToGenerate.map((id) =>
+        apiPost(`/api/v1/posts/${id}/generate-media`, {}, GEN_MEDIA_TIMEOUT_MS),
+      ),
+    );
+
+    // Poll for progress (up to 60 min). Work continues server-side regardless.
+    const done = await pollMediaUntilDone(postsToGenerate, Date.now() + 60 * 60 * 1000);
+
     setGeneratingMedia(null);
     setGenerateAllProgress(null);
     setGeneratingAllMedia(false);
     await fetchPlan();
+    if (done < postsToGenerate.length) {
+      setError(
+        `${done}/${postsToGenerate.length} generated so far — the rest are still processing in the background. You can leave this page; refresh later to see them.`,
+      );
+    }
   };
 
   const handlePostAction = async (postId: string, action: "review-approve" | "review-reject") => {

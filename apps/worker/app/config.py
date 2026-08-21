@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
 
+    # Media generation (post-media job): Replicate AI video + media URL prefix.
+    # Duck-typed by amplify.media.* which reads these off the settings object.
+    replicate_api_token: str = ""
+    media_base_url: str = ""
+    openai_api_key: str = ""  # optional: Whisper lyric-sync timing
+
     # Email (Resend)
     resend_api_key: str = ""
     resend_from_address: str = "AmplifyMe <onboarding@resend.dev>"
