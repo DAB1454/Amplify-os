@@ -247,10 +247,23 @@ async def _generate_caption(
         variants = result.structured.variants
         if variants:
             best = variants[0]
-            caption = best.body
-            if best.hashtags:
-                caption += "\n\n" + " ".join(best.hashtags)
-            return caption
+            # The AI often populates `copy` instead of `body`; resolved_body
+            # returns whichever is set. Reading best.body directly yielded an
+            # empty body for those variants, so this returned bare hashtags —
+            # which tripped the empty-body validator into 3 wasted retries per
+            # post. Only trust the structured path when it has real body text;
+            # otherwise fall through to the text/JSON parser below.
+            body = best.resolved_body
+            if body:
+                tags = best.hashtags
+                # hashtags is typed list[str] | str — a raw string would be
+                # spread into characters by " ".join, so normalize first.
+                if isinstance(tags, str):
+                    tags = tags.split()
+                caption = body
+                if tags:
+                    caption += "\n\n" + " ".join(tags)
+                return caption
 
     # Fallback: try to parse raw text as JSON and extract caption
     if result.text:
