@@ -402,7 +402,7 @@ async def generate_media_for_post(
         r = getattr(request.app.state, "redis", None)
         if r is None:
             raise RuntimeError("redis unavailable")
-        from worker.app.queue import JobQueue
+        from amplify.core.queue import JobQueue
 
         eng = dict(post.engagement or {})
         eng["media_status"] = "generating"
